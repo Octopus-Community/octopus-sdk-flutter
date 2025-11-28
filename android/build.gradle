@@ -1,0 +1,108 @@
+group = "com.octopuscommunity.octopus_sdk_flutter"
+version = "1.0-SNAPSHOT"
+
+buildscript {
+    ext.kotlin_version = "2.1.10"
+    ext.compose_compiler_version = "1.5.18"
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.10.1")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+        classpath("org.jetbrains.kotlin:kotlin-serialization:$kotlin_version")
+        classpath("org.jetbrains.kotlin:compose-compiler-gradle-plugin:$kotlin_version")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+apply plugin: "kotlinx-serialization"
+apply plugin: "org.jetbrains.kotlin.plugin.compose"
+
+android {
+    namespace = "com.octopuscommunity.octopus_sdk_flutter"
+
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_11
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        test.java.srcDirs += "src/test/kotlin"
+    }
+
+    defaultConfig {
+        minSdk = 21
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    dependencies {
+        // Octopus SDK
+        implementation("com.octopuscommunity:octopus-sdk:1.7.0")
+        implementation("com.octopuscommunity:octopus-sdk-ui:1.7.0")
+
+        // AndroidX Core
+        implementation("androidx.core:core-ktx:1.16.0")
+        implementation("androidx.activity:activity-ktx:1.10.1")
+
+        // Compose BOM
+        implementation(platform("androidx.compose:compose-bom:2025.06.01"))
+        implementation("androidx.compose.ui:ui")
+        implementation("androidx.compose.ui:ui-tooling")
+        implementation("androidx.compose.ui:ui-tooling-preview")
+        implementation("androidx.compose.material3:material3")
+        implementation("androidx.compose.material:material-icons-extended")
+
+        // Activity Compose
+        implementation("androidx.activity:activity-compose:1.10.1")
+
+        // Navigation Compose
+        implementation("androidx.navigation:navigation-compose:2.9.1")
+
+        // Serialization
+        implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+        // Lifecycle (pour ViewModelStore et Lifecycle dans PlatformView)
+        implementation("androidx.lifecycle:lifecycle-runtime:2.7.0")
+        implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+        implementation("androidx.lifecycle:lifecycle-common-java8:2.7.0")
+        implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
+        implementation("androidx.savedstate:savedstate-ktx:1.2.1")
+
+        // Test
+        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        testImplementation("org.mockito:mockito-core:5.0.0")
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+               events "passed", "skipped", "failed", "standardOut", "standardError"
+               outputs.upToDateWhen {false}
+               showStandardStreams = true
+            }
+        }
+    }
+}
