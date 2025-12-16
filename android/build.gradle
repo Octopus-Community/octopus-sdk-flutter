@@ -58,8 +58,8 @@ android {
 
     dependencies {
         // Octopus SDK
-        implementation("com.octopuscommunity:octopus-sdk:1.7.0")
-        implementation("com.octopuscommunity:octopus-sdk-ui:1.7.0")
+        implementation("com.octopuscommunity:octopus-sdk:1.7.2")
+        implementation("com.octopuscommunity:octopus-sdk-ui:1.7.2")
 
         // AndroidX Core
         implementation("androidx.core:core-ktx:1.16.0")
