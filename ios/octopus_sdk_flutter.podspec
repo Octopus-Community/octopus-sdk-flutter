@@ -21,8 +21,8 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   s.dependency 'OctopusCommunityUI'
   s.platform = :ios, '14.0'
   s.static_framework = true
-  s.dependency 'OctopusCommunity', '1.7.1'
-  s.dependency 'OctopusCommunityUI', '1.7.1'
+  s.dependency 'OctopusCommunity', '1.7.2'
+  s.dependency 'OctopusCommunityUI', '1.7.2'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

@@ -21,7 +21,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.7.0
+  octopus_sdk_flutter: ^1.7.1
 ```
 
 Then run:
@@ -122,6 +122,12 @@ Add network permissions for API calls:
     </dict>
 </dict>
 ```
+
+#### ⚠️ gRPC-Swift / gRPC-Core naming conflict
+
+If you depend on `gRPC-Core`, you may hit a naming conflict at build time because both pods resolve to `gRPC`. To fix:
+1. Copy [gRPC-Swift.podspec.json](https://github.com/Octopus-Community/octopus-sdk-swift/blob/v1.7.2/CocoaPodsValidationApp/gRPC-Swift.podspec.json) from the native SDK repo into your project `ios/` folder.
+2. In `ios/Podfile`, add: `pod 'gRPC-Swift', :podspec => 'gRPC-Swift.podspec.json'`.
 
 ## Core SDK Functions
 
