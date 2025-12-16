@@ -1,6 +1,6 @@
 name: octopus_sdk_flutter
 description: "Flutter plugin for Octopus Community SDK"
-version: 1.7.0
+version: 1.7.1
 homepage: https://www.octopuscommunity.com/
 repository: https://github.com/Octopus-Community/octopus-sdk-flutter
 documentation: https://doc.octopuscommunity.com
