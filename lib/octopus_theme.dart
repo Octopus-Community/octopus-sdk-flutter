@@ -46,7 +46,7 @@ enum OctopusThemeMode {
 /// );
 /// 
 /// // Or usage with embeddedView
-/// OctopusSdkFlutter.embeddedView(
+/// OctopusSDK.embeddedView(
 ///   navBarTitle: 'My App',
 ///   theme: theme,
 /// )
@@ -139,10 +139,10 @@ class OctopusTheme {
   /// Converts the theme to a Map for transmission to native platforms
   Map<String, dynamic> toMap() {
     return {
-      if (primaryMain != null) 'primaryMain': primaryMain!.value,
-      if (primaryLowContrast != null) 'primaryLowContrast': primaryLowContrast!.value,
-      if (primaryHighContrast != null) 'primaryHighContrast': primaryHighContrast!.value,
-      if (onPrimary != null) 'onPrimary': onPrimary!.value,
+      if (primaryMain != null) 'primaryMain': primaryMain!.toARGB32(),
+      if (primaryLowContrast != null) 'primaryLowContrast': primaryLowContrast!.toARGB32(),
+      if (primaryHighContrast != null) 'primaryHighContrast': primaryHighContrast!.toARGB32(),
+      if (onPrimary != null) 'onPrimary': onPrimary!.toARGB32(),
       if (fontSizeTitle1 != null) 'fontSizeTitle1': fontSizeTitle1,
       if (fontSizeTitle2 != null) 'fontSizeTitle2': fontSizeTitle2,
       if (fontSizeBody1 != null) 'fontSizeBody1': fontSizeBody1,
