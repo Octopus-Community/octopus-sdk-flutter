@@ -14,6 +14,11 @@ A Flutter plugin for integrating Octopus Community into your Flutter application
 - 🔧 **Easy Integration**: Simple API with comprehensive documentation
 - 👤 **User Management**: Connect, disconnect, and manage user sessions and profile information
 - 🎯 **Complete SDK Lifecycle**: Initialize, authenticate, display UI, and cleanup
+- 🔔 **Notification Badge**: Reactive stream of unseen notification count
+- 🧪 **A/B Testing**: Community access gating with reactive streams
+- 🔗 **URL Interception**: Intercept and handle URLs tapped inside the community UI
+- 🌍 **Locale Override**: Override the SDK UI language programmatically
+- 📊 **SDK Events**: Typed event stream for analytics (content, interactions, navigation, gamification, etc.)
 
 ## Installation
 
@@ -21,7 +26,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.7.1
+  octopus_sdk_flutter: ^1.9.0
 ```
 
 Then run:
@@ -153,7 +158,6 @@ Log out the current user and clean up the session
 
 ```dart
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
-import 'package:octopus_sdk_flutter/octopus_theme.dart';
 
 class MyApp extends StatefulWidget {
   @override
@@ -161,7 +165,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final octopus = OctopusSdkFlutter();
+  final octopus = OctopusSDK();
   bool isInitialized = false;
   bool isUserConnected = false;
 }
@@ -171,9 +175,9 @@ class _MyAppState extends State<MyApp> {
 
 ```dart
 // Initialize SDK
-await octopus.initializeOctopusSDK(
+await octopus.initialize(
   apiKey: 'your_api_key',
-  appManagedFields: [], // Optional: fields managed by your app (NICKNAME, AVATAR, BIO)
+  appManagedFields: [], // Optional: e.g. [ProfileField.nickname, ProfileField.picture, ProfileField.bio]
 );
 ```
 
@@ -202,7 +206,7 @@ Once the SDK is initialized, you can display the Octopus Community interface.
 Container(
   width: double.infinity,
   height: 400,
-  child: OctopusView(
+  child: OctopusHomeScreen(
     navBarTitle: 'Embedded Community',
     navBarPrimaryColor: true,  // Use primary color for nav bar background
     theme: OctopusTheme(
@@ -240,7 +244,6 @@ import 'package:flutter/material.dart';
 import 'main_embedded.dart';
 import 'main_modal.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
-import 'package:octopus_sdk_flutter/octopus_theme.dart';
 
 void main() {
   runApp(const MainApp());
@@ -266,7 +269,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final octopus = OctopusSdkFlutter();
+  final octopus = OctopusSDK();
   bool isInitialized = false;
   bool isUserConnected = false;
   String status = 'Not initialized';
@@ -282,9 +285,9 @@ class _MyAppState extends State<MyApp> {
     setState(() => status = 'Initializing...');
     
     try {
-      await octopus.initializeOctopusSDK(
+      await octopus.initialize(
         apiKey: 'your_api_key',
-        appManagedFields: ['NICKNAME', 'AVATAR'], // Valid values: NICKNAME, AVATAR, BIO
+        appManagedFields: [ProfileField.nickname, ProfileField.picture],
       );
       
       setState(() {
@@ -320,7 +323,7 @@ class _MyAppState extends State<MyApp> {
   
   // Show UI
   Future<void> showOctopusUI() async {
-    octopus.showOctopusView(
+    octopus.showOctopusHomeScreen(
       context,
       navBarTitle: 'Community',
       navBarPrimaryColor: true,
@@ -445,13 +448,13 @@ final customTheme = OctopusTheme(
 
 ## API Reference
 
-### OctopusSdkFlutter Methods
+### OctopusSDK Methods
 
-#### `initializeOctopusSDK`
+#### `initialize`
 ```dart
-Future<void> initializeOctopusSDK({
+Future<void> initialize({
   required String apiKey,
-  List<String>? appManagedFields,
+  List<ProfileField>? appManagedFields,
 })
 ```
 
@@ -462,16 +465,16 @@ Future<void> initializeOctopusSDK({
 **appManagedFields Details:**
 This parameter allows you to specify which user profile fields should be managed by your application rather than by Octopus Community. When a field is in this list, users will not be able to edit it directly in the Octopus Community interface. Instead, your app should handle editing these fields through the `onModifyUser` callback.
 
-**Valid field names (only these 3 values are supported):**
-- `'NICKNAME'`: User's display name
-- `'AVATAR'`: User's profile picture  
-- `'BIO'`: User's biography/description
+**`ProfileField` enum values:**
+- `ProfileField.nickname`: User's display name
+- `ProfileField.picture`: User's profile picture
+- `ProfileField.bio`: User's biography/description
 
 **Example:**
 ```dart
-await octopus.initializeOctopusSDK(
+await octopus.initialize(
   apiKey: 'your-api-key',
-  appManagedFields: ['NICKNAME', 'AVATAR', 'BIO'],
+  appManagedFields: [ProfileField.nickname, ProfileField.picture, ProfileField.bio],
 );
 ```
 
@@ -489,16 +492,16 @@ Future<void> connectUser({
 })
 ```
 
-#### `OctopusView` Widget
+#### `OctopusHomeScreen` Widget
 ```dart
-OctopusView({
+OctopusHomeScreen({
   String? navBarTitle,              // Navigation bar title
   bool navBarPrimaryColor = false,  // Use primary color for nav bar
   bool showBackButton = true,       // Show back button (Android only)
   OctopusTheme? theme,              // Custom theme
-  required VoidCallback onNavigateToLogin,  // Login navigation callback
+  VoidCallback? onNavigateToLogin,  // Login navigation callback
   Function(String?)? onModifyUser,  // User modification callback
-  Function(String)? onCurrentPageChanged,  // Page change callback
+  UrlOpeningStrategy Function(String)? onNavigateToUrl,  // URL interception callback
 })
 ```
 
@@ -507,9 +510,9 @@ OctopusView({
 - `navBarPrimaryColor`: Whether to use the primary theme color for the navigation bar background
 - `showBackButton`: Whether to show the back button in the navigation bar (Android only)
 - `theme`: Optional custom theme for colors, fonts, and logo
-- `onNavigateToLogin`: Required callback for login navigation
+- `onNavigateToLogin`: Optional callback for login navigation
 - `onModifyUser`: Optional callback for user profile modification
-- `onCurrentPageChanged`: Optional callback for page change events
+- `onNavigateToUrl`: Optional callback for URL interception. Return `UrlOpeningStrategy.handledByApp` if your app handles the URL, or `UrlOpeningStrategy.handledByOctopus` to let the SDK open it
 
 **Features:**
 - **Embedded Widget**: Integrates seamlessly into your Flutter UI
@@ -577,14 +580,27 @@ final autoTheme = OctopusTheme(
 
 | Method | Description | Required Parameters |
 |--------|-------------|-------------------|
-| `initializeOctopusSDK()` | Initialize SDK in SSO mode | `apiKey` |
+| `initialize()` | Initialize SDK in SSO mode | `apiKey` |
 | `connectUser()` | Connect user (SSO mode) | `userId`, `token` |
 | `disconnectUser()` | Disconnect current user | None |
+| `updateNotSeenNotificationsCount()` | Force refresh unseen notification count | None |
+| `overrideCommunityAccess()` | Override community access cohort | `hasAccess` |
+| `trackCommunityAccess()` | Track community access for analytics | `hasAccess` |
+| `overrideDefaultLocale()` | Override the SDK UI language | `locale` (nullable) |
+| `trackCustomEvent()` | Track a custom analytics event | `name`, `properties` (optional) |
+### Reactive Streams
+
+| Stream | Type | Description |
+|--------|------|-------------|
+| `OctopusSDK.notSeenNotificationsCount` | `Stream<int>` | Emits unseen notification count whenever it changes |
+| `OctopusSDK.hasAccessToCommunity` | `Stream<bool>` | Emits community access state (for A/B testing) |
+| `OctopusSDK.events` | `Stream<OctopusEvent>` | Emits typed SDK events (content, interactions, navigation, etc.) |
+
 ### Available Widgets
 
 | Widget | Type | Description |
 |--------|------|-------------|
-| `OctopusView` | StatelessWidget | Simple embedded Octopus UI widget with callbacks |
+| `OctopusHomeScreen` | StatelessWidget | Simple embedded Octopus UI widget with callbacks |
 
 ### Converting Image to Base64
 
@@ -629,7 +645,7 @@ class _MyWidgetState extends State<MyWidget> {
       // ... other theme properties
     );
 
-    return OctopusView(theme: theme);
+    return OctopusHomeScreen(theme: theme);
   }
 }
 ```
@@ -696,19 +712,15 @@ final theme = OctopusTheme(logoBase64: logoBase64);
 - Verify API endpoints are reachable
 - Review network security settings (iOS ATS)
 
-## OctopusView Widgets
+## OctopusHomeScreen Widget
 
-The `OctopusView` widgets provide a simplified way to integrate the native Octopus Community UI into your Flutter application.
-
-### OctopusView (StatelessWidget)
-
-The simplest widget to display the embedded Octopus UI. This widget is lightweight and suitable for most use cases:
+The `OctopusHomeScreen` widget provides a simple way to integrate the native Octopus Community UI into your Flutter application.
 
 **Key Features:**
-- Lightweight and fast
-- No state management overhead
-- Suitable for simple integrations
-- Minimal memory footprint
+- Embedded widget that integrates seamlessly into your Flutter UI
+- Custom theme support for colors, fonts, and logo
+- Callback support for login navigation and user profile edits
+- Cross-platform: works on iOS and Android
 
 ```dart
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
@@ -716,37 +728,21 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 class MyWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return OctopusView(
+    return OctopusHomeScreen(
       navBarTitle: 'My Community',
       showBackButton: false,
+      onNavigateToLogin: () {
+        // Handle login navigation
+      },
+      onModifyUser: (fieldToEdit) {
+        // Handle profile edit request
+      },
     );
   }
 }
 ```
 
-### OctopusViewStateful (StatefulWidget)
-
-For more advanced state management with error handling and loading states. This widget provides additional callbacks and state management:
-
-**Key Features:**
-- Built-in error handling with retry functionality
-- Loading state management
-- Callback support for view lifecycle events
-- Automatic error recovery
-- Custom loading and error widgets
-
-
-The `errorWidget` parameter allows you to create fully customized error displays:
-
-- **Interactive elements**: Buttons, links, custom actions
-- **Branding integration**: Your app's colors, logos, fonts
-- **Multiple actions**: Retry, help, contact support, etc.
-- **Responsive design**: Adapt to different screen sizes
-- **Accessibility**: Include proper labels and descriptions
-
 ### Available Parameters
-
-#### OctopusView
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -759,17 +755,10 @@ The `errorWidget` parameter allows you to create fully customized error displays
 | `errorWidget` | `Widget?` | `null` | Custom widget for error state |
 | `showError` | `bool` | `true` | Whether to show error states |
 | `enabled` | `bool` | `true` | Enables/disables the widget |
-
-#### OctopusViewStateful
-
-All parameters from `OctopusView` plus:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `onBackPressed` | `VoidCallback?` | `null` | Callback called when user presses back |
-| `onViewReady` | `VoidCallback?` | `null` | Callback called when view is ready |
-| `onError` | `Function(String error)?` | `null` | Callback called on error |
-| `showError` | `bool` | `true` | Whether to show error states |
+| `onNavigateToLogin` | `VoidCallback?` | `null` | Callback when user needs to log in |
+| `onModifyUser` | `Function(String?)?` | `null` | Callback when user wants to edit their profile |
+| `onBack` | `VoidCallback?` | `null` | Callback when back button is pressed |
+| `onNavigateToUrl` | `UrlOpeningStrategy Function(String)?` | `null` | Callback when a URL is tapped. Return `handledByApp` or `handledByOctopus` |
 
 
 
@@ -788,7 +777,7 @@ final customTheme = OctopusTheme(
   logoBase64: myLogoBase64,
 );
 
-OctopusView(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   theme: customTheme,
   navBarPrimaryColor: true,
@@ -796,27 +785,24 @@ OctopusView(
 )
 ```
 
-#### Example with State Management
+#### Example with Callbacks
 
 ```dart
-OctopusViewStateful(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   showBackButton: true,
-  onBackPressed: () {
+  onBack: () {
     Navigator.of(context).pop();
   },
-  onViewReady: () {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Community loaded!')),
+  onNavigateToLogin: () {
+    // Handle navigation to login screen
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => LoginPage()),
     );
   },
-  onError: (error) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Error: $error'),
-        backgroundColor: Colors.red,
-      ),
-    );
+  onModifyUser: (fieldToEdit) {
+    // Handle profile modification request
+    print('User wants to edit: $fieldToEdit');
   },
   loadingWidget: Center(
     child: Column(
@@ -831,21 +817,10 @@ OctopusViewStateful(
 )
 ```
 
-#### Example with Error Control
+#### Example with Custom Error Widget
 
 ```dart
-// Hide error display but still handle errors via callback
-OctopusViewStateful(
-  navBarTitle: 'Community',
-  showError: false, // Don't show error widget
-  onError: (error) {
-    // Handle error silently or show custom notification
-    print('Error occurred: $error');
-  },
-)
-
-// Or show custom error widget
-OctopusViewStateful(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   showError: true,
   errorWidget: Center(
@@ -868,7 +843,7 @@ OctopusViewStateful(
 You can create highly customized error widgets with interactive elements:
 
 ```dart
-OctopusViewStateful(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   errorWidget: Container(
     padding: EdgeInsets.all(24),
@@ -931,7 +906,7 @@ OctopusViewStateful(
 Create error widgets that match your app's branding:
 
 ```dart
-OctopusViewStateful(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   theme: OctopusTheme(
     primaryMain: Colors.blue,
@@ -990,7 +965,7 @@ OctopusViewStateful(
 TabBarView(
   children: [
     // Other content...
-    OctopusView(
+    OctopusHomeScreen(
       navBarTitle: 'Community',
       showBackButton: false,
     ),
@@ -1005,7 +980,7 @@ IndexedStack(
   index: _currentIndex,
   children: [
     // Other content...
-    OctopusView(
+    OctopusHomeScreen(
       navBarTitle: 'Community',
       showBackButton: false,
     ),
@@ -1015,10 +990,10 @@ IndexedStack(
 
 ### Error Handling
 
-The `OctopusViewStateful` widget automatically handles errors and displays a default error widget with a "Retry" button. You can customize this behavior:
+The `OctopusHomeScreen` widget automatically handles errors and displays a default error widget with a "Retry" button. You can customize this behavior:
 
 ```dart
-OctopusViewStateful(
+OctopusHomeScreen(
   errorWidget: Center(
     child: Column(
       children: [
@@ -1042,6 +1017,136 @@ OctopusViewStateful(
 - The `showBackButton` parameter only affects Android
 - Make sure the SDK is initialized before using the widget
 
+## Notification Badge Count
+
+Listen to the unseen notification count to display a badge in your UI:
+
+```dart
+OctopusSDK.notSeenNotificationsCount.listen((count) {
+  print('Unseen notifications: $count');
+  // Update your badge UI
+});
+
+// Force refresh from server
+await octopus.updateNotSeenNotificationsCount();
+```
+
+## Community Access / A/B Testing
+
+Use `hasAccessToCommunity` to gate community features:
+
+```dart
+OctopusSDK.hasAccessToCommunity.listen((hasAccess) {
+  if (hasAccess) {
+    // Show community tab
+  } else {
+    // Hide community tab
+  }
+});
+
+// Override the cohort attribution
+await octopus.overrideCommunityAccess(true);
+
+// Track for analytics only (does not change actual access)
+await octopus.trackCommunityAccess(true);
+```
+
+## URL Interception
+
+Intercept URLs tapped inside the community UI:
+
+```dart
+OctopusHomeScreen(
+  onNavigateToUrl: (url) {
+    if (url.contains('myapp.com/profile')) {
+      // Handle internally
+      Navigator.of(context).pushNamed('/profile');
+      return UrlOpeningStrategy.handledByApp;
+    }
+    // Let the SDK open it in the default browser
+    return UrlOpeningStrategy.handledByOctopus;
+  },
+)
+```
+
+## Locale Override
+
+Override the language used by the Octopus SDK UI:
+
+```dart
+// Force French
+await octopus.overrideDefaultLocale(const Locale('fr'));
+
+// Force American English
+await octopus.overrideDefaultLocale(const Locale('en', 'US'));
+
+// Reset to system default
+await octopus.overrideDefaultLocale(null);
+```
+
+## Custom Analytics
+
+Track custom events that are merged into Octopus analytics reports:
+
+```dart
+// Track with properties
+await octopus.trackCustomEvent('purchase', {
+  'product_id': '123',
+  'price': '9.99',
+  'currency': 'EUR',
+});
+
+// Track without properties
+await octopus.trackCustomEvent('app_opened');
+```
+
+All property values must be strings.
+
+## SDK Events
+
+Listen to typed SDK events for analytics or custom behavior:
+
+```dart
+OctopusSDK.events.listen((event) {
+  switch (event) {
+    case PostCreatedEvent():
+      print('Post created: ${event.postId}');
+    case ScreenDisplayedEvent():
+      print('Screen displayed: ${event.screen}');
+    case SessionStartedEvent():
+      print('Session started: ${event.sessionId}');
+    // ... handle other events
+    default:
+      break;
+  }
+});
+```
+
+**Available event types:**
+
+| Event | Key Properties |
+|---|---|
+| `PostCreatedEvent` | `postId`, `content`, `topicId`, `textLength` |
+| `CommentCreatedEvent` | `commentId`, `postId`, `textLength` |
+| `ReplyCreatedEvent` | `replyId`, `commentId`, `textLength` |
+| `ContentDeletedEvent` | `contentId`, `contentKind` |
+| `ReactionModifiedEvent` | `contentId`, `contentKind`, `previousReaction?`, `newReaction?` |
+| `PollVotedEvent` | `contentId`, `optionId` |
+| `ContentReportedEvent` | `contentId`, `reasons` |
+| `ProfileReportedEvent` | `profileId`, `reasons` (Android only) |
+| `GamificationPointsGainedEvent` | `points`, `action` |
+| `GamificationPointsRemovedEvent` | `points`, `action` |
+| `ScreenDisplayedEvent` | `screen` (sealed class with 15 screen types) |
+| `NotificationClickedEvent` | `notificationId`, `contentId?` |
+| `PostClickedEvent` | `postId`, `source` |
+| `TranslationButtonClickedEvent` | `contentId`, `viewTranslated`, `contentKind` |
+| `CommentButtonClickedEvent` | `postId` |
+| `ReplyButtonClickedEvent` | `commentId` |
+| `SeeRepliesButtonClickedEvent` | `commentId` |
+| `ProfileModifiedEvent` | `nicknameUpdated`, `bioUpdated`, `bioLength?`, `pictureUpdated`, `hasPicture?` |
+| `SessionStartedEvent` | `sessionId` |
+| `SessionStoppedEvent` | `sessionId` |
+
 ## Examples
 
 Check the `/example` folder for complete implementation examples:
@@ -1049,7 +1154,7 @@ Check the `/example` folder for complete implementation examples:
 - **Basic Integration**: Simple setup with default theme
 - **Custom Theme**: Advanced theming with custom colors and fonts
 - **SSO Authentication**: Complete SSO flow with JWT token integration
-- **Embedded Widgets**: Usage of `OctopusView` widgets with callbacks
+- **Embedded Widgets**: Usage of `OctopusHomeScreen` widgets with callbacks
 
 ## Support
 

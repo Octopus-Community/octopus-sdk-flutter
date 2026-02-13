@@ -14,13 +14,17 @@ This project demonstrates how to use the `octopus_sdk_flutter` plugin
 
 ## 🎯 Getting Started
 
+### Secrets Configuration
 
-### API Key Configuration
-Configure your API keys via environment variables:
+1. Copy `lib/secrets.example.dart` to `lib/secrets.dart`
+2. Replace placeholder values with your actual credentials:
 
-```bash
-flutter run --dart-define=OCTOPUS_API_KEY=your_api_key_here
+```dart
+const String octopusApiKey = 'YOUR_API_KEY_HERE';
+const String octopusUserToken = 'YOUR_JWT_TOKEN_HERE';
 ```
+
+> **Note**: `secrets.dart` is gitignored to prevent committing sensitive data.
 
 
 ## 🔧 Demonstrated Features
@@ -43,9 +47,9 @@ flutter run --dart-define=OCTOPUS_API_KEY=your_api_key_here
 ### Initialization
 ```dart
 // SSO mode (your app manages auth)
-await octopus.initializeOctopusSDK(
+await octopus.initialize(
   apiKey: 'your_api_key',
-  appManagedFields: ['AVATAR', 'NICKNAME'], // Optional
+  appManagedFields: ['PICTURE', 'NICKNAME'], // Optional
 );
 
 ```
@@ -76,20 +80,17 @@ await octopus.disconnectUser();
 ```dart
 
 // Embedded widget with callbacks
-OctopusView(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   navBarPrimaryColor: false,
   showBackButton: true,
   theme: customTheme,
-  onNavigateToLogin: () async {
+  onNavigateToLogin: () {
     print('Navigate to login');
     // After user completes login, call octopus.connectUser() with the user's credentials
   },
   onModifyUser: (fieldToEdit) {
     print('Modify user field: $fieldToEdit');
-  },
-  onCurrentPageChanged: (currentPage) {
-    print('Current page: $currentPage');
   },
 );
 ```
@@ -99,17 +100,21 @@ OctopusView(
 ### Example App Files
 ```
 example/lib/
-├── main.dart              # Integration mode selector
+├── main.dart              # Main app with SDK integration
+├── secrets.dart           # Your secrets (gitignored)
+├── secrets.example.dart   # Template for secrets
+├── login_page.dart        # Example login page
+└── profile_edit_page.dart # Example profile edit page
 ```
 
 ### Package Files
 ```
 lib/
-├── octopus_sdk_flutter.dart           # Main SDK class
-├── octopus_sdk_flutter_platform_interface.dart  # Platform interface
-├── octopus_sdk_flutter_method_channel.dart      # Method channel implementation
-├── octopus_theme.dart                 # Theme customization class
-└── octopus_view.dart                  # Embedded widget wrapper
+├── octopus_sdk.dart              # Main SDK class
+├── octopus_sdk_platform.dart     # Platform interface
+├── octopus_sdk_method_channel.dart  # Method channel implementation
+├── octopus_theme.dart            # Theme customization class
+└── octopus_home_screen.dart             # Embedded widget wrapper
 ```
 
 ## 🎨 Customization
@@ -138,19 +143,16 @@ final customTheme = OctopusTheme(
 
 ### Embedded Widget Usage
 ```dart
-OctopusView(
+OctopusHomeScreen(
   navBarTitle: 'Community',
   theme: customTheme,
   showBackButton: false,
-  onNavigateToLogin: () async {
+  onNavigateToLogin: () {
     print('Navigate to login');
     // After user completes login, call octopus.connectUser() with the user's credentials
   },
   onModifyUser: (fieldToEdit) {
     print('Modify user field: $fieldToEdit');
-  },
-  onCurrentPageChanged: (currentPage) {
-    print('Current page: $currentPage');
   },
 )
 ```

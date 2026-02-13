@@ -9,7 +9,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _octopus = OctopusSdkFlutter();
+  final _octopus = OctopusSDK();
   bool _isConnecting = false;
   String? _errorMessage;
 
@@ -171,8 +171,6 @@ class _LoginPageState extends State<LoginPage> {
       // Server returns JSON with "token" key
       final token = 'GENERATE_VALID_JWT_USING_SHARED_SECRET';
 
-      print('Connecting user with SSO: $userId');
-
       // Connect user within Octopus
       await _octopus.connectUser(
         userId: userId,
@@ -180,10 +178,8 @@ class _LoginPageState extends State<LoginPage> {
         
         // nickname: "Example username", // optional if NICKNAME is not present in appManagedFields at init
         // bio: 'SSO user example bio', // optional if BIO is not present in appManagedFields at init
-        // picture: 'https://...', // optional if AVATER is not present in appManagedFields at init
+        // picture: 'https://...', // optional if PICTURE is not present in appManagedFields at init
       );
-
-      print('SSO authentication successful');
 
       // Back to previous page
       if (mounted) {
@@ -196,7 +192,6 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      print('SSO authentication failed: $e');
       setState(() {
         _errorMessage = 'Connection error: ${e.toString()}';
       });
@@ -216,15 +211,9 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      print('Disconnecting user from Octopus SDK');
-
-      // Déconnecter l'utilisateur d'Octopus SDK
       await _octopus.disconnectUser();
 
-      print('User disconnected successfully');
-
       if (mounted) {
-        // Afficher un message de succès
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Success !'),
@@ -233,7 +222,6 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      print('Disconnect failed: $e');
       setState(() {
         _errorMessage = 'Disconnect error: ${e.toString()}';
       });

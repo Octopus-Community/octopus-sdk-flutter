@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'octopus_theme.dart';
-import 'octopus_sdk_flutter.dart';
+import 'octopus_sdk.dart';
 
 /// A Flutter widget that displays the native Octopus UI embedded within your Flutter app.
-/// 
+///
 /// This widget provides a simple way to integrate the Octopus Community UI directly
 /// into your Flutter application without opening a separate modal.
-/// 
+///
 /// Example usage:
 /// ```dart
-/// OctopusView(
+/// OctopusHomeScreen(
 ///   navBarTitle: 'Community',
 ///   theme: OctopusTheme(
 ///     primaryMain: Colors.blue,
@@ -32,9 +32,9 @@ import 'octopus_sdk_flutter.dart';
 ///   },
 /// )
 /// ```
-class OctopusView extends StatefulWidget {
+class OctopusHomeScreen extends StatefulWidget {
   /// Title displayed in the navigation bar
-  /// 
+  ///
   /// iOS: When provided, replaces the logo completely
   /// Android: Can be displayed alongside the logo
   final String? navBarTitle;
@@ -47,7 +47,7 @@ class OctopusView extends StatefulWidget {
 
   /// Custom theme for the interface (colors, font sizes, logo)
   final OctopusTheme? theme;
-  
+
 
   /// Whether to show a loading indicator while the native view is initializing
   final bool showLoadingIndicator;
@@ -68,14 +68,24 @@ class OctopusView extends StatefulWidget {
   final VoidCallback? onNavigateToLogin;
 
   /// Callback function called when the user wants to modify their profile
-  /// 
+  ///
   /// The parameter is the field that has been asked to be edited by the user.
   /// Null if the user tapped on "Edit my profile".
   final Function(String?)? onModifyUser;
 
   final VoidCallback? onBack;
 
-  const OctopusView({
+  /// Callback function called when a URL is tapped inside the Octopus Community UI.
+  ///
+  /// When set, URLs are intercepted and forwarded to Flutter instead of being
+  /// opened by the SDK. Return [UrlOpeningStrategy.handledByApp] if your app
+  /// handles the URL, or [UrlOpeningStrategy.handledByOctopus] to let the SDK
+  /// open it in the default browser.
+  ///
+  /// When not set, all URLs are handled by the SDK (default behavior).
+  final UrlOpeningStrategy Function(String)? onNavigateToUrl;
+
+  const OctopusHomeScreen({
     super.key,
     this.navBarTitle,
     this.navBarPrimaryColor = false,
@@ -88,14 +98,15 @@ class OctopusView extends StatefulWidget {
     this.enabled = true,
     this.onNavigateToLogin,
     this.onModifyUser,
-    this.onBack
+    this.onBack,
+    this.onNavigateToUrl,
   });
 
   @override
-  State<OctopusView> createState() => _OctopusViewState();
+  State<OctopusHomeScreen> createState() => _OctopusHomeScreenState();
 }
 
-class _OctopusViewState extends State<OctopusView> {
+class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
   StreamSubscription<Map<String, dynamic>>? _eventSubscription;
 
   @override
@@ -103,12 +114,17 @@ class _OctopusViewState extends State<OctopusView> {
     super.initState();
 
     // Listen for events from native code
-    _eventSubscription = OctopusSdkFlutter.eventStream.listen((event) {
+    _eventSubscription = OctopusSDK.eventStream.listen((event) {
       if (event['event'] == 'loginRequired') {
         widget.onNavigateToLogin?.call();
       } else if (event['event'] == 'editUser') {
         final fieldToEdit = event['fieldToEdit'] as String?;
         widget.onModifyUser?.call(fieldToEdit);
+      } else if (event['event'] == 'navigateToUrl') {
+        final url = event['url'] as String?;
+        if (url != null) {
+          widget.onNavigateToUrl?.call(url);
+        }
       }
     });
   }
@@ -128,14 +144,12 @@ class _OctopusViewState extends State<OctopusView> {
     // Use the provided theme directly
     OctopusTheme? mergedTheme = widget.theme;
 
-    return OctopusSdkFlutter.embeddedView(
+    return OctopusSDK.embeddedView(
       navBarTitle: widget.navBarTitle,
       navBarPrimaryColor: widget.navBarPrimaryColor,
       showBackButton: widget.showBackButton,
       theme: mergedTheme,
-      onNavigateToLogin: widget.onNavigateToLogin,
-      onModifyUser: widget.onModifyUser,
-      onBack: widget.onBack
+      interceptUrls: widget.onNavigateToUrl != null,
     );
   }
 }

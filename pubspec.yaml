@@ -1,6 +1,6 @@
 name: octopus_sdk_flutter
 description: "Flutter plugin for Octopus Community SDK"
-version: 1.7.1
+version: 1.9.0
 homepage: https://www.octopuscommunity.com/
 repository: https://github.com/Octopus-Community/octopus-sdk-flutter
 documentation: https://doc.octopuscommunity.com
@@ -38,9 +38,9 @@ flutter:
     platforms:
       android:
         package: com.octopuscommunity.octopus_sdk_flutter
-        pluginClass: OctopusSdkFlutterPlugin
+        pluginClass: OctopusSDKFlutterPlugin
       ios:
-        pluginClass: OctopusSdkFlutterPlugin
+        pluginClass: OctopusSDKFlutterPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:

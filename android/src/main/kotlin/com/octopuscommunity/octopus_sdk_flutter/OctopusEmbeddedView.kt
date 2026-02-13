@@ -25,6 +25,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.octopuscommunity.sdk.domain.model.ProfileField
+import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
@@ -51,7 +52,8 @@ class OctopusEmbeddedView(
     private val fontSizeCaption2: Int? = null,
     private val onNavigateToLoginCallbackId: String? = null,
     private val onModifyUserCallbackId: String? = null,
-    private val onBackCallbackId: String? = null
+    private val onBackCallbackId: String? = null,
+    private val interceptUrls: Boolean = false
 ) : PlatformView, LifecycleOwner, ViewModelStoreOwner {
 
     class Factory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
@@ -75,7 +77,8 @@ class OctopusEmbeddedView(
                 fontSizeCaption2 = args["fontSizeCaption2"] as? Int?,
                 onNavigateToLoginCallbackId = args["onNavigateToLoginCallbackId"] as? String,
                 onModifyUserCallbackId = args["onModifyUserCallbackId"] as? String,
-                onBackCallbackId = args["onBackCallbackId"] as? String
+                onBackCallbackId = args["onBackCallbackId"] as? String,
+                interceptUrls = args["interceptUrls"] as? Boolean ?: false
             )
 
             else -> OctopusEmbeddedView(context)
@@ -98,7 +101,7 @@ class OctopusEmbeddedView(
 
                 setContent {
                     MaterialTheme {
-                        OctopusComposeWidget(
+                        OctopusHomeScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .consumeWindowInsets(WindowInsets.navigationBars)
@@ -123,7 +126,7 @@ class OctopusEmbeddedView(
                                     "OctopusEmbeddedView",
                                     "onNavigateToLogin called - sending event"
                                 )
-                                OctopusSdkFlutterPlugin.sendEvent("loginRequired", null)
+                                OctopusSDKFlutterPlugin.sendEvent("loginRequired", null)
                             },
                             onNavigateToProfileEdit = { profileField: ProfileField? ->
                                 Log.d(
@@ -132,20 +135,31 @@ class OctopusEmbeddedView(
                                 )
                                 val fieldToEdit = when (profileField) {
                                     ProfileField.NICKNAME -> "NICKNAME"
-                                    ProfileField.PICTURE -> "AVATAR"
+                                    ProfileField.PICTURE -> "PICTURE"
                                     ProfileField.BIO -> "BIO"
                                     null -> null
                                 }
-                                OctopusSdkFlutterPlugin.sendEvent(
+                                OctopusSDKFlutterPlugin.sendEvent(
                                     "editUser",
                                     mapOf("fieldToEdit" to fieldToEdit)
                                 )
                             },
                             onBack = {
                                 onBackCallbackId?.let {
-                                    OctopusSdkFlutterPlugin.triggerCallback("onBack", it)
+                                    OctopusSDKFlutterPlugin.triggerCallback("onBack", it)
                                 }
                             },
+                            onNavigateToUrl = if (interceptUrls) { url ->
+                                Log.d(
+                                    "OctopusEmbeddedView",
+                                    "onNavigateToUrl called - sending event for: $url"
+                                )
+                                OctopusSDKFlutterPlugin.sendEvent(
+                                    "navigateToUrl",
+                                    mapOf("url" to url)
+                                )
+                                UrlOpeningStrategy.HandledByApp
+                            } else null,
                         )
                     }
                 }

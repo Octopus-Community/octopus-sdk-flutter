@@ -50,4 +50,11 @@ class OctopusEventEmitter {
         eventSink?(["event": "navigateToLogin"])
         NotificationCenter.default.post(name: NSNotification.Name("OctopusNavigateToLogin"), object: nil)
     }
+
+    func sendEvent(_ eventName: String, data: [String: Any]? = nil) {
+        print("iOS OctopusEventEmitter: Sending event: \(eventName), data: \(String(describing: data))")
+        var eventData: [String: Any] = ["event": eventName]
+        if let data { eventData.merge(data) { _, new in new } }
+        eventSink?(eventData)
+    }
 }
