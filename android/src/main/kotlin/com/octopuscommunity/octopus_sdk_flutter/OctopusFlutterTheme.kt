@@ -2,25 +2,17 @@ package com.octopuscommunity.octopus_sdk_flutter
 
 import android.graphics.BitmapFactory
 import android.util.Base64
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
+import com.octopuscommunity.sdk.ui.OctopusImagesDefaults
 import com.octopuscommunity.sdk.ui.OctopusTheme
 import com.octopuscommunity.sdk.ui.OctopusTypographyDefaults
 import com.octopuscommunity.sdk.ui.components.OctopusTopAppBarDefaults
@@ -47,27 +39,9 @@ fun OctopusFlutterTheme(
     content: @Composable () -> Unit
 ) = OctopusTheme(
     topAppBar = OctopusTopAppBarDefaults.topAppBar(
-        title = { text ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val logoPainter = logoBase64.base64ToPainter()
-                if (text == null && logoPainter != null) {
-                    Image(
-                        modifier = Modifier.height(32.dp),
-                        painter = logoPainter,
-                        contentDescription = "Logo",
-                    )
-                }
-                text?.takeIf { it.isNotEmpty() }?.let {
-                    Text(
-                        text = it,
-                        style = LocalTextStyle.current
-                    )
-                }
-            }
-        },
+        title = OctopusTopAppBarDefaults.title(
+            text = { it ?: navBarTitle }
+        ),
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = primaryMain?.takeIf { navBarPrimaryColor } ?: Color.Unspecified
         )
@@ -112,6 +86,9 @@ fun OctopusFlutterTheme(
             } ?: defaultTypography.caption2
         )
     },
+    images = OctopusImagesDefaults.images(
+        logo = logoBase64?.base64ToPainter()
+    ),
     content = content
 )
 

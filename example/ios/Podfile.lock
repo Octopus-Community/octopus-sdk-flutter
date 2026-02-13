@@ -25,26 +25,29 @@ PODS:
   - Logging (1.4.0)
   - octopus_sdk_flutter (0.0.1):
     - Flutter
-    - OctopusCommunity (= 1.7.2)
-    - OctopusCommunityUI (= 1.7.2)
-  - OctopusCommunity (1.7.2):
-    - OctopusCommunityCore (= 1.7.2)
-    - OctopusCommunityDependencyInjection (= 1.7.2)
-  - OctopusCommunityCore (1.7.2):
+    - OctopusCommunity (= 1.9.0)
+    - OctopusCommunityUI (= 1.9.0)
+  - OctopusCommunity (1.9.0):
+    - OctopusCommunityCore (= 1.9.0)
+    - OctopusCommunityDependencyInjection (= 1.9.0)
+  - OctopusCommunityCore (1.9.0):
     - KeychainAccess
-    - OctopusCommunityDependencyInjection (= 1.7.2)
-    - OctopusCommunityGrpcModels (= 1.7.2)
-    - OctopusCommunityRemoteClient (= 1.7.2)
-  - OctopusCommunityDependencyInjection (1.7.2)
-  - OctopusCommunityGrpcModels (1.7.2):
+    - OctopusCommunityDependencyInjection (= 1.9.0)
+    - OctopusCommunityGrpcModels (= 1.9.0)
+    - OctopusCommunityRemoteClient (= 1.9.0)
+  - OctopusCommunityDependencyInjection (1.9.0)
+  - OctopusCommunityGrpcModels (1.9.0):
     - gRPC-Swift
-    - OctopusCommunityDependencyInjection (= 1.7.2)
+    - OctopusCommunityDependencyInjection (= 1.9.0)
     - SwiftProtobuf
-  - OctopusCommunityRemoteClient (1.7.2):
-    - OctopusCommunityGrpcModels (= 1.7.2)
-  - OctopusCommunityUI (1.7.2):
-    - OctopusCommunity (= 1.7.2)
-    - OctopusCommunityCore (= 1.7.2)
+  - OctopusCommunityRemoteClient (1.9.0):
+    - OctopusCommunityGrpcModels (= 1.9.0)
+  - OctopusCommunityUI (1.9.0):
+    - OctopusCommunity (= 1.9.0)
+    - OctopusCommunityCore (= 1.9.0)
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - SwiftNIO (2.40.0):
     - _NIODataStructures (= 2.40.0)
     - CNIOAtomics (= 2.40.0)
@@ -175,12 +178,13 @@ PODS:
     - SwiftNIOFoundationCompat (< 3, >= 2.32.0)
     - SwiftNIOPosix (< 3, >= 2.32.0)
     - SwiftNIOTLS (< 3, >= 2.32.0)
-  - SwiftProtobuf (1.33.3)
+  - SwiftProtobuf (1.34.1)
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
   - octopus_sdk_flutter (from `.symlinks/plugins/octopus_sdk_flutter/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
 
 SPEC REPOS:
   trunk:
@@ -224,6 +228,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/integration_test/ios"
   octopus_sdk_flutter:
     :path: ".symlinks/plugins/octopus_sdk_flutter/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
 
 SPEC CHECKSUMS:
   _NIODataStructures: 3d45d8e70a1d17a15b1dc59d102c63dbc0525ffd
@@ -240,13 +246,14 @@ SPEC CHECKSUMS:
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
   KeychainAccess: c0c4f7f38f6fc7bbe58f5702e25f7bd2f65abf51
   Logging: beeb016c9c80cf77042d62e83495816847ef108b
-  octopus_sdk_flutter: 6e97597da15e67cb7e05943edfff8efd248268d3
-  OctopusCommunity: c9c0c2cc677c8e21b0282ea4b23d3cc5680c464b
-  OctopusCommunityCore: b9b149aac903697495c613a259f9bc3fc6ef55f5
-  OctopusCommunityDependencyInjection: 88c5ef7b72df32810f3ddc4a617d36c7905ccf1a
-  OctopusCommunityGrpcModels: 71e4e4b13e1589ef544c7705aabe90bc2919dd48
-  OctopusCommunityRemoteClient: 08c63e2c676ac85bd8d36760ed78028a6ab8ee81
-  OctopusCommunityUI: 53d52cff7c40795c546b618bfa86980dbee06dbf
+  octopus_sdk_flutter: ee2e3779a220853b7ccffb12e50ff77effa30b03
+  OctopusCommunity: f36269ebcaf804fda0f93a3734b1623db75ddb61
+  OctopusCommunityCore: 94b3032766b708d9a222e920fbf250ba43e4ec0d
+  OctopusCommunityDependencyInjection: a14f360ec2605fcc713e0926cfd4016e15fa1355
+  OctopusCommunityGrpcModels: 9b3316005cd5fac6f75d5534373beb09a72bee4f
+  OctopusCommunityRemoteClient: 4ce6471fc5a882ecf2b840f6c45bec1f1525d560
+  OctopusCommunityUI: 0444082dbef7c56ff8d77cd7f71c29bb74291822
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   SwiftNIO: 829958aab300642625091f82fc2f49cb7cf4ef24
   SwiftNIOConcurrencyHelpers: 697370136789b1074e4535eaae75cbd7f900370e
   SwiftNIOCore: 473fdfe746534d7aa25766916459eeaf6f92ef49
@@ -260,7 +267,7 @@ SPEC CHECKSUMS:
   SwiftNIOSSL: d153c5a6fc5b2301b0519b4c4d037a9414212da6
   SwiftNIOTLS: 598af547490133e9aac52aed0c23c4a90c31dcfc
   SwiftNIOTransportServices: 0b2b407819d82eb63af558c5396e33c945759503
-  SwiftProtobuf: e1b437c8e31a4c5577b643249a0bb62ed4f02153
+  SwiftProtobuf: c901f00a3e125dc33cac9b16824da85682ee47da
 
 PODFILE CHECKSUM: 59e5410e2d05a0d15369b803a8d24b0d20c640f1
 
