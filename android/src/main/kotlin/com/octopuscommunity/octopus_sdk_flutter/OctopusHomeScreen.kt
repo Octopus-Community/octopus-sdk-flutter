@@ -8,7 +8,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.octopuscommunity.sdk.domain.model.ProfileField
-import com.octopuscommunity.sdk.ui.home.OctopusHomeScreen
+import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
+import com.octopuscommunity.sdk.ui.home.OctopusHomeScreen as NativeOctopusHomeScreen
 import com.octopuscommunity.sdk.ui.octopusComposables
 import kotlinx.serialization.Serializable
 
@@ -17,7 +18,7 @@ data object OctopusHomeRoute
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OctopusComposeWidget(
+fun OctopusHomeScreen(
     modifier: Modifier = Modifier,
     showBackButton: Boolean = false,
     onNavigateToLogin: () -> Unit,
@@ -36,7 +37,8 @@ fun OctopusComposeWidget(
     fontSizeBody2: Int? = null,
     fontSizeCaption1: Int? = null,
     fontSizeCaption2: Int? = null,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    onNavigateToUrl: ((String) -> UrlOpeningStrategy)? = null
 ) {
     OctopusFlutterTheme(
         themeMode = themeMode,
@@ -62,12 +64,13 @@ fun OctopusComposeWidget(
             startDestination = OctopusHomeRoute
         ) {
             composable<OctopusHomeRoute> {
-                OctopusHomeScreen(
+                NativeOctopusHomeScreen(
                     navController = navController,
                     backIcon = showBackButton,
                     onBack = { onBack?.invoke() ?: navController.navigateUp() },
                     onNavigateToLogin = onNavigateToLogin,
-                    onNavigateToProfileEdit = onNavigateToProfileEdit
+                    onNavigateToProfileEdit = onNavigateToProfileEdit,
+                    onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus }
                 )
             }
 
@@ -75,7 +78,8 @@ fun OctopusComposeWidget(
             octopusComposables(
                 navController = navController,
                 onNavigateToLogin = onNavigateToLogin,
-                onNavigateToProfileEdit = onNavigateToProfileEdit
+                onNavigateToProfileEdit = onNavigateToProfileEdit,
+                onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus }
             )
         }
     }

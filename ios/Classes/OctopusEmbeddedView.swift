@@ -79,7 +79,7 @@ private final class SafeHostingContainerView: UIView {
   }
 
   private func initializeSwiftUIView() {
-    guard let octopus = OctopusSdkFlutterPlugin.sharedOctopus else {
+    guard let octopus = OctopusSDKFlutterPlugin.sharedOctopus else {
       addErrorLabel()
       return
     }
@@ -88,12 +88,13 @@ private final class SafeHostingContainerView: UIView {
     var navBarTitle: String? = nil
     var navBarPrimaryColor = false
     var themeMode: String? = nil
+    var interceptUrls = false
 
     if let dict = args as? [String: Any] {
-      let main = (dict["primaryMain"] as? NSNumber).map { OctopusSdkFlutterPlugin.uiColorFromARGBInt($0.intValue) }
-      let low = (dict["primaryLowContrast"] as? NSNumber).map { OctopusSdkFlutterPlugin.uiColorFromARGBInt($0.intValue) }
-      let high = (dict["primaryHighContrast"] as? NSNumber).map { OctopusSdkFlutterPlugin.uiColorFromARGBInt($0.intValue) }
-      let onPrimary = (dict["onPrimary"] as? NSNumber).map { OctopusSdkFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let main = (dict["primaryMain"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let low = (dict["primaryLowContrast"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let high = (dict["primaryHighContrast"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let onPrimary = (dict["onPrimary"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
       let logoBase64 = dict["logoBase64"] as? String
       navBarTitle = dict["navBarTitle"] as? String
       navBarPrimaryColor = (dict["navBarPrimaryColor"] as? Bool) ?? false
@@ -105,14 +106,15 @@ private final class SafeHostingContainerView: UIView {
       let fontSizeBody2 = (dict["fontSizeBody2"] as? NSNumber)?.intValue ?? 14
       let fontSizeCaption1 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue ?? 12
       let fontSizeCaption2 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue ?? 10
+
       themeMode = dict["themeMode"] as? String
-      print("iOS: themeMode received: \(themeMode ?? "nil")")
+      interceptUrls = (dict["interceptUrls"] as? Bool) ?? false
 
       if main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil ||
          fontSizeTitle1 != 26 || fontSizeTitle2 != 20 || fontSizeBody1 != 17 ||
          fontSizeBody2 != 14 || fontSizeCaption1 != 12 || fontSizeCaption2 != 10 ||
          themeMode != nil {
-        theme = OctopusSdkFlutterPlugin.buildTheme(
+        theme = OctopusSDKFlutterPlugin.buildTheme(
           main: main ?? .systemBlue,
           low: low ?? UIColor.systemBlue.withAlphaComponent(0.2),
           high: high ?? .white,
@@ -127,6 +129,17 @@ private final class SafeHostingContainerView: UIView {
           themeMode: themeMode
         )
       }
+    }
+
+    // Set URL interception callback on the SDK instance
+    if interceptUrls {
+      octopus.set(onNavigateToURLCallback: { url in
+        print("iOS: onNavigateToURLCallback called - sending event for: \(url.absoluteString)")
+        OctopusEventEmitter.shared?.sendEvent("navigateToUrl", data: ["url": url.absoluteString])
+        return .handledByApp
+      })
+    } else {
+      octopus.set(onNavigateToURLCallback: nil)
     }
 
     // Prepare leading item based on navBarTitle
@@ -184,7 +197,7 @@ private final class SafeHostingContainerView: UIView {
 
   private func addErrorLabel() {
     let label = UILabel(frame: bounds)
-    label.text = "SDK not initialized.\nCall initializeOctopusSDK() first."
+    label.text = "SDK not initialized.\nCall initialize() first."
     label.textAlignment = .center
     label.numberOfLines = 0
     label.textColor = .systemGray

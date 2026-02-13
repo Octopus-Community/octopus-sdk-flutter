@@ -3,7 +3,7 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 class ProfileEditPage extends StatefulWidget {
   final String? fieldToEdit;
-  final OctopusSdkFlutter octopus;
+  final OctopusSDK octopus;
 
   const ProfileEditPage({super.key, this.fieldToEdit, required this.octopus});
 
@@ -27,24 +27,15 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   }
 
   void _focusOnField(String field) {
-    switch (field) {
-      case 'NICKNAME':
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          FocusScope.of(context).requestFocus(FocusNode());
-          Future.delayed(const Duration(milliseconds: 100), () {
-            FocusScope.of(context).requestFocus(FocusNode());
-          });
-        });
-        break;
-      case 'BIO':
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          FocusScope.of(context).requestFocus(FocusNode());
-          Future.delayed(const Duration(milliseconds: 100), () {
-            FocusScope.of(context).requestFocus(FocusNode());
-          });
-        });
-        break;
-    }
+    if (field != 'NICKNAME' && field != 'BIO') return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      FocusScope.of(context).requestFocus(FocusNode());
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (!mounted) return;
+        FocusScope.of(context).requestFocus(FocusNode());
+      });
+    });
   }
 
   @override
@@ -103,7 +94,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    if (widget.fieldToEdit == null || widget.fieldToEdit == 'AVATAR')
+                    if (widget.fieldToEdit == null || widget.fieldToEdit == 'PICTURE')
                       ElevatedButton.icon(
                         onPressed: _changeAvatar,
                         icon: const Icon(Icons.camera_alt),
@@ -203,7 +194,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         return 'User profile name';
       case 'BIO':
         return 'User profile description';
-      case 'AVATAR':
+      case 'PICTURE':
         return 'User profile picture';
       default:
         return 'Profile';
@@ -211,7 +202,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   }
 
   Future<void> _changeAvatar() async {
-    // Simuler le changement d'avatar
+    // Avatar change not implemented in this sample
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('not implemented'),
@@ -231,11 +222,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
     try {
   
-      print('Profile saved:');
-      print('Nickname: ${_nicknameController.text}');
-      print('Bio: ${_bioController.text}');
-      
-      // Connect user with new informations (with all managed fields, a missing value will erase the field value in Octopus)
+      // Connect user with new information (with all managed fields, a missing value will erase the field value in Octopus)
       await widget.octopus.connectUser(
         userId: "YOUR_INTERNAL_USER_ID",
         // Your backend should provide a jwt when authentifiyng a user
@@ -244,7 +231,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         
         // nickname: "Example username", // optional if NICKNAME is not present in appManagedFields at init
         // bio: 'SSO user example bio', // optional if BIO is not present in appManagedFields at init
-        // picture: 'https://...', // optional if AVATER is not present in appManagedFields at init
+        // picture: 'https://...', // optional if PICTURE is not present in appManagedFields at init
       );
 
 
@@ -262,7 +249,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur lors de la sauvegarde: ${e.toString()}'),
+            content: Text('Save failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
