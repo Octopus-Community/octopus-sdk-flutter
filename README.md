@@ -416,9 +416,7 @@ final theme = OctopusTheme(
 
 ```dart
 final theme = OctopusTheme(
-  logoBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...', // Full base64
-  // or
-  logoBase64: 'iVBORw0KGgoAAAANSUhEUgAA...', // Base64 without prefix
+  logoBase64: 'iVBORw0KGgoAAAANSUhEUgAA...', 
 );
 ```
 
