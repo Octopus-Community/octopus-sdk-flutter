@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -50,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
 
     OctopusSDK.notSeenNotificationsCount.listen((count) {
+      debugPrint('[OCT-1142] notSeenNotificationsCount received: $count');
       if (mounted) setState(() => _notSeenCount = count);
     });
     OctopusSDK.hasAccessToCommunity.listen((hasAccess) {
@@ -64,9 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final byteData = await rootBundle.load('assets/logo.png');
       setState(() {
-        // Set an image (jpg/png) in base64 here for a logo in the top bar
-        // logo = "iVBORw0KGgoAAAANSUhEUgAAAHgAAAAoBAMAAADHxCMWAAAAG1BMVEUAAAD///9fX19/f3+fn5+/v7/f398/Pz8fHx8eKUFYAAAACXBIWXMAAA7EAAAOxAGVKw4bAAABw0lEQVRIie2TS0/CQBSFL21hugRE6LKNobisiMRlIw+35eUaeboswSDLaYyRn+2daQszShslccdJuOXM9Jv7aAtw1lln/Y8sB4NSktaGv4VvPAza5WlwO48h1z0N7i8xBKvT4GULQzWgJ8GGjaGV8RWfuXsJJp2hiZfX0SMx906QnmdJlzlTGbO7DQnu1tcLCtr0rTrwYieKjLMmkHzWgSI6zRVh7QV/Y2hS/kwiJ0rxVBdUF6kOusAXYe6mMMGY82InSnXJGLKmipuYwAYRvmOhqbNWNC9yEqw5YECGYsdYOQwkmF9WMRw6CcaO+7DBrgH5aF4xzGsMKC/biZ0IZ3yspwHs+Ek8r2+wjc126VGYYil9gAprMeNLMG9iRYP5bXe5dyIcYElbnpblAAlus2BBi1zVDk4UOq3u8XM1dyDDVnhCX3KicPbK0OGrpGLIME4JF8F6qG0PThS+GnrZD5/pwo3hHYoCuaBgO6A3Rj2cVuREsSTPEL4eVjQv6BVQmOSj3JuEKxtXdMdk/1j53EZ/SF50x5Ryrm4k73HxjzJBPHOaVn7yXtZNRfV1MWGjdL1bz9Pz5mY0Yef9qTAz0+E/6QsbtFgL+NY6GgAAAABJRU5ErkJggg==";
+        logo = base64Encode(byteData.buffer.asUint8List());
       });
 
       // Load saved user connection state
@@ -104,7 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // 'PICTURE',
         //  'BIO',
         //  'NICKNAME',
-        appManagedFields: [],  // e.g. [ProfileField.nickname, ProfileField.picture, ProfileField.bio]
+        appManagedFields: [ProfileField.nickname],  // e.g. [ProfileField.nickname, ProfileField.picture, ProfileField.bio]
       );
 
       setState(() => _isInitialized = true);
@@ -264,9 +268,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             size: 16,
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            'Unread notifications: $_notSeenCount',
-                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          Expanded(
+                            child: Text(
+                              'Unread notifications: $_notSeenCount',
+                              style: const TextStyle(fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          SizedBox(
+                            height: 28,
+                            child: TextButton(
+                              onPressed: () async {
+                                await octopus.updateNotSeenNotificationsCount();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Notification count refreshed')),
+                                  );
+                                }
+                              },
+                              child: const Text('Refresh', style: TextStyle(fontSize: 12)),
+                            ),
                           ),
                         ],
                       ),
@@ -356,13 +376,12 @@ class _HomeScreenState extends State<HomeScreen> {
       fontSizeCaption1: 11, // Smaller than default (12)
       fontSizeCaption2: 9, // Smaller than default (10)
       // Custom logo
-      // logoBase64: logo!,
+      logoBase64: logo!,
       themeMode: OctopusThemeMode.light,
     );
 
     // Using the OctopusHomeScreen widget
     return OctopusHomeScreen(
-      navBarTitle: 'Embedded Community',
       theme: embeddedTheme,
       navBarPrimaryColor: true,
       showBackButton: false,
