@@ -1,3 +1,15 @@
+## 1.9.1
+
+### Bug Fixes
+- **Late subscriber replay**: `notSeenNotificationsCount` and `hasAccessToCommunity` streams now cache the latest native emission so that Dart listeners attached after `initialize()` don't miss the initial value
+- **screenDisplayed event parsing**: Fixed `type '_Map<Object?, Object?>' is not a subtype of type 'Map<String, dynamic>'` crash when receiving `screenDisplayed` events
+
+### Example App
+- Load logo from bundled asset instead of hardcoded base64 string
+- Enable custom logo display (`logoBase64`)
+- Set `ProfileField.nickname` as app-managed field
+- Remove hardcoded `navBarTitle` from `OctopusHomeScreen`
+
 ## 1.9.0
 
 ### New Features

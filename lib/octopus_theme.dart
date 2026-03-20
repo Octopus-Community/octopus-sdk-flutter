@@ -32,7 +32,7 @@ enum OctopusThemeMode {
 ///   fontSizeCaption2: 10,
 ///   
 ///   // Custom logo (base64)
-///   logoBase64: 'data:image/png;base64,...',
+///   logoBase64: '...',
 ///   
 ///   // Theme mode
 ///   themeMode: OctopusThemeMode.dark,
@@ -83,8 +83,7 @@ class OctopusTheme {
   final int? fontSizeCaption2;
   
   /// Custom logo encoded in base64
-  /// Format: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...'
-  /// or simply the base64 string without the prefix
+  /// Format: 'iVBORw0KGgoAAAANSUhEUgAA...'
   final String? logoBase64;
   
   /// Theme mode (light or dark)
