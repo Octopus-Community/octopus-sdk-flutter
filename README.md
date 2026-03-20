@@ -26,7 +26,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.9.0
+  octopus_sdk_flutter: ^1.9.1
 ```
 
 Then run:
