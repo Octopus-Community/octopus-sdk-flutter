@@ -288,7 +288,9 @@ sealed class OctopusEvent {
               map['action'] as String),
         ),
       'screenDisplayed' => ScreenDisplayedEvent(
-          screen: Screen.fromMap(map['screen'] as Map<String, dynamic>),
+          screen: Screen.fromMap(
+            Map<String, dynamic>.from(map['screen'] as Map<dynamic, dynamic>),
+          )
         ),
       'notificationClicked' => NotificationClickedEvent(
           notificationId: map['notificationId'] as String,

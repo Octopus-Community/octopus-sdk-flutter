@@ -22,6 +22,12 @@ StreamController<Map<String, dynamic>>? _eventStreamController;
 EventChannel? _eventChannel;
 bool _isEventChannelInitialized = false;
 
+// Cached last values so late subscribers don't miss the initial emission.
+// The native side emits these during initialize(), but the Dart consumer
+// may not be listening yet.
+int? _lastNotSeenNotificationsCount;
+bool? _lastHasAccessToCommunity;
+
 class OctopusSDK {
   static void _initializeEventChannel() {
     if (!_isEventChannelInitialized) {
@@ -30,7 +36,14 @@ class OctopusSDK {
       _eventStreamController = StreamController<Map<String, dynamic>>.broadcast();
 
       _eventChannel!.receiveBroadcastStream().listen((event) {
-        _eventStreamController?.add(Map<String, dynamic>.from(event));
+        final map = Map<String, dynamic>.from(event);
+        // Cache the latest values so late subscribers can get them
+        if (map['event'] == 'notSeenNotificationsCountChanged') {
+          _lastNotSeenNotificationsCount = map['count'] as int;
+        } else if (map['event'] == 'hasAccessToCommunityChanged') {
+          _lastHasAccessToCommunity = map['hasAccess'] as bool;
+        }
+        _eventStreamController?.add(map);
       });
     }
   }
@@ -206,9 +219,15 @@ class OctopusSDK {
   /// Reactive stream of unseen notification count
   ///
   /// Emits the current count whenever it changes on the native side.
+  /// If a value was already received before subscribing, it is replayed
+  /// immediately so that late subscribers don't miss the initial count.
   /// Listen to this stream to update a badge indicator in your UI.
-  static Stream<int> get notSeenNotificationsCount {
-    return eventStream
+  static Stream<int> get notSeenNotificationsCount async* {
+    _initializeEventChannel();
+    if (_lastNotSeenNotificationsCount != null) {
+      yield _lastNotSeenNotificationsCount!;
+    }
+    yield* eventStream
         .where((event) => event['event'] == 'notSeenNotificationsCountChanged')
         .map((event) => event['count'] as int);
   }
@@ -221,8 +240,14 @@ class OctopusSDK {
   /// Reactive stream indicating whether the current user has access to the community
   ///
   /// Useful for A/B testing or gating community features.
-  static Stream<bool> get hasAccessToCommunity {
-    return eventStream
+  /// If a value was already received before subscribing, it is replayed
+  /// immediately so that late subscribers don't miss the initial value.
+  static Stream<bool> get hasAccessToCommunity async* {
+    _initializeEventChannel();
+    if (_lastHasAccessToCommunity != null) {
+      yield _lastHasAccessToCommunity!;
+    }
+    yield* eventStream
         .where((event) => event['event'] == 'hasAccessToCommunityChanged')
         .map((event) => event['hasAccess'] as bool);
   }
