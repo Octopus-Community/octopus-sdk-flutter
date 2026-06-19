@@ -1,0 +1,14 @@
+{
+  "message": {
+    "token": "REPLACE_WITH_DEVICE_FCM_TOKEN",
+    "notification": {
+      "title": "New post in the community",
+      "body": "Tap to open the post"
+    },
+    "data": {
+      "is_octopus_notification": "true",
+      "link_path": "post/REPLACE_WITH_REAL_POST_ID",
+      "post_id": "REPLACE_WITH_REAL_POST_ID"
+    }
+  }
+}

@@ -18,19 +18,34 @@ dependencies:
   flutter:
     sdk: flutter
 
-  octopus_sdk_flutter:
-    # When depending on this package from a real application you should use:
-    #   octopus_sdk_flutter: ^x.y.z
-    # See https://dart.dev/tools/pub/dependencies#version-constraints
-    # The example app is bundled with the plugin so we use a path dependency on
-    # the parent directory to use the current plugin's version.
-    path: ../
+  octopus_sdk_flutter: ^1.12.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  http: ^1.2.2
-  shared_preferences: ^2.2.2
+
+  # Firebase Messaging — used on Android to deliver push notifications via FCM.
+  # iOS uses the native APNs path wired in AppDelegate.swift; Firebase is not
+  # initialized on iOS in this example.
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+
+  # Displays a system notification for incoming Octopus pushes. Octopus sends
+  # data-only FCM messages (so Android doesn't auto-display them) and, in a
+  # Flutter app, the firebase_messaging plugin's service receives the message
+  # instead of the native Octopus MessagingService — so the host must render
+  # the notification itself.
+  flutter_local_notifications: ^18.0.1
+
+  # Persists the chosen demo config so a relaunch restores the last session
+  # (and so a cold-start push can deep-link — the main shell only mounts once a
+  # config exists). Reset clears it. See app_state.dart.
+  shared_preferences: ^2.3.0
+
+  # HMAC-SHA256 + base64url helpers used by `BridgeTokenSigner` to sign the
+  # per-call bridge fingerprint passed to `fetchOrCreateClientObjectRelatedPost`
+  # — demo-only, mirrors iOS `TokenProvider.swift` which uses `CryptoKit.HMAC`.
+  crypto: ^3.0.0
 
 dev_dependencies:
   integration_test:
@@ -44,6 +59,25 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+  # Generates iOS Assets.xcassets + Android mipmap-* icons from
+  # `assets/icon/app_icon_flutter.png`. Run `dart run flutter_launcher_icons`
+  # after changing the source PNG.
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  # Override the legacy Material icon. The Flutter "F" badge in the bottom-right
+  # of the source distinguishes this sample from the native Android / iOS Swift
+  # samples (which share `com.octopuscommunity.sdk.sample`) when all three are
+  # installed side-by-side for QA.
+  image_path: "assets/icon/app_icon_flutter.png"
+  android: "ic_launcher"
+  ios: true
+  remove_alpha_ios: true
+  # Android adaptive icon (foreground keeps its alpha so the launcher mask can
+  # crop to circle / squircle / teardrop; background is a flat Octopus navy).
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/app_icon_flutter_foreground.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

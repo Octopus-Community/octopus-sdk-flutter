@@ -32,3 +32,8 @@ native/
 .flutter-plugins-dependencies
 build/
 example/lib/.env
+example/lib/secrets.dart
+
+# Claude Code — session-local files (project-shared files in .claude/commands/ stay tracked)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

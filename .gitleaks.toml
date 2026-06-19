@@ -1,0 +1,16 @@
+# gitleaks configuration.
+# Extends the built-in default ruleset (still catches real secrets) and
+# allowlists the one structural false positive we hit: 40-char lowercase-hex
+# digests (git object SHAs and CocoaPods Podfile.lock SPEC CHECKSUMS). These
+# are content hashes, not credentials. Scoped to the digest *shape*, so a real
+# secret (GitHub PAT, AWS key, etc.) is still detected even inside a lock file.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "40-char lowercase-hex digests (SHA1 / git object IDs / CocoaPods SPEC CHECKSUMS) are not secrets"
+regexTarget = "match"
+regexes = [
+  '''\b[0-9a-f]{40}\b''',
+]
