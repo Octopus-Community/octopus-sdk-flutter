@@ -2,5 +2,10 @@
     package="com.octopuscommunity.octopus_sdk_flutter">
 
     <application>
+        <activity
+            android:name=".OctopusCreatePostActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

@@ -1,5 +1,6 @@
-# Secrets
-lib/secrets.dart
+# Firebase config (each developer drops in their own)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
 
 # Miscellaneous
 *.class

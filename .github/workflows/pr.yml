@@ -1,0 +1,284 @@
+name: PR
+
+# Consumer-visible CI gate. Public-mirror allowlisted (plain name, per
+# SDK_STANDARDS §4). Runs on every pull request targeting main.
+#
+# Runner strategy (mirrors octopus-sdk-android): each blocking check
+# runs PRIMARILY on the self-hosted macOS runner (the team mac mini, label
+# `self-hosted`), with a GitHub-hosted FALLBACK that fires only if the
+# self-hosted job did not succeed (`if: always() && needs.<job>.outputs.ok !=
+# 'success'`). GitHub-hosted minutes are capped at the org level, so hosted
+# runners (`ubuntu-latest`) can be blocked ("Actions budget is preventing
+# further use") — while that cap is in effect the fallback can't run either, so
+# it is dormant insurance for when the mini is offline AND hosted minutes are
+# available. The self-hosted jobs use macOS-flavoured tool installs (darwin
+# binaries, `shasum`, no `sudo`); the fallbacks keep the original Linux ones.
+# Each `*-mark-ok` step publishes the `ok` output the fallback gates on.
+#
+# Caveat (same as Android): a self-hosted job with no online runner does not
+# fail fast — it sits QUEUED (up to ~24h) until a runner appears or the queue
+# gives up. Because each fallback `needs:` its primary, a fully-offline mini
+# means the primary queues first and the fallback only starts once the primary
+# is dispatched/abandoned — so "mini offline" triggers a long queue, not an
+# instant handoff.
+#
+# No aggregator job (unlike Android's `post-po-instructions`, which doubles as
+# an OR-aggregator for branch protection). This repo currently has NO branch
+# protection and NO rulesets, so CI is informational and the bare primary +
+# fallback jobs are sufficient. IF required status checks are ever added here,
+# they must target an aggregator (green if primary OR fallback passed) or also
+# list the `*-fallback` check names — otherwise a fallback-only success would
+# leave the primary's named check non-green and block the merge.
+
+on:
+  pull_request:
+    branches: [main]
+
+# Least-privilege default (ORG_STANDARDS §9). No job here needs write access.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # verify — analyze / format / test / publishability / pana
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Analyze, format, test, publishability
+    runs-on: [self-hosted]
+    timeout-minutes: 20
+    outputs:
+      ok: ${{ steps.mark-ok.outputs.ok }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Test
+        run: flutter test
+
+      - name: Publishability (dry-run)
+        run: flutter pub publish --dry-run
+
+      - name: Score package (pana >= 130/160)
+        # pub.dev quality gate (REFACTOR_PLAN chunk #1 / §3quater): the visible
+        # quality badge needs >= 130/160. `--exit-code-threshold 30` fails when
+        # (max - granted) > 30, i.e. score < 130 (strict `>`, so 130 passes).
+        # Ceiling here is 140/160 (-10 proprietary license, -10 mobile-only
+        # plugin), a 10-point regression buffer. pana is pinned so the 160-point
+        # total stays stable. flutter_root is resolved portably (cd+pwd, not
+        # `readlink -f` which BSD/macOS `readlink` lacks): `command -v flutter`
+        # is `<root>/bin/flutter` on the flutter-action install.
+        run: |
+          flutter_bin="$(command -v flutter)"
+          flutter_root="$(cd "$(dirname "$flutter_bin")/.." && pwd)"
+          dart pub global activate pana 0.23.12
+          dart pub global run pana --no-warning \
+            --flutter-sdk "$flutter_root" \
+            --dart-sdk "$flutter_root/bin/cache/dart-sdk" \
+            --exit-code-threshold 30 .
+
+      - name: Mark success
+        id: mark-ok
+        if: success()
+        run: echo "ok=success" >> "$GITHUB_OUTPUT"
+
+  verify-fallback:
+    name: Analyze, format, test, publishability (GitHub fallback)
+    needs: verify
+    # Fires when the self-hosted job failed, was cancelled, or never reached
+    # its success marker (e.g. the mac mini errored mid-run).
+    if: always() && needs.verify.outputs.ok != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Test
+        run: flutter test
+
+      - name: Publishability (dry-run)
+        run: flutter pub publish --dry-run
+
+      - name: Score package (pana >= 130/160)
+        run: |
+          flutter_root="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
+          dart pub global activate pana 0.23.12
+          dart pub global run pana --no-warning \
+            --flutter-sdk "$flutter_root" \
+            --dart-sdk "$flutter_root/bin/cache/dart-sdk" \
+            --exit-code-threshold 30 .
+
+  # ---------------------------------------------------------------------------
+  # secret-scan — gitleaks
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: [self-hosted]
+    timeout-minutes: 10
+    outputs:
+      ok: ${{ steps.mark-ok.outputs.ok }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install gitleaks (pinned + checksum-verified, macOS)
+        # Self-hosted macOS: download the darwin binary matching the runner's
+        # CPU, verify its pinned SHA-256 with `shasum` (macOS has no
+        # `sha256sum`), install under $RUNNER_TEMP (no `sudo` on a persistent
+        # box). Checksums from gitleaks_8.30.1_checksums.txt.
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256_ARM64: "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5"
+          GITLEAKS_SHA256_X64: "dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709"
+        run: |
+          case "$(uname -m)" in
+            arm64)  arch="arm64"; sha="$GITLEAKS_SHA256_ARM64" ;;
+            x86_64) arch="x64";   sha="$GITLEAKS_SHA256_X64" ;;
+            *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -sSL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_darwin_${arch}.tar.gz"
+          echo "${sha}  $RUNNER_TEMP/gitleaks.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" version
+
+      - name: Scan working tree
+        # --no-git scans the checked-out files (ORG_STANDARDS §11). Exit code 1
+        # on any finding fails the job; --redact keeps secrets out of the logs.
+        run: |
+          "$RUNNER_TEMP/gitleaks" detect --no-git --redact -v
+
+      - name: Mark success
+        id: mark-ok
+        if: success()
+        run: echo "ok=success" >> "$GITHUB_OUTPUT"
+
+  secret-scan-fallback:
+    name: Secret scan (gitleaks) (GitHub fallback)
+    needs: secret-scan
+    if: always() && needs.secret-scan.outputs.ok != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install gitleaks (pinned + checksum-verified, Linux)
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan working tree
+        run: gitleaks detect --no-git --redact -v
+
+  # ---------------------------------------------------------------------------
+  # workflow-lint — actionlint
+  # ---------------------------------------------------------------------------
+  workflow-lint:
+    name: Lint workflows (actionlint)
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    outputs:
+      ok: ${{ steps.mark-ok.outputs.ok }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install actionlint (pinned + checksum-verified, macOS)
+        # Same self-hosted macOS pattern as gitleaks. Checksums from
+        # actionlint_1.7.12_checksums.txt (actionlint names the Intel build
+        # `amd64`, gitleaks names it `x64`).
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256_ARM64: "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f"
+          ACTIONLINT_SHA256_AMD64: "5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644"
+        run: |
+          case "$(uname -m)" in
+            arm64)  arch="arm64"; sha="$ACTIONLINT_SHA256_ARM64" ;;
+            x86_64) arch="amd64"; sha="$ACTIONLINT_SHA256_AMD64" ;;
+            *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -sSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_darwin_${arch}.tar.gz"
+          echo "${sha}  $RUNNER_TEMP/actionlint.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -version
+
+      - name: Lint workflows
+        # actionlint shell-lints `run:` blocks via shellcheck when present; the
+        # mac mini may not have it, in which case actionlint still validates the
+        # workflow YAML/expressions and skips shell linting (ORG_STANDARDS §9).
+        run: |
+          "$RUNNER_TEMP/actionlint" -color
+
+      - name: Mark success
+        id: mark-ok
+        if: success()
+        run: echo "ok=success" >> "$GITHUB_OUTPUT"
+
+  workflow-lint-fallback:
+    name: Lint workflows (actionlint) (GitHub fallback)
+    needs: workflow-lint
+    if: always() && needs.workflow-lint.outputs.ok != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install actionlint (pinned + checksum-verified, Linux)
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          curl -sSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          sudo install actionlint /usr/local/bin/actionlint
+          actionlint -version
+
+      - name: Lint workflows
+        # ubuntu-latest ships shellcheck, so run blocks are shell-linted too.
+        run: actionlint -color

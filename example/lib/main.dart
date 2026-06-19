@@ -1,431 +1,528 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import 'login_page.dart';
-import 'profile_edit_page.dart';
-import 'secrets.dart';
+import 'app_log.dart';
+import 'app_state.dart';
+import 'branding.dart';
+import 'community/community_screen.dart';
+import 'config/config_screen.dart';
+import 'debug/debug_log.dart';
+import 'debug/debug_tab.dart';
+import 'home/home_screen.dart';
+import 'octopus_demo_config.dart';
+import 'scenarios/scenarios_screen.dart';
+import 'settings/settings_screen.dart';
+import 'widgets/production_warning_banner.dart';
 
-void main() => runApp(const OctopusApp());
+/// MethodChannel the iOS AppDelegate uses to forward the APNs token + taps.
+const MethodChannel _pushChannel = MethodChannel(
+  'octopus_sdk_flutter_example/push',
+);
 
-class OctopusApp extends StatelessWidget {
-  const OctopusApp({super.key});
+/// Lets push handlers act outside a widget build context (cold-start handling).
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Octopus SDK Sample App',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF4F46E5), // indigo-ish
-        useMaterial3: true,
+/// Renders incoming Octopus pushes as system notifications. Octopus sends
+/// **data-only** FCM messages, which Android does not auto-display, and in a
+/// Flutter app the `firebase_messaging` plugin (not the native Octopus
+/// `MessagingService`) receives the message — so the host app must build and
+/// show the notification itself. Consumers wiring push must do the same.
+final FlutterLocalNotificationsPlugin _localNotifications =
+    FlutterLocalNotificationsPlugin();
+
+const AndroidNotificationChannel _octopusChannel = AndroidNotificationChannel(
+  'octopus-sdk',
+  'Octopus Community',
+  importance: Importance.high,
+);
+
+/// Initialises the local-notifications plugin in the current isolate (the app
+/// isolate and the FCM background isolate each need their own init). Pass
+/// [onTap] in the app isolate to route taps; the background isolate omits it
+/// (a tap there relaunches the app and is delivered via launch details).
+Future<void> _initLocalNotifications({
+  DidReceiveNotificationResponseCallback? onTap,
+}) async {
+  await _localNotifications.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('ic_stat_notification'),
+      iOS: DarwinInitializationSettings(),
+    ),
+    onDidReceiveNotificationResponse: onTap,
+  );
+  await _localNotifications
+      .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin
+      >()
+      ?.createNotificationChannel(_octopusChannel);
+}
+
+/// Shows a system notification for an Octopus push payload (no-op for
+/// non-Octopus payloads). Pure parse + display, so it is safe to call from the
+/// FCM background isolate. The notification carries the Octopus keys as its
+/// `payload` so a tap can reconstruct and deep-link them.
+Future<void> showOctopusPushNotification(Map<String, Object?> payload) async {
+  if (!OctopusSDK.isOctopusNotification(payload)) return;
+  final n = OctopusSDK.getOctopusNotification(payload);
+  if (n == null) return;
+  await _localNotifications.show(
+    n.linkPath.hashCode,
+    n.title.isEmpty ? 'Octopus Community' : n.title,
+    n.body.isEmpty ? null : n.body,
+    NotificationDetails(
+      android: AndroidNotificationDetails(
+        _octopusChannel.id,
+        _octopusChannel.name,
+        importance: Importance.high,
+        priority: Priority.high,
       ),
-      home: const HomeScreen(),
-    );
-  }
+    ),
+    payload: jsonEncode(n.rawPayload),
+  );
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+/// Flattens an FCM message to the flat map the Octopus parser expects, folding
+/// any `notification` title/body into the data keys.
+Map<String, Object?> _flatFcmData(RemoteMessage message) {
+  final data = <String, Object?>{...message.data};
+  final n = message.notification;
+  if (n?.title != null) data.putIfAbsent('title', () => n!.title as Object);
+  if (n?.body != null) data.putIfAbsent('body', () => n!.body as Object);
+  return data;
+}
+
+/// FCM background-isolate handler — must be top-level and `vm:entry-point`.
+/// Displays the Octopus notification when the app is backgrounded/terminated.
+@pragma('vm:entry-point')
+Future<void> octopusFcmBackgroundHandler(RemoteMessage message) async {
+  await _initLocalNotifications();
+  await showOctopusPushNotification(_flatFcmData(message));
+}
+
+/// Public showcase entrypoint. The QA/debug build uses
+/// `lib/debug/main_debug.dart`, which installs the Debug console then calls
+/// [runOctopusDemo].
+Future<void> main() => runOctopusDemo();
+
+/// Boots the sample app. Shared by the public and debug entrypoints.
+Future<void> runOctopusDemo() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Start the persistent debug recorder before the SDK can emit anything, so
+  // the Debug tab (a public bottom-nav tab) and the Events scenario capture the
+  // whole session. Both `OctopusSDK.eventStream` and the typed `events` stream
+  // are non-replaying broadcasts — a late subscriber misses prior emissions —
+  // so we subscribe once, here, at launch, and route the sample's API-call log
+  // into the same recorder. Idempotent with the debug entrypoint's
+  // `installDebugConsole()` (which additionally installs the internal-only
+  // Settings → "Open debug console" sheet).
+  debugLog.start();
+  demoLog = debugLog;
+  // Firebase Messaging powers the Android push path. iOS uses the native APNs
+  // wiring in AppDelegate.swift; Firebase is not initialized on iOS here (no
+  // GoogleService-Info.plist bundled). The Android init is best-effort: without
+  // a google-services.json it throws, which we swallow so the app still runs.
+  if (Platform.isAndroid) {
+    try {
+      await Firebase.initializeApp();
+      // Render Octopus pushes that arrive while the app is backgrounded /
+      // terminated (data-only FCM → not auto-displayed by the system).
+      FirebaseMessaging.onBackgroundMessage(octopusFcmBackgroundHandler);
+    } catch (e) {
+      debugPrint('[Push] Firebase.initializeApp failed: $e');
+    }
+  }
+  runApp(const OctopusDemoApp());
+}
+
+/// Root widget: owns [AppState], wires push notifications, and chooses between
+/// the Config screen and the main bottom-nav shell.
+class OctopusDemoApp extends StatefulWidget {
+  const OctopusDemoApp({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<OctopusDemoApp> createState() => _OctopusDemoAppState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _OctopusDemoAppState extends State<OctopusDemoApp> {
+  late final AppState _app;
 
-  final octopus = OctopusSDK();
-  bool _isInitializing = false;
-  bool _isInitialized = false;
-  bool _isUserConnected = false;
-  String? logo;
-  int _currentTabIndex = 0;
-  int _notSeenCount = 0;
-  bool? _hasAccessToCommunity;
-
-  static const String _userConnectedKey = 'isUserConnected';
+  /// Latest push token (FCM on Android, APNs on iOS); (re)registered with the
+  /// SDK once it is initialised.
+  String? _pushToken;
+  StreamSubscription<bool>? _pushInitSub;
+  StreamSubscription<OctopusConnectionState>? _pushConnSub;
 
   @override
   void initState() {
     super.initState();
+    _app = AppState()..addListener(_onAppChanged);
+    _app.bootstrap();
+    _setupPush();
+  }
 
-    OctopusSDK.notSeenNotificationsCount.listen((count) {
-      debugPrint('[OCT-1142] notSeenNotificationsCount received: $count');
-      if (mounted) setState(() => _notSeenCount = count);
-    });
-    OctopusSDK.hasAccessToCommunity.listen((hasAccess) {
-      if (mounted) setState(() => _hasAccessToCommunity = hasAccess);
-    });
-    OctopusSDK.events.listen((event) {
-      if (event is PostCreatedEvent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Octopus Post created: ${event.postId}')),
-        );
-      }
-    });
+  void _onAppChanged() {
+    if (mounted) setState(() {});
+  }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final byteData = await rootBundle.load('assets/logo.png');
-      setState(() {
-        logo = base64Encode(byteData.buffer.asUint8List());
+  @override
+  void dispose() {
+    _pushInitSub?.cancel();
+    _pushConnSub?.cancel();
+    _app.removeListener(_onAppChanged);
+    _app.dispose();
+    super.dispose();
+  }
+
+  // ── Push notifications ────────────────────────────────────────────────────
+
+  Future<void> _setupPush() async {
+    // Both platforms: (re)register the push token on every init signal (incl.
+    // switchCommunity re-init). Registration only sticks once the SDK is
+    // initialised — see [_registerPushTokenIfReady].
+    _pushInitSub = OctopusSDK.isInitialisedFlow.listen((initialised) {
+      if (initialised) _registerPushTokenIfReady();
+    });
+    // Also re-register when the connection changes (e.g. guest → logged-in
+    // user): the token must be tied to the currently-connected user so the
+    // backend routes that user's notifications to this device.
+    _pushConnSub = OctopusSDK.connectionState.listen(
+      (_) => _registerPushTokenIfReady(),
+    );
+    if (Platform.isIOS) {
+      _pushChannel.setMethodCallHandler(_onPushChannelCall);
+      await _drainInitialIosNotification();
+    } else if (Platform.isAndroid) {
+      await _setupFirebaseMessaging();
+    }
+  }
+
+  Future<void> _setupFirebaseMessaging() async {
+    final messaging = FirebaseMessaging.instance;
+    try {
+      await messaging.requestPermission();
+      // Keep the latest FCM token and (re)register it with the SDK only once
+      // the SDK is initialised. `registerPushNotificationToken` reaches the
+      // native `registerNotificationsToken`, which requires an initialised SDK
+      // (it throws if `sdkScope` isn't set yet). Push setup runs at startup —
+      // before the Config screen's "Start" initialises the SDK — so registering
+      // here unconditionally silently drops the token and delivery never
+      // starts. Register on every init signal (incl. switchCommunity re-init)
+      // and on token refresh instead.
+      _pushToken = await messaging.getToken();
+      messaging.onTokenRefresh.listen((token) {
+        _pushToken = token;
+        _registerPushTokenIfReady();
       });
+      _registerPushTokenIfReady();
 
-      // Load saved user connection state
-      await _loadUserConnectionState();
-
-      // Initialize SDK automatically on app start
-      _initOctopus();
-    });
-  }
-
-  Future<void> _loadUserConnectionState() async {
-    final prefs = await SharedPreferences.getInstance();
-    final isConnected = prefs.getBool(_userConnectedKey) ?? false;
-    if (mounted) {
-      setState(() => _isUserConnected = isConnected);
-    }
-  }
-
-  Future<void> _saveUserConnectionState(bool isConnected) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_userConnectedKey, isConnected);
-  }
-
-  Future<void> _initOctopus() async {
-    if (_isInitialized || _isInitializing) return;
-    setState(() => _isInitializing = true);
-
-    try {
-      // Initialize SDK
-      await octopus.initialize(
-        // Change it in secrets.dart
-        apiKey: octopusApiKey,
-        // User profile properties managed by your app (optional)
-        // a combination of
-        // 'PICTURE',
-        //  'BIO',
-        //  'NICKNAME',
-        appManagedFields: [ProfileField.nickname],  // e.g. [ProfileField.nickname, ProfileField.picture, ProfileField.bio]
+      // Display + tap routing. Octopus FCM messages are data-only, so the host
+      // builds the system notification itself ([showOctopusPushNotification]);
+      // tapping it deep-links via [_onNotifTap].
+      await _initLocalNotifications(onTap: _onNotifTap);
+      FirebaseMessaging.onMessage.listen(
+        (m) => showOctopusPushNotification(_payloadFromFcm(m)),
       );
-
-      setState(() => _isInitialized = true);
-
-      // Connect the user in Octopus if he is connected in app
-      if (_isUserConnected) {
-        await _connectUser();
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Octopus SDK initialized')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Init failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isInitializing = false);
-    }
-  }
-
-  Future<void> _connectUser() async {
-    if (!_isInitialized || _isInitializing) return;
-
-    try {
-      // Connect user
-      await octopus.connectUser(
-        userId: "YOUR_INTERNAL_USER_ID",
-        // Your backend should provide a jwt when authentifiyng a user
-        // cf. https://doc.octopuscommunity.com/backend/sso
-        token: octopusUserToken, // Stored in secrets.dart FOR SAMPLE USAGE
-        // nickname: "Example username", // optional if NICKNAME is not present in appManagedFields at init
-        // bio: 'SSO user example bio', // optional if BIO is not present in appManagedFields at init
-        // picture: 'https://...', // optional if PICTURE is not present in appManagedFields at init
+      // A notification-block FCM tapped from background routes straight through.
+      FirebaseMessaging.onMessageOpenedApp.listen(
+        (m) => _handleNotification(_payloadFromFcm(m)),
       );
-
-      setState(() => _isUserConnected = true);
-      await _saveUserConnectionState(true);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User connected')),
-        );
+      final initial = await messaging.getInitialMessage();
+      if (initial != null) _handleNotification(_payloadFromFcm(initial));
+      // Cold start from tapping a notification this app rendered itself.
+      final launch = await _localNotifications
+          .getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp ?? false) {
+        final response = launch!.notificationResponse;
+        if (response != null) _onNotifTap(response);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connection failed: $e')),
-        );
-      }
+      debugPrint('[Push] Firebase messaging setup failed: $e');
     }
   }
 
-  Future<void> _disconnectUser() async {
+  /// Routes a tapped local notification to the deep-link handler, decoding the
+  /// Octopus keys stored in the notification payload.
+  void _onNotifTap(NotificationResponse response) {
+    final raw = response.payload;
+    if (raw == null || raw.isEmpty) return;
     try {
-      await octopus.disconnectUser();
-      setState(() => _isUserConnected = false);
-      await _saveUserConnectionState(false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User disconnected')),
-        );
-      }
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) _handleNotification(decoded);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Disconnect failed: $e')),
-        );
-      }
+      debugPrint('[Push] could not decode tapped notification payload: $e');
     }
   }
 
-
-  Widget _buildConfigPage() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with description
-            Card(
-              color: Colors.deepPurple.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.widgets, color: Colors.deepPurple.shade700),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Embedded Widget Mode',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'The Octopus interface is integrated directly into your Flutter application '
-                      'as a widget. Ideal for integration into your existing interface.',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // SDK Status
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'SDK Status:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          _isInitialized ? Icons.check_circle : Icons.error,
-                          color: _isInitialized ? Colors.green : Colors.red,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _isInitialized ? 'Initialized' : 'Not initialized',
-                          style: TextStyle(
-                            color: _isInitialized ? Colors.green : Colors.red,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_isInitialized) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.notifications,
-                            color: _notSeenCount > 0 ? Colors.orange : Colors.grey,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              'Unread notifications: $_notSeenCount',
-                              style: const TextStyle(fontWeight: FontWeight.w500),
-                            ),
-                          ),
-                          SizedBox(
-                            height: 28,
-                            child: TextButton(
-                              onPressed: () async {
-                                await octopus.updateNotSeenNotificationsCount();
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Notification count refreshed')),
-                                  );
-                                }
-                              },
-                              child: const Text('Refresh', style: TextStyle(fontSize: 12)),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            _hasAccessToCommunity == true ? Icons.lock_open : Icons.lock,
-                            color: _hasAccessToCommunity == true ? Colors.green : Colors.grey,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Community access: ${_hasAccessToCommunity ?? 'unknown'}',
-                            style: const TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Action buttons
-            if (_isInitialized)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isUserConnected ? _disconnectUser : _connectUser,
-                  style: _isUserConnected ? ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade100,
-                    foregroundColor: Colors.red.shade700,
-                  ) : null,
-                  child: Text(
-                      _isUserConnected ? 'Disconnect User' : 'Connect User'),
-                ),
-              ),
-
-            const SizedBox(height: 16),
-
-          ],
-        ),
-      ),
-      ),
-    );
+  /// Registers the latest FCM token with the SDK, but only when the SDK is
+  /// initialised — a pre-init call throws natively and silently drops the
+  /// token, so push delivery never starts. Idempotent: safe to call on each
+  /// init / token-refresh signal.
+  ///
+  /// Reads `OctopusSDK.isInitialised` directly rather than `_app.isInitialised`
+  /// to avoid a listener-ordering race: `_app.isInitialised` is updated by
+  /// AppState's own subscription to `isInitialisedFlow`, and Dart does not
+  /// guarantee firing order between two listeners on the same stream. The
+  /// static getter reflects the value set **before** subscribers are notified
+  /// (see `octopus_sdk.dart:151`), so reading it here is race-free.
+  void _registerPushTokenIfReady() {
+    final token = _pushToken;
+    if (token == null || token.isEmpty || !OctopusSDK.isInitialised) return;
+    _app.octopus
+        .registerPushNotificationToken(token)
+        .then((_) => debugPrint('[Push] push token registered with the SDK'))
+        .catchError(
+          (e) => debugPrint('[Push] registerPushNotificationToken failed: $e'),
+        );
   }
 
-  Widget _buildCommunityPage() {
-    // If SDK is not initialized, show message
-    if (!_isInitialized) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  Future<void> _drainInitialIosNotification() async {
+    try {
+      final raw = await _pushChannel.invokeMethod('getInitialNotification');
+      if (raw is Map) _handleNotification(raw);
+    } catch (e) {
+      debugPrint('[Push] getInitialNotification failed: $e');
+    }
+  }
+
+  Future<dynamic> _onPushChannelCall(MethodCall call) async {
+    switch (call.method) {
+      case 'apnsToken':
+        final token = call.arguments as String?;
+        if (token != null && token.isNotEmpty) {
+          // Same init-gating as Android: store and (re)register once the SDK is
+          // initialised, so an APNs token arriving before the Config "Start"
+          // isn't dropped by the native pre-init guard.
+          _pushToken = token;
+          _registerPushTokenIfReady();
+        }
+      case 'notificationTapped':
+        final raw = call.arguments;
+        if (raw is Map) _handleNotification(raw);
+    }
+    return null;
+  }
+
+  /// Merges an FCM `RemoteMessage` into the flat map shape the SDK parses,
+  /// folding `notification.title`/`body` into the `data` keys.
+  Map<String, Object?> _payloadFromFcm(RemoteMessage message) {
+    final payload = <String, Object?>{...message.data};
+    final notification = message.notification;
+    if (notification != null) {
+      final title = notification.title;
+      final body = notification.body;
+      if (title != null) payload.putIfAbsent('title', () => title);
+      if (body != null) payload.putIfAbsent('body', () => body);
+    }
+    return payload;
+  }
+
+  /// Deep-links a tapped Octopus notification into the Community tab.
+  void _handleNotification(Map payload) {
+    if (!OctopusSDK.isOctopusNotification(payload)) return;
+    final notification = OctopusSDK.getOctopusNotification(payload);
+    if (notification != null) _app.requestCommunityTab(notification);
+  }
+
+  // ── Build ───────────────────────────────────────────────────────────────
+
+  ThemeMode get _themeMode => switch (_app.config?.theme) {
+    AppThemeChoice.light => ThemeMode.light,
+    AppThemeChoice.dark => ThemeMode.dark,
+    AppThemeChoice.system || null => ThemeMode.system,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return AppScope(
+      state: _app,
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        title: 'Octopus SDK Sample',
+        debugShowCheckedModeBanner: false,
+        theme: buildAppTheme(Brightness.light),
+        darkTheme: buildAppTheme(Brightness.dark),
+        themeMode: _themeMode,
+        // Pin the production/client-env warning above every route. The banner
+        // consumes the top inset, so the routed content drops it to avoid a
+        // double status-bar gap; when the banner is hidden the route keeps its
+        // normal padding.
+        builder: (context, child) => Column(
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.orange),
-            SizedBox(height: 16),
-            Text(
-              'SDK not initialized',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Please initialize the SDK in the Configuration tab',
-              textAlign: TextAlign.center,
+            const ProductionWarningBanner(),
+            Expanded(
+              child: octopusIsProdServer
+                  ? MediaQuery.removePadding(
+                      context: context,
+                      removeTop: true,
+                      child: child!,
+                    )
+                  : child!,
             ),
           ],
         ),
-      );
-    }
-
-    // Example of using the embedded widget with custom theme
-
-    var embeddedTheme = OctopusTheme(
-      // Different colors for the embedded view
-      primaryMain: Colors.lightBlue,
-      primaryLowContrast: Colors.lightBlue.withValues(alpha: 0.2),
-      primaryHighContrast: Colors.lightBlue.withValues(alpha: 0.4),
-      onPrimary: Colors.deepPurple,
-
-      // Smaller font sizes for the embedded view
-      fontSizeTitle1: 12, // Smaller than default (26)
-      fontSizeTitle2: 18, // Smaller than default (20)
-      fontSizeBody1: 15, // Smaller than default (17)
-      fontSizeBody2: 14, // Smaller than default (14)
-      fontSizeCaption1: 11, // Smaller than default (12)
-      fontSizeCaption2: 9, // Smaller than default (10)
-      // Custom logo
-      logoBase64: logo!,
-      themeMode: OctopusThemeMode.light,
+        // While bootstrap restores a persisted config, show a splash so a saved
+        // session doesn't flash the Config screen before auto-starting back in.
+        home: _app.restoringConfig
+            ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+            : (_app.config == null
+                  ? const ConfigScreen()
+                  : MainScreen(app: _app)),
+      ),
     );
+  }
+}
 
-    // Using the OctopusHomeScreen widget
-    return OctopusHomeScreen(
-      theme: embeddedTheme,
-      navBarPrimaryColor: true,
-      showBackButton: false,
-      enabled: _isInitialized,
-      // will be called when an anonymous user (a user on which you did not perform a connectUser) wants to write content
-      onNavigateToLogin: () {
-        Navigator.of(
+/// Main bottom-navigation shell (Home / Scenarios / Community / Settings).
+class MainScreen extends StatefulWidget {
+  final AppState app;
+
+  const MainScreen({super.key, required this.app});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  static const int _communityIndex = 2;
+  static const int _debugIndex = 4;
+  // Land directly on Community when there's a pending deep link from a push.
+  // A cold-start tap on a notification calls `requestCommunityTab` BEFORE this
+  // screen mounts, so the `navEpoch` diff in `_onAppChanged` can't trip — the
+  // bump already happened by the time `_seenNavEpoch` is initialised below.
+  // Read the pending notification synchronously here to honour the deep link.
+  late int _index = widget.app.pendingCommunityNotification != null
+      ? _communityIndex
+      : 0;
+  late int _seenNavEpoch = widget.app.navEpoch;
+
+  static const _titles = [
+    'Home',
+    'Scenarios',
+    'Community',
+    'Settings',
+    'Debug',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.app.addListener(_onAppChanged);
+  }
+
+  void _onAppChanged() {
+    // A push tap bumps navEpoch — jump to the Community tab when it changes.
+    if (widget.app.navEpoch != _seenNavEpoch) {
+      _seenNavEpoch = widget.app.navEpoch;
+      if (mounted) {
+        // Pop any pushed routes (Modal / Fullscreen / Sheet scenarios, login
+        // page, profile editor, …) so the bottom-nav shell — and the Community
+        // tab now hosting the deep link — actually becomes visible. Without
+        // this, `_index = _communityIndex` still updates the shell but the
+        // user sees nothing because the pushed route covers it. The pushed
+        // mode/scenario is dismissed by design: a push always wins routing.
+        Navigator.maybeOf(
           context,
-        ).push(MaterialPageRoute(builder: (context) => const LoginPage()));
-      },
-      // If you have appManagedFields, you need to handle when a user wants to modify his profile
-      onModifyUser: (fieldToEdit) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => ProfileEditPage(fieldToEdit: fieldToEdit, octopus: octopus),
-          ),
-        );
-      },
-      onNavigateToUrl: (url) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('On Navigate to Url: $url')),
-        );
-        return UrlOpeningStrategy.handledByApp;
-      },
-    );
+          rootNavigator: true,
+        )?.popUntil((route) => route.isFirst);
+        setState(() => _index = _communityIndex);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.app.removeListener(_onAppChanged);
+    super.dispose();
+  }
+
+  void _onTap(int index) {
+    setState(() => _index = index);
+    // Leaving Community discards a consumed deep link so it isn't reopened.
+    if (index != _communityIndex) {
+      widget.app.clearPendingNotification();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final body = const [
+      HomeTab(),
+      ScenariosTab(),
+      CommunityTab(),
+      SettingsTab(),
+      DebugTab(),
+    ][_index];
+
+    // The Community tab embeds the SDK with its own native top bar
+    // (`OctopusHomeScreen` on both platforms) — drop the Flutter shell
+    // `AppBar` to avoid stacking. The other tabs keep their host `AppBar`.
+    //
+    // We could use `OctopusHomeContent` on Android (no-navbar variant) and
+    // re-show the Flutter `AppBar` so the title matches the other tabs, but
+    // iOS doesn't yet have an `OctopusHomeContent` equivalent
+    // (octopus-sdk-ios#275). Keeping both platforms on
+    // `OctopusHomeScreen` aligns them; the non-embedded integration modes
+    // (Modal / Fullscreen / Sheet) are demonstrated by their respective
+    // scenarios in the Scenarios tab — each gives the SDK a chrome-clean
+    // surface without embedding.
+    //
+    // The Debug tab carries its own `Scaffold` + `AppBar` (Copy / Clear
+    // actions) — drop the shell `AppBar` here too to avoid double headers.
+    final isCommunityTab = _index == _communityIndex;
+    final isDebugTab = _index == _debugIndex;
+    final hasOwnAppBar = isCommunityTab || isDebugTab;
+
     return Scaffold(
-      body: _currentTabIndex == 0 ? _buildConfigPage() : _buildCommunityPage(),
+      appBar: hasOwnAppBar ? null : AppBar(title: Text(_titles[_index])),
+      body: SafeArea(child: body),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentTabIndex,
-        onTap: (index) {
-          setState(() {
-            _currentTabIndex = index;
-          });
-        },
-        items: const [
+        currentIndex: _index,
+        onTap: _onTap,
+        type: BottomNavigationBarType.fixed,
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Configuration',
+            icon: Semantics(
+              identifier: 'home-tab',
+              child: const Icon(Icons.home),
+            ),
+            label: 'Home',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Community'),
+          BottomNavigationBarItem(
+            icon: Semantics(
+              identifier: 'scenarios-tab',
+              child: const Icon(Icons.science),
+            ),
+            label: 'Scenarios',
+          ),
+          BottomNavigationBarItem(
+            icon: Semantics(
+              identifier: 'community-tab',
+              child: const Icon(Icons.people),
+            ),
+            label: 'Community',
+          ),
+          BottomNavigationBarItem(
+            icon: Semantics(
+              identifier: 'settings-tab',
+              child: const Icon(Icons.settings),
+            ),
+            label: 'Settings',
+          ),
+          BottomNavigationBarItem(
+            icon: Semantics(
+              identifier: 'debug-tab',
+              child: const Icon(Icons.bug_report),
+            ),
+            label: 'Debug',
+          ),
         ],
       ),
     );

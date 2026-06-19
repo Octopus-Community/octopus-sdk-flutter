@@ -1,0 +1,19 @@
+{
+  "Simulator Target Bundle": "com.octopuscommunity.sdk.flutter.sample",
+  "aps": {
+    "alert": {
+      "title": "New comment on your post",
+      "body": "Someone commented — tap to see"
+    },
+    "sound": "default",
+    "badge": 1
+  },
+  "data": {
+    "is_octopus_notification": "true",
+    "title": "New comment on your post",
+    "body": "Someone commented — tap to see",
+    "link_path": "post/REPLACE_WITH_REAL_POST_ID?commentId=REPLACE_WITH_REAL_COMMENT_ID",
+    "post_id": "REPLACE_WITH_REAL_POST_ID",
+    "comment_id": "REPLACE_WITH_REAL_COMMENT_ID"
+  }
+}

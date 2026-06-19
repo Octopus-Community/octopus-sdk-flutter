@@ -1,0 +1,41 @@
+# Files kept OUT of the published pub.dev package (gitignore-style).
+#
+# ⚠ When a .pubignore exists, `pub publish` uses it INSTEAD of .gitignore (they
+# do NOT combine). So the build-artifact excludes .gitignore provides must be
+# repeated here — otherwise publishing from a tree that has been built/tested
+# bloats the package with caches (a stray build/ added ~43 MB in dry-run).
+#
+# Mirrors the SDK_STANDARDS §4 public-mirror denylist: internal planning / agent
+# / session docs must never reach consumers.
+
+# Build artifacts & caches (re-stated from .gitignore, see note above)
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+coverage/
+*.log
+
+# Agent + planning docs
+.claude/
+CLAUDE.md
+REFACTOR_PLAN.md
+PARITY_MATRIX.md
+PARITY_VERIFICATION_*.md
+HANDOFF_*.md
+doc/superpowers/
+
+# Session state
+SESSION_STATE.md
+
+# Internal-only surfaces — keep the consumable package to the showcase, not the
+# QA tooling (SDK_STANDARDS §5.6 — the Debug console is internal) or the tests.
+example/lib/debug/
+test/
+
+# Obsolete hand-run release script (replaced by sdk-release.yml workflow, chunk #5)
+scripts/release-on-public-repo.sh
+
+# Release tooling — not part of the consumable package
+melos.yaml
+scripts/verify_native_pins.dart

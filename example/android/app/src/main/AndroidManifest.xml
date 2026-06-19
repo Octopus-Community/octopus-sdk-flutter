@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android 13+ requires runtime permission to post notifications.
+         FirebaseMessaging.requestPermission() prompts the user. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
-        android:label="octopus_sdk_flutter_example"
+        android:label="Octopus SDK Sample - Flutter"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -25,6 +29,19 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Default notification icon + accent colour used by Firebase Messaging
+             when an FCM data-only message is rendered (and by
+             flutter_local_notifications when we forward the payload to it).
+             Android requires a monochrome white-on-transparent icon for the
+             status bar — `@drawable/ic_stat_notification` is generated in five
+             densities from the Octopus chat-bubble silhouette. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

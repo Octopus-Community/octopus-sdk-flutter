@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Accent color rendered behind the monochrome ic_stat_notification icon
+         in the status bar (Android tints the icon itself white; this is the
+         small coloured chip that appears next to it on some launchers).
+         Matches the Flutter Sky Blue used in the app icon's "Flutter" strip. -->
+    <color name="notification_color">#02569B</color>
+</resources>

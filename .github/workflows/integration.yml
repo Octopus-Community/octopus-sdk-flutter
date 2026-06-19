@@ -1,0 +1,181 @@
+name: Integration
+
+# Device-backed integration tests for the sample app (example/integration_test).
+# Boots a real Android emulator + iOS simulator and drives the canonical sample
+# shell end-to-end.
+#
+# Started as NON-BLOCKING (`continue-on-error: true` on both device jobs) per
+# the refactor plan — promote to a required check after two green weeks. The
+# tests are designed to pass WITHOUT secrets: the sample launches + navigates
+# even when no OCTOPUS_API_KEY is injected, so these jobs assert host-shell
+# structure + navigation, never backend results.
+#
+# Runner: the self-hosted macOS mac mini (label `self-hosted`), like the rest of
+# CI — GitHub-hosted minutes are capped at the org level. The iOS simulator is
+# native to the Mac; the Android emulator path is best-effort here (a Mac is not
+# a natural Android-emulator host — system-image arch follows the runner CPU,
+# and these jobs stay non-blocking while that stabilises on the real runner).
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Integration tests (Android emulator)
+    runs-on: [self-hosted]
+    # Non-blocking until promoted to required (refactor plan chunk #19).
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Write a dummy google-services.json
+        # The example wires firebase_messaging (push-notification demo), whose
+        # Gradle plugin hard-requires a google-services.json at assemble time.
+        # The real file is gitignored (it carries a project's FCM config), so CI
+        # has none. This placeholder has valid structure + dummy ids — enough to
+        # satisfy the Gradle plugin; the integration suite never exercises FCM.
+        run: |
+          cat > example/android/app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "octopus-sdk-flutter-example",
+              "storage_bucket": "octopus-sdk-flutter-example.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.octopuscommunity.sdk.flutter.sample"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  { "current_key": "AIzaSyDUMMYDUMMYDUMMYDUMMYDUMMYDUMMY0000" }
+                ],
+                "services": {
+                  "appinvite_service": { "other_platform_oauth_client": [] }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Select the emulator system-image arch for this runner
+        # On Apple Silicon the x86_64 system image won't boot — the emulator
+        # needs an arm64-v8a image. Pick by the runner CPU so the same workflow
+        # works whether the mac mini is Apple Silicon or Intel. (The previous
+        # hosted-Linux KVM-enable step is gone — it was Linux-only.)
+        id: emu
+        run: |
+          case "$(uname -m)" in
+            arm64) echo "arch=arm64-v8a" >> "$GITHUB_OUTPUT" ;;
+            *)     echo "arch=x86_64"    >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Run integration tests on an emulator
+        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2.37.0
+        with:
+          api-level: 34
+          arch: ${{ steps.emu.outputs.arch }}
+          profile: pixel_6
+          working-directory: example
+          # Headless-CI emulator flags (reactivecircus-recommended): software
+          # GPU + no-window/no-audio/no-boot-anim keep it stable in CI.
+          disable-animations: true
+          emulator-options: >-
+            -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio
+            -no-boot-anim -camera-back none
+          # No API key injected on purpose — the suite asserts shell structure,
+          # not backend results (see sdk_integration_test.dart header).
+          # `-d emulator-5554`: the persistent self-hosted mac mini also exposes
+          # iOS simulators, macOS, and Chrome to Flutter. Without a device
+          # selector the runner aborts with "More than one device connected"
+          # before any test runs. Mirrors the iOS job's `-d "$SIM_UDID"` line.
+          script: flutter test integration_test -d emulator-5554
+
+  ios:
+    name: Integration tests (iOS simulator)
+    runs-on: [self-hosted]
+    # Non-blocking until promoted to required (refactor plan chunk #19).
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Force the CocoaPods integration path
+        # The plugin is CocoaPods-only (no Swift Package Manager support yet).
+        # Recent Flutter auto-migrates the example to SPM on build, which here
+        # breaks the Octopus pods compile ("Unknown attribute 'MainActor'").
+        # Pin the example to the known-good pods path the local builds use.
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Refresh CocoaPods CDN cache
+        # CocoaPods checks for new podspec versions only during `pod repo
+        # update` — the per-`pod install` path falls back to locally-cached
+        # versions ("Returning local because checking is only performed in
+        # repo update"). On the persistent self-hosted runner the CDN cache
+        # accumulates and falls behind newly-published native SDK versions
+        # (e.g. OctopusCommunity 1.12.2 vs a cached 1.12.1), causing the
+        # next `flutter test`'s auto-`pod install` to fail with "CocoaPods's
+        # specs repository is too out-of-date".
+        run: pod repo update
+
+      - name: Boot an iPhone simulator
+        run: |
+          # Pick the first available iPhone simulator on the runner and boot it.
+          # The python is a single line so it stays inside the YAML block
+          # scalar. Export its UDID for the test step.
+          UDID="$(xcrun simctl list devices available --json | python3 -c "import json,sys; devs=json.load(sys.stdin)['devices']; print(next((d['udid'] for rt,l in devs.items() if 'iOS' in rt for d in l if d['name'].startswith('iPhone')), ''))")"
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator on this runner." >&2
+            exit 1
+          fi
+          # `|| true`: on the persistent self-hosted Mac the sim may already be
+          # Booted from a previous run, where `boot` exits non-zero ("Unable to
+          # boot device in current state: Booted"). That's fine — `bootstatus`
+          # below is the real readiness gate.
+          xcrun simctl boot "$UDID" || true
+          # boot is async (returns while still "Booting"); block until the sim
+          # is fully booted so the test step doesn't race a half-up simulator.
+          xcrun simctl bootstatus "$UDID" -b
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Run integration tests on the simulator
+        working-directory: example
+        # No API key injected on purpose (see Android job).
+        run: flutter test integration_test -d "$SIM_UDID"

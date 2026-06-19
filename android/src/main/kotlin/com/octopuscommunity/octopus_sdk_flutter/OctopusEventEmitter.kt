@@ -2,63 +2,52 @@ package com.octopuscommunity.octopus_sdk_flutter
 
 import android.util.Log
 import io.flutter.plugin.common.EventChannel
-import io.flutter.plugin.common.MethodChannel
 
-class OctopusEventEmitter {
+/**
+ * Process-static event emitter for the Octopus Flutter plugin.
+ *
+ * The active [EventChannel.EventSink] is held as a process-static field rather
+ * than a per-`FlutterPlugin`-instance reference. A Flutter app may host more
+ * than one `FlutterEngine` in the same process (notably,
+ * `firebase_messaging` spawns a headless background engine shortly after
+ * launch, which re-runs every registered plugin's `onAttachedToEngine`). If
+ * the active sink were tracked per plugin instance — or fetched from a
+ * process-static plugin/emitter `INSTANCE` overwritten by every attach — the
+ * second attach would reparent dispatch to an emitter whose sink is never
+ * set, and every event sent to the *foreground* Dart isolate would silently
+ * drop. Keeping the sink itself as the authority means whichever engine's
+ * isolate actually subscribed to `octopus_sdk_flutter/events` owns dispatch,
+ * regardless of how many plugin instances exist.
+ */
+object OctopusEventEmitter {
+    @Volatile
     private var eventSink: EventChannel.EventSink? = null
-    private var methodChannel: MethodChannel? = null
-    
-    companion object {
-        @Volatile
-        private var INSTANCE: OctopusEventEmitter? = null
-        
-        fun getInstance(): OctopusEventEmitter? = INSTANCE
-        
-        fun setInstance(instance: OctopusEventEmitter) {
-            INSTANCE = instance
+
+    fun setEventSink(sink: EventChannel.EventSink?) {
+        synchronized(this) {
+            eventSink = sink
         }
+        Log.d("OctopusEventEmitter", "Event sink set: ${sink != null}")
     }
-    
-    fun setEventSink(eventSink: EventChannel.EventSink?) {
-        this.eventSink = eventSink
-        Log.d("OctopusEventEmitter", "Event sink set: ${eventSink != null}")
-    }
-    
-    fun setMethodChannel(methodChannel: MethodChannel) {
-        this.methodChannel = methodChannel
-        Log.d("OctopusEventEmitter", "Method channel set")
-    }
-    
-    fun emitLoginRequired() {
-        Log.d("OctopusEventEmitter", "Emitting loginRequired event")
-        eventSink?.success(mapOf("event" to "loginRequired"))
-    }
-    
-    fun emitEditUser(fieldToEdit: String?) {
-        Log.d("OctopusEventEmitter", "Emitting editUser event: $fieldToEdit")
-        eventSink?.success(mapOf(
-            "event" to "editUser",
-            "fieldToEdit" to fieldToEdit
-        ))
-    }
-    
-    fun emitUserTokenRequest(requestId: String) {
-        Log.d("OctopusEventEmitter", "Emitting userTokenRequest event: $requestId")
-        eventSink?.success(mapOf(
-            "event" to "userTokenRequest",
-            "requestId" to requestId
-        ))
-    }
-    
-    fun emitNavigateToLogin() {
-        Log.d("OctopusEventEmitter", "Emitting navigateToLogin event")
-        eventSink?.success(mapOf("event" to "navigateToLogin"))
+
+    /**
+     * Compare-and-clear: wipe the active sink only if it matches [sink].
+     * Defensive against a stale `onCancel` from a secondary FlutterEngine
+     * wiping the foreground engine's sink.
+     */
+    fun clearEventSink(sink: EventChannel.EventSink) {
+        synchronized(this) {
+            if (eventSink === sink) eventSink = null
+        }
+        Log.d("OctopusEventEmitter", "Event sink cleared")
     }
 
     fun sendEvent(eventName: String, data: Map<String, Any?>?) {
-        Log.d("OctopusEventEmitter", "Sending event: $eventName, data: $data")
+        val sink = eventSink
+        Log.d("OctopusEventEmitter", "Sending event: $eventName, hasSink: ${sink != null}, data: $data")
+        if (sink == null) return
         val eventData = mutableMapOf<String, Any?>("event" to eventName)
         data?.let { eventData.putAll(it) }
-        eventSink?.success(eventData)
+        sink.success(eventData)
     }
 }

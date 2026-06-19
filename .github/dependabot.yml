@@ -1,0 +1,15 @@
+version: 2
+# github-actions ecosystem ONLY for SDK repos (ORG_STANDARDS §10).
+# Library deps (pub) stay manual — bumping them ships breaking-change semantics
+# to SDK consumers, so it must be a deliberate decision, not an automated PR.
+# This keeps the SHA-pinned actions (ORG_STANDARDS §8) fresh for CVE bumps.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5
