@@ -1,3 +1,10 @@
+## 1.12.1
+
+### Documentation
+- **README rewritten from scratch** — pub.dev landing page rebuilt around what a Flutter dev needs in the first 5 minutes: requirements table up top, three-step quick start (init → embed → connect), separate sections for theming, presentation modes, the Bridge pattern, push wiring, and a scannable streams table. Catalogs the rest of the public surface with depth-links to [doc.octopuscommunity.com](https://doc.octopuscommunity.com). All snippets verified against the public API.
+
+No code changes — `octopus_sdk_flutter` 1.12.1 ships the exact same Dart, Android, and iOS surface as 1.12.0.
+
 ## 1.12.0
 
 ### New Features
