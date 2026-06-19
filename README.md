@@ -262,8 +262,3 @@ sheet) lives under [`example/`](example/) in the repo.
 - Issues: [GitHub](https://github.com/Octopus-Community/octopus-sdk-flutter/issues)
 - Native counterparts: [Android](https://github.com/Octopus-Community/octopus-sdk-android),
   [iOS](https://github.com/Octopus-Community/octopus-sdk-swift)
-
-## License
-
-Distributed under the **Octopus Community Mobile SDK License** — see
-[LICENSE](LICENSE) for the full text.
