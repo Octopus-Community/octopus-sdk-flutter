@@ -213,7 +213,7 @@ List<(String, String)> _eventParams(OctopusEvent event) => switch (event) {
 /// session's events whenever the scenario is opened. Renders the most recent
 /// [RealDebugLog.maxTypedEvents] events in reverse-chronological order, each row
 /// showing a human-readable event name + a list of key/value params. Matches
-/// the iOS sample's persistent `EventsViewModel` — the surface the QA Tester
+/// the iOS sample's persistent `EventsViewModel` — the surface the automated UI tests
 /// reads.
 class EventsScenario extends StatelessWidget {
   const EventsScenario({super.key});

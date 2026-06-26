@@ -3,7 +3,7 @@ import 'package:octopus_sdk_flutter_example/config/api_key_registry.dart';
 
 /// Unit tests for the named-key wire parser that backs the Config-screen
 /// picker. The real values arrive via `--dart-define=OCTOPUS_NAMED_API_KEYS`
-/// from the private `scripts/run-sample.sh` launcher; here we exercise
+/// from your build-time `--dart-define` injection; here we exercise
 /// [parseNamedApiKeys] directly with synthetic wire strings so the parser is
 /// covered without a build-time define.
 void main() {

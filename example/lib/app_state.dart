@@ -433,14 +433,14 @@ class AppState extends ChangeNotifier {
       // `--dart-define=OCTOPUS_SERVER=demo2`; the published native SDK
       // defaults to prod (`api.8pus.io`) when no apiServer is passed, so
       // sample QA against demo2 keys must steer the SDK explicitly via
-      // `ApiServer`. We use the canonical demo2 host internal-tooling advertises
+      // `ApiServer`. We use the canonical demo2 host
       // (`***REDACTED-HOST***`) — the same one the iOS / Android samples
       // hit in their own QA configs.
       final apiServer = octopusServer.trim().toLowerCase() == 'demo2'
           ? ApiServer(host: '***REDACTED-HOST***')
           : null;
       // No `appManagedFields` here on purpose. The Flutter sample tests
-      // against the internal-tooling demo2 keys, each of which the backend issued
+      // against the demo2 keys, each of which the backend issued
       // for a specific managed-fields shape (NO/ALL/SOME). Hardcoding
       // `[NICKNAME]` at init time was producing a host↔community mismatch
       // with the `NO_MANAGED_FIELDS_…` keys that swallows `forceLogin`

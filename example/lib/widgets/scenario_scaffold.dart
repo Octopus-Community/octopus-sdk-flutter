@@ -16,7 +16,7 @@ enum _ResultStatus { idle, success, error }
 /// A single preset action on a scenario screen.
 ///
 /// A preset is a one-tap button: it pre-fills every input itself, so the tap is
-/// the only interaction (SDK_STANDARDS §5.2 — never free-text forms). [testId]
+/// the only interaction. [testId]
 /// is applied verbatim from the scenario catalog (`qa-preset-<scenario>-<n>`)
 /// and [label] starts with `Preset N · `.
 class ScenarioPreset {
@@ -32,7 +32,7 @@ class ScenarioPreset {
 }
 
 /// Shared frame for every scenario screen: title + description, the preset
-/// buttons, and a live result/state panel — the surface the QA Tester reads.
+/// buttons, and a live result/state panel — the surface the automated UI tests read.
 class ScenarioScaffold extends StatefulWidget {
   /// Human title shown in the app bar.
   final String title;
@@ -138,7 +138,7 @@ class _PresetButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // MergeSemantics + Semantics(identifier:) puts the catalog test_id on the
-    // same accessibility node as the tap action so the QA Tester can look the
+    // same accessibility node as the tap action so the automated UI tests can look the
     // button up by id (resource-id / accessibility id).
     return MergeSemantics(
       child: Semantics(

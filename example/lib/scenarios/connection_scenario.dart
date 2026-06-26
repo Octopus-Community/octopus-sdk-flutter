@@ -38,7 +38,7 @@ class ConnectionScenario extends StatelessWidget {
           'validates them, and the SDK\'s OctopusProfile.entitlements '
           'stream reflects the resolved set in the Live state below. '
           'Requires --dart-define=OCTOPUS_SSO_CLIENT_USER_TOKEN_SECRET '
-          '(scripts/run-sample.sh injects it). Without it, the sample '
+          '(`--dart-define` injects it). Without it, the sample '
           'falls back to the pre-baked OCTOPUS_USER_TOKEN — connect still '
           'works but refreshEntitlements returns NoClientTokenProvider.\n\n'
           'After Disconnect, a forced-login community re-establishes a '

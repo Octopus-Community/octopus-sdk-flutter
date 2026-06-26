@@ -29,7 +29,7 @@ A secret scan (`gitleaks detect --no-git`) also runs in CI — never commit cred
 
 ## Example app
 
-The example app reads its demo API key from `--dart-define`, injected at build time. **No key is ever committed to this repo** (the public mirror ships none — bring your own). Internally, keys live in the internal-tooling `shared/config/secrets.local.yaml` source of truth; run the example with:
+The example app reads its demo API key from `--dart-define`, injected at build time. **No key is ever committed to this repo** (the public mirror ships none — bring your own). Run the example with:
 
 ```bash
 flutter run --dart-define=OCTOPUS_API_KEY=<your-demo-key>

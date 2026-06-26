@@ -1,9 +1,9 @@
 name: PR
 
 # Consumer-visible CI gate. Public-mirror allowlisted (plain name, per
-# SDK_STANDARDS §4). Runs on every pull request targeting main.
+#). Runs on every pull request targeting main.
 #
-# Runner strategy (mirrors octopus-sdk-android): each blocking check
+# Runner strategy (mirrors the Android SDK): each blocking check
 # runs PRIMARILY on the self-hosted macOS runner (the team mac mini, label
 # `self-hosted`), with a GitHub-hosted FALLBACK that fires only if the
 # self-hosted job did not succeed (`if: always() && needs.<job>.outputs.ok !=
@@ -34,7 +34,7 @@ on:
   pull_request:
     branches: [main]
 
-# Least-privilege default (ORG_STANDARDS §9). No job here needs write access.
+# Least-privilege default. No job here needs write access.
 permissions:
   contents: read
 
@@ -78,7 +78,7 @@ jobs:
         run: flutter pub publish --dry-run
 
       - name: Score package (pana >= 130/160)
-        # pub.dev quality gate (REFACTOR_PLAN chunk #1 / §3quater): the visible
+        # pub.dev quality gate: the visible
         # quality badge needs >= 130/160. `--exit-code-threshold 30` fails when
         # (max - granted) > 30, i.e. score < 130 (strict `>`, so 130 passes).
         # Ceiling here is 140/160 (-10 proprietary license, -10 mobile-only
@@ -177,7 +177,7 @@ jobs:
           "$RUNNER_TEMP/gitleaks" version
 
       - name: Scan working tree
-        # --no-git scans the checked-out files (ORG_STANDARDS §11). Exit code 1
+        # --no-git scans the checked-out files. Exit code 1
         # on any finding fails the job; --redact keeps secrets out of the logs.
         run: |
           "$RUNNER_TEMP/gitleaks" detect --no-git --redact -v
@@ -248,7 +248,7 @@ jobs:
       - name: Lint workflows
         # actionlint shell-lints `run:` blocks via shellcheck when present; the
         # mac mini may not have it, in which case actionlint still validates the
-        # workflow YAML/expressions and skips shell linting (ORG_STANDARDS §9).
+        # workflow YAML/expressions and skips shell linting.
         run: |
           "$RUNNER_TEMP/actionlint" -color
 

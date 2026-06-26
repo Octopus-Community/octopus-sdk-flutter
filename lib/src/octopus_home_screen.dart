@@ -283,7 +283,7 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
   /// **Limitation — forward-only events (1.12.0, both platforms).** The
   /// native SDKs emit `screenDisplayed` on forward navigation only; no
   /// event fires when the user pops BACK to the main feed (verified
-  /// empirically on Android and iOS against demo2). Once the user
+  /// empirically on Android and iOS). Once the user
   /// navigates deep, the overlays therefore do not reappear until the
   /// widget remounts. Hosts needing a guaranteed dismissal affordance
   /// should keep their own chrome around the view (or

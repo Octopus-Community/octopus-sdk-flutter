@@ -12,7 +12,7 @@ import 'user_id_registry.dart';
 /// succeeds the root swaps to the main bottom-nav shell.
 ///
 /// **API key picking.** When the build carries the named demo-key set
-/// (private `run-sample.sh` launcher — see `api_key_registry.dart`), the
+/// (private `--dart-define` launcher — see `api_key_registry.dart`), the
 /// screen lists them as a single-choice radio picker with one "Custom…"
 /// fallback entry for pasting an arbitrary key. On keyless / public builds
 /// the list is empty, and the screen falls back to the original Demo / Custom

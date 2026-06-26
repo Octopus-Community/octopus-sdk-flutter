@@ -24,7 +24,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  # Release tooling (REFACTOR_PLAN §3quater.9 / §5.3). Melos 3.0+ requires a
+  # Release tooling. Melos 3.0+ requires a
   # local install next to melos.yaml. dev_dependencies are NOT propagated to
   # consumers of a published package, so this does not affect downstream apps.
   # Pinned to the 6.x line (standalone melos.yaml; 7.x switches to Dart pub

@@ -56,8 +56,8 @@ class SwitchCommunityScenario extends StatelessWidget {
           : 'Re-target the SDK at a different community at runtime via '
                 'OctopusSDK.switchCommunity. This build ships no named keys '
                 '(--dart-define=OCTOPUS_NAMED_API_KEYS is empty), so there is '
-                'nothing to switch to. The private scripts/run-sample.sh '
-                'launcher fills the named-key set from internal-tooling secrets.',
+                'nothing to switch to. The build-time --dart-define injection '
+                'launcher fills the named-key set from your secrets.',
       resultTestId: 'switch-community-result',
       liveState: KeyValueCard(
         title: 'Live state',

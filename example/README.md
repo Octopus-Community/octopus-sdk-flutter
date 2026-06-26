@@ -16,45 +16,7 @@ live result panel, so the effect of every SDK call is observable on screen.
 The sample reads its credentials from `--dart-define` at build time
 (see `lib/octopus_demo_config.dart`) — **no key is ever committed to this repo**.
 
-### Octopus team — `scripts/run-sample.sh` (recommended)
-
-The wrapper sources keys from internal-tooling' centralized secrets file
-(`<internal-tooling>/shared/config/secrets.local.yaml` — the single source of truth
-shared with the Android and React Native samples), signs a short-lived SSO JWT
-with the SSO secret, and forwards everything to `flutter run`:
-
-```bash
-# from the repo root
-scripts/run-sample.sh                # default device
-scripts/run-sample.sh -d emulator-5562
-```
-
-One-time setup:
-
-1. `git pull` your local `internal-tooling` clone (the centralized template lands as
-   `shared/config/secrets.local.yaml.example`).
-2. `cp shared/config/secrets.local.yaml.example shared/config/secrets.local.yaml`
-   and fill in the real keys (share via 1Password / Slack DM — never commit).
-
-Overrides:
-
-```bash
-# Use a different key from the yaml as the primary
-# (see the api_keys: names in secrets.local.yaml)
-OCTOPUS_KEY_NAME=<A_KEY_NAME_FROM_SECRETS_YAML> \
-  scripts/run-sample.sh
-
-# internal-tooling cloned elsewhere
-PM_TOOLS_DIR=/elsewhere/internal-tooling scripts/run-sample.sh
-
-# Build instead of run
-FLUTTER_CMD="build apk" scripts/run-sample.sh --debug
-```
-
-### Cold-clone consumers — manual `--dart-define`
-
-External users don't have access to the team's internal-tooling clone. Pass your own
-key (and optionally a JWT issued by your backend for SSO mode — see
+Pass your own API key (and, for SSO mode, a JWT issued by your backend — see
 [the SSO docs](https://doc.octopuscommunity.com/backend/sso)):
 
 ```bash

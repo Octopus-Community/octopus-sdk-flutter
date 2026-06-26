@@ -64,7 +64,7 @@ class CommunityTab extends StatelessWidget {
     // deeper SDK screen still rendering its own native toolbar, which
     // produces a host-AppBar + native-toolbar double header in nav-deep
     // states. Until iOS ships its `OctopusHomeContent` equivalent
-    // (octopus-sdk-ios#275), staying on `OctopusHomeScreen` on
+    // (internal tracking), staying on `OctopusHomeScreen` on
     // BOTH platforms keeps the two natives visually aligned in the sample.
     // The non-embedded integration modes (Modal / Fullscreen / Sheet) are
     // demonstrated by their respective scenarios in the Scenarios tab.

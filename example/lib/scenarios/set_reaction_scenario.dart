@@ -23,7 +23,7 @@ const String _fallbackFakePostId = 'flutter-demo-fake-post-id';
 /// [SetReactionPostNotFoundError] on the happy connected path — that still
 /// proves the typed-error channel works end-to-end. The presets also handle
 /// the orthogonal [OctopusConnectionFailure] branch (no network / not
-/// authenticated) and surface its concrete subtype so the QA Tester sees
+/// authenticated) and surface its concrete subtype so the automated UI tests see
 /// exactly what came back.
 class SetReactionScenario extends StatefulWidget {
   const SetReactionScenario({super.key});
@@ -96,7 +96,7 @@ class _SetReactionScenarioState extends State<SetReactionScenario> {
         case OctopusConnectionFailure():
           // Connection / auth failures land here when the user isn't
           // connected or the network is down. We surface the concrete
-          // OctopusConnectionFailure subtype so the QA Tester sees exactly
+          // OctopusConnectionFailure subtype so the automated UI tests see exactly
           // which one fired.
           final subtype = result.runtimeType.toString();
           final message =

@@ -8,7 +8,7 @@ import '../widgets/scenario_scaffold.dart';
 
 /// Renders an [OctopusResult] from `overrideCommunityAccess` into a result
 /// string, pattern-matching the typed [OverrideCommunityAccessError] subtypes
-/// so the QA Tester sees which branch fired.
+/// so the automated UI tests see which branch fired.
 String _describeOverrideResult(
   bool hasAccess,
   OctopusResult<void, OverrideCommunityAccessError> result,

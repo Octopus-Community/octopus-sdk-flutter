@@ -59,7 +59,7 @@ class RefreshEntitlementsScenario extends StatelessWidget {
                   );
                 case OctopusInvalidArguments<OctopusServerError>(:final errors):
                   // Typed-error path: pattern-match every known subtype so
-                  // the QA Tester sees which branch fired. The outer
+                  // the automated UI tests see which branch fired. The outer
                   // `<OctopusServerError>` annotation is required for
                   // exhaustiveness (see OctopusResult dartdoc); narrow back
                   // to the method's typed error here.

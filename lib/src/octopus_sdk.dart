@@ -513,8 +513,7 @@ class OctopusSDK {
   ///   is hidden so the host app can render its own title. Mirrors
   ///   `OctopusHomeContent` on Android (no top bar variant). **iOS asymmetry:**
   ///   the iOS pod 1.12.0 does not expose a no-navbar variant — when `false`,
-  ///   the native iOS top bar still renders (tracked in
-  ///   octopus-sdk-ios#275).
+  ///   the native iOS top bar still renders (tracked internally).
   /// [initialScreen] - The initial screen to display when the view mounts.
   ///   Defaults to the main feed. If a non-null [notification] also carries a
   ///   non-empty `linkPath`, the deep link wins and [initialScreen] is
@@ -1419,8 +1418,7 @@ class OctopusSDK {
   /// overlay was configured (the 1.12.0-dev helper attached a default close
   /// overlay, which is why the symptom tracked the helper). The route shapes
   /// themselves were never at fault; the helper now pushes a plain
-  /// [MaterialPageRoute] (no bottom sheet involved). History in
-  /// `octopus-sdk-flutter#63`.
+  /// [MaterialPageRoute] (no bottom sheet involved). Tracked internally.
   ///
   /// The returned [Future] completes when the route is popped (the SDK's
   /// own back chevron on Android, system back, iOS swipe-from-left-edge,
@@ -1485,8 +1483,7 @@ class OctopusSDK {
   /// See the **History note** on [showOctopusHomeScreen] — this wrapper was
   /// briefly `@Deprecated` alongside it during 1.12.0 development over a
   /// sub-navigation report whose root cause (overlay gating recreating the
-  /// PlatformView) was found and fixed in 1.12.0; history in
-  /// `octopus-sdk-flutter#63`.
+  /// PlatformView) was found and fixed in 1.12.0; tracked internally.
   Future<void> openNotification(
     BuildContext context,
     OctopusNotification notification, {
