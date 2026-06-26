@@ -27,7 +27,6 @@ import 'octopus_theme.dart';
 /// - **iOS**: this widget renders the native top bar — **identical to
 ///   [OctopusHomeScreen]**. A Flutter-side chrome-clean variant is *not*
 ///   pursued on iOS (the native no-navbar request
-///   [octopus-sdk-ios#275](https://github.com/Octopus-Community/octopus-sdk-ios/issues/275)
 ///   is deliberately not a goal): the iOS SDK drives its sub-navigation
 ///   through its own `NavigationStack` top bar, so stripping that bar would
 ///   leave deep screens (post / group detail) with no back affordance that

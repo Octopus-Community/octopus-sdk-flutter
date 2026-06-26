@@ -6,7 +6,7 @@ import '../widgets/key_value_card.dart';
 /// Home tab — a read-only dashboard of SDK + session state.
 ///
 /// Reads only; every state-changing action lives in a scenario or Settings,
-/// so the dashboard never mutates anything on its own (SDK_STANDARDS §5.2).
+/// so the dashboard never mutates anything on its own.
 /// The presentation modes (Modal / Fullscreen / Sheet) used to be launchable
 /// from cards here; they now live exclusively in the Scenarios tab so each
 /// integration shape is demoed in exactly one place.

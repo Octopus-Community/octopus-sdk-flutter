@@ -1,6 +1,6 @@
 # GitHub auto-generated release notes categorization.
 # Groups merged PRs by label in the "Generate release notes" output.
-# This is the notes config, NOT a workflow (ORG_STANDARDS §6).
+# This is the notes config, NOT a workflow.
 changelog:
   exclude:
     labels:

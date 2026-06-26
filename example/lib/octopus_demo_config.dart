@@ -6,12 +6,11 @@
 // compiles, with or without a key. No key is ever committed to this repo, and
 // the public OSS mirror ships none (a cold-clone consumer brings their own).
 //
-// Real values live in internal-tooling `shared/config/secrets.local.yaml` (the single
-// source of truth for all SDK samples — gitignored, shared out-of-band). For
-// local dev / QA, pass them at build/run time:
+// Real values are injected at build/run time and never committed. For
+// local dev / QA, pass them via --dart-define:
 //
 //   flutter run \
-//     --dart-define=OCTOPUS_API_KEY=<from secrets.local.yaml> \
+//     --dart-define=OCTOPUS_API_KEY=<your demo API key> \
 //     --dart-define=OCTOPUS_USER_ID=<a stable test user id> \
 //     --dart-define=OCTOPUS_USER_TOKEN=<JWT signed with the SSO secret>
 //
@@ -68,9 +67,8 @@ const String octopusUserToken = String.fromEnvironment(
 /// Empty by default. When non-empty, `BridgeTokenSigner` (in
 /// `lib/auth/bridge_token_signer.dart`) uses it to sign per-call bridge
 /// fingerprints, mirroring iOS's `TokenProvider.getBridgeSignature` which
-/// reads the same secret from `Bundle.main.infoDictionary`. The private
-/// `scripts/run-sample.sh` injects it from
-/// `internal-tooling/shared/config/secrets.local.yaml`.
+/// reads the same secret from `Bundle.main.infoDictionary`. It is injected
+/// at build time via `--dart-define`.
 const String octopusSsoClientUserTokenSecret = String.fromEnvironment(
   'OCTOPUS_SSO_CLIENT_USER_TOKEN_SECRET',
   defaultValue: '',
@@ -118,7 +116,7 @@ bool get octopusIsProdServer =>
     !_nonProdServers.contains(octopusServer.trim().toLowerCase());
 
 /// A real post id on the demo community, injected via
-/// `--dart-define=OCTOPUS_DEMO_POST_ID=…` (the private `run-sample.sh`
+/// `--dart-define=OCTOPUS_DEMO_POST_ID=…` (your build-time `--dart-define` injection
 /// launcher injects a stable demo2 post by default).
 ///
 /// Prefills the Initial-Screen scenario's "Post id" field so its post /
@@ -143,7 +141,7 @@ const String octopusDemoBridgeTopic = String.fromEnvironment(
 );
 
 /// Whether a non-empty demo post id is configured (i.e. [octopusDemoPostId] was
-/// injected — `run-sample.sh` injects a stable demo2 post by default; a keyless
+/// injected — `--dart-define` injects a stable demo2 post by default; a keyless
 /// / public build leaves it empty).
 bool get hasDemoPostId => octopusDemoPostId.isNotEmpty;
 

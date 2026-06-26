@@ -253,7 +253,7 @@ private final class SafeHostingContainerView: UIView {
       // `showNavBar: false` selects the no-chrome variant on Android
       // (`OctopusHomeContent`). The iOS pod 1.12.0 does not expose a
       // no-navbar variant yet (tracked in
-      // octopus-sdk-ios#275) — keep rendering
+      // internal tracking) — keep rendering
       // `OctopusHomeScreen` with its top bar. Hosts on iOS see the
       // SDK's title until the iOS pod ships its `OctopusHomeContent`.
       // The notice is emitted per PlatformView mount so tab-switches
@@ -263,7 +263,7 @@ private final class SafeHostingContainerView: UIView {
         NSLog(
           "[OctopusSdkFlutter] showNavBar: false is not yet supported on iOS — "
           + "the native top bar will still render. Tracking: "
-          + "octopus-sdk-ios#275."
+          + "internal tracking."
         )
       }
 

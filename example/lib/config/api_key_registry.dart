@@ -4,8 +4,8 @@
 // parser and reads ONE compile-time define (`OCTOPUS_NAMED_API_KEYS`). It
 // enumerates NO internal demo community, carries NO human label, and embeds
 // NO key value — those live exclusively in the PRIVATE launcher
-// `scripts/run-sample.sh` (which is `export-ignore`d from the public mirror),
-// which fills the define from internal-tooling secrets at build time.
+// `--dart-define` (which is `export-ignore`d from the public mirror),
+// which fills the define from your secrets at build time.
 //
 // A public / keyless build (cold clone, CI, the public OSS mirror) passes no
 // define, so [injectedApiKeys] is empty and the Config screen falls back to

@@ -41,7 +41,7 @@ import '../widgets/scenario_scaffold.dart';
 ///
 /// **Preset 4 auto-pops on `PostCreated`.** The native embedded shell does
 /// not yet expose a `createPostScreenDismissed` callback (tracked on
-/// octopus-sdk-android#267 + octopus-sdk-ios#287), so
+/// internal tracking), so
 /// after a successful publish the native side keeps navigating internally
 /// (typically to post-detail / feed) — leaving the host route mounted. The
 /// Preset 4 `onRun` listens to the global [OctopusSDK.events] stream and
@@ -65,7 +65,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
 
   /// Display name of the group the dropdown defaults to when QA has not picked
   /// one yet — the stable open read+write group every demo2 community ships
-  /// (per the internal-tooling `test-environments.yaml` fixtures). Falls back to the
+  /// (per the the demo backend fixtures). Falls back to the
   /// first available group when no group with this name is loaded.
   static const String _defaultGroupName = 'General';
 
@@ -88,7 +88,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   void initState() {
     super.initState();
     // Prefill the post-id field with the injected demo post id so presets 2 & 5
-    // open live content out of the box. `run-sample.sh` injects a stable demo2
+    // open live content out of the box. `--dart-define` injects a stable demo2
     // post (OCTOPUS_DEMO_POST_ID) by default; a keyless / public build leaves
     // it empty and the presets fall back to manual entry. See
     // octopus_demo_config.dart.
@@ -185,7 +185,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 labelText: 'Post id (presets 2 & 5)',
                 helperText:
                     'Prefilled from OCTOPUS_DEMO_POST_ID when injected '
-                    '(run-sample.sh injects a stable demo2 post by default). '
+                    '(`--dart-define` injects a stable demo2 post by default). '
                     'Plug your own post id to open it in bridge mode; empty on '
                     'a keyless / public build.',
                 border: OutlineInputBorder(),
@@ -510,8 +510,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 'OctopusInitialScreen.createPost(...) using the inputs above. '
                 'The host route auto-pops on PostCreated as a workaround — '
                 'the native shell does not yet signal createPost dismissal '
-                '(tracked: octopus-sdk-android#267, '
-                'octopus-sdk-ios#287). Image bytes are '
+                '(tracked internally). Image bytes are '
                 'intentionally not provided (embedded createPost drops image '
                 'bytes by design — use OctopusSDK.showOctopusCreatePostScreen '
                 'for the image-share flow).',
@@ -553,7 +552,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               // both platforms. The native embedded shell currently keeps
               // navigating internally after publish (post-detail / feed) —
               // see the cross-platform-sync issues
-              // octopus-sdk-android#267 + octopus-sdk-ios#287.
+              // internal tracking.
               // The `OctopusSDK.events` stream is a non-replaying broadcast
               // controller, so the microtask gap between `.listen()` and the
               // following `Navigator.push` cannot deliver a buffered stale

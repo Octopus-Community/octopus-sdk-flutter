@@ -33,7 +33,7 @@ import '../widgets/scenario_scaffold.dart';
 ///     (e.g. `Gourmands`). Falls back to `null` when no group matches.
 ///   * a `tokenProvider` callback that signs the SDK-provided fingerprint as
 ///     an HS256 JWT via [BridgeTokenSigner] (`OCTOPUS_SSO_CLIENT_USER_TOKEN_SECRET`
-///     injected at build time by `scripts/run-sample.sh`). Returns `null`
+///     injected at build time by `--dart-define`). Returns `null`
 ///     for keyless / public builds — the SDK then surfaces an
 ///     `invalidClientToken` error from the backend. Mirrors iOS's
 ///     `RecipeViewModel.swift` lines 86–96 which signs in SSO mode via
@@ -124,8 +124,7 @@ class _BridgeToClientObjectScenarioState
 
   /// Host-side bridge tokenProvider. Signs the SDK-provided `fingerprint` as
   /// an HS256 JWT using the demo SSO secret (`OCTOPUS_SSO_CLIENT_USER_TOKEN_SECRET`,
-  /// injected at build time via `scripts/run-sample.sh` from
-  /// internal-tooling `secrets.local.yaml`).
+  /// injected at build time via `--dart-define`).
   ///
   /// Returns `null` for keyless / public builds (secret not injected) — the
   /// SDK then surfaces an `invalidClientToken` error which the result panel
@@ -243,7 +242,7 @@ class _BridgeToClientObjectScenarioState
     // tapping "View recipe" on the bridge post, and coming back to read
     // the fire count. The scenario was previously the registration site,
     // which meant the callback got disposed before the user could trigger
-    // it (Thomas P's PO test on OCT-1399 flagged this as "non vérifiable").
+    // it (internal testing flagged this as not verifiable).
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Bridge to client object',
