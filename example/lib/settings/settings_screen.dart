@@ -85,10 +85,10 @@ class SettingsTab extends StatelessWidget {
           child: ListTile(
             leading: const Icon(Icons.dns),
             title: Text(
-              app.config?.serverEnv == ServerEnv.prod ? 'prod' : 'demo2',
+              app.config?.serverEnv == ServerEnv.prod ? 'prod' : 'custom',
             ),
             subtitle: const Text(
-              'Set by the build (--dart-define=OCTOPUS_SERVER); '
+              'Set by the build (--dart-define=OCTOPUS_API_HOST); '
               'not switchable at runtime.',
             ),
           ),

@@ -36,8 +36,8 @@ The published `octopus_sdk_flutter` targets the **production** Octopus server
 production by default. Every action (connect, follow, post) reaches a real
 community. A persistent red banner warns about this on every screen. Internal QA
 builds that swap in a demo/dev native SDK suppress the banner with
-`--dart-define=OCTOPUS_SERVER=demo2`. **Do not publish test content against a
-client community.**
+`--dart-define=OCTOPUS_API_HOST=<non-prod host>`. **Do not publish test content
+against a client community.**
 
 ## Scenarios
 

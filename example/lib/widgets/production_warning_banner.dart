@@ -11,7 +11,7 @@ import '../octopus_demo_config.dart';
 /// shown on every screen (wired via `MaterialApp.builder`) and is not
 /// dismissible, mirroring the Android sample's `ProductionWarningBanner`. A QA
 /// build that swaps in a demo/dev native SDK suppresses it with
-/// `--dart-define=OCTOPUS_SERVER=demo2`.
+/// `--dart-define=OCTOPUS_API_HOST=<non-prod host>`.
 class ProductionWarningBanner extends StatelessWidget {
   const ProductionWarningBanner({super.key});
 
@@ -20,9 +20,9 @@ class ProductionWarningBanner extends StatelessWidget {
     if (!octopusIsProdServer) return const SizedBox.shrink();
 
     final scheme = Theme.of(context).colorScheme;
-    final hostLabel = octopusServer.toLowerCase() == 'prod'
-        ? 'api.8pus.io'
-        : octopusServer;
+    // The banner only renders on prod (see the guard above), so the host is
+    // always the published SDK's production endpoint.
+    const hostLabel = 'api.8pus.io';
 
     return Semantics(
       identifier: 'env-warning-banner',

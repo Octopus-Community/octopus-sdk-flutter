@@ -88,36 +88,24 @@ bool get hasInjectedSsoSecret => octopusSsoClientUserTokenSecret.isNotEmpty;
 
 /// The server the bundled native SDK talks to, declared at build time.
 ///
+/// Optional non-production API host, injected at build time via
+/// `--dart-define=OCTOPUS_API_HOST=…`. Empty (the default, and always the case
+/// on the public build) → the SDK's built-in production host.
+///
 /// CRITICAL: the published `octopus-sdk` the plugin depends on targets
-/// **production** (`api.8pus.io`) and the SDK exposes no host setter — the
-/// Flutter sample therefore talks to PROD by default, where every action
+/// **production** (`api.8pus.io`) and exposes no host setter — the Flutter
+/// sample therefore talks to PROD whenever this is empty, where every action
 /// (connect, follow, post) hits real client communities. Fail-safe: assume
-/// prod unless a QA build that swaps in a demo/dev native SDK relabels via
-/// `--dart-define=OCTOPUS_SERVER=demo2`.
-const String octopusServer = String.fromEnvironment(
-  'OCTOPUS_SERVER',
-  defaultValue: 'prod',
-);
+/// prod unless a build explicitly injects a non-production host here. The value
+/// is environment-specific and never committed.
+const String octopusApiHost = String.fromEnvironment('OCTOPUS_API_HOST');
 
-/// Known non-production server aliases. Exact-match (not substring) so a prod
-/// host that merely contains one of these tokens is never mis-classified safe.
-const Set<String> _nonProdServers = {
-  'demo',
-  'demo2',
-  'dev',
-  'local',
-  'localhost',
-  'staging',
-};
-
-/// Whether [octopusServer] is a production / client-facing host. Fail-safe:
-/// anything not on the explicit non-prod allowlist is treated as prod.
-bool get octopusIsProdServer =>
-    !_nonProdServers.contains(octopusServer.trim().toLowerCase());
+/// Whether the sample targets the default production backend (i.e. no custom
+/// host was injected). Fail-safe: prod unless an explicit host is set.
+bool get octopusIsProdServer => octopusApiHost.trim().isEmpty;
 
 /// A real post id on the demo community, injected via
-/// `--dart-define=OCTOPUS_DEMO_POST_ID=…` (your build-time `--dart-define` injection
-/// launcher injects a stable demo2 post by default).
+/// `--dart-define=OCTOPUS_DEMO_POST_ID=…` (injected at build time by default).
 ///
 /// Prefills the Initial-Screen scenario's "Post id" field so its post /
 /// post-details presets are runnable out of the box. Empty (keyless / public
@@ -132,8 +120,8 @@ const String octopusDemoPostId = String.fromEnvironment(
 /// (by lookup in the live `OctopusSDK.groups` stream) for its random-recipe
 /// preset, injected via `--dart-define=OCTOPUS_DEMO_BRIDGE_TOPIC=…`.
 ///
-/// Defaults to `General` — present on the demo2 fixture community (the iOS
-/// sample uses `Gourmands`, which demo2 does not have; the lookup falls back
+/// Defaults to `General` — present on the demo community (the iOS sample uses
+/// `Gourmands`, which the demo community does not have; the lookup falls back
 /// to `null` = community default group when the name doesn't match).
 const String octopusDemoBridgeTopic = String.fromEnvironment(
   'OCTOPUS_DEMO_BRIDGE_TOPIC',
@@ -141,8 +129,7 @@ const String octopusDemoBridgeTopic = String.fromEnvironment(
 );
 
 /// Whether a non-empty demo post id is configured (i.e. [octopusDemoPostId] was
-/// injected — `--dart-define` injects a stable demo2 post by default; a keyless
-/// / public build leaves it empty).
+/// injected by default; a keyless / public build leaves it empty).
 bool get hasDemoPostId => octopusDemoPostId.isNotEmpty;
 
 /// The post id the notification fixture references.

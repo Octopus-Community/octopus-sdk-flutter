@@ -36,21 +36,21 @@ void main() {
         apiKeySource: ApiKeySource.demo,
         userId: 'flutter-sample-user',
         theme: AppThemeChoice.system,
-        serverEnv: ServerEnv.demo2,
+        serverEnv: ServerEnv.custom,
       );
 
       final json = config.toJson();
       expect(json['apiKeySource'], 'demo');
       expect(json['userId'], 'flutter-sample-user');
       expect(json['theme'], 'system');
-      expect(json['serverEnv'], 'demo2');
+      expect(json['serverEnv'], 'custom');
 
       final restored = DemoConfig.fromJson(json);
       expect(restored, isNotNull);
       expect(restored!.apiKeySource, ApiKeySource.demo);
       expect(restored.userId, 'flutter-sample-user');
       expect(restored.theme, AppThemeChoice.system);
-      expect(restored.serverEnv, ServerEnv.demo2);
+      expect(restored.serverEnv, ServerEnv.custom);
     });
 
     test(
@@ -63,7 +63,7 @@ void main() {
           'apiKeySource': 'custom',
           'customApiKey': 'legacy-key',
           'theme': 'light',
-          'serverEnv': 'demo2',
+          'serverEnv': 'custom',
         });
         expect(restored, isNotNull);
         expect(restored!.userId, octopusUserId);
@@ -77,7 +77,7 @@ void main() {
         'apiKeySource': 'demo',
         'userId': '   ',
         'theme': 'system',
-        'serverEnv': 'demo2',
+        'serverEnv': 'custom',
       });
       expect(restored, isNotNull);
       expect(restored!.userId, octopusUserId);
@@ -90,7 +90,7 @@ void main() {
           'apiKeySource': 'not_a_source',
           'userId': 'flutter-sample-user',
           'theme': 'dark',
-          'serverEnv': 'demo2',
+          'serverEnv': 'custom',
         }),
         isNull,
       );
@@ -99,7 +99,7 @@ void main() {
           'apiKeySource': 'demo',
           'userId': 'flutter-sample-user',
           'theme': 'lightish', // renamed/unknown enum value
-          'serverEnv': 'demo2',
+          'serverEnv': 'custom',
         }),
         isNull,
       );

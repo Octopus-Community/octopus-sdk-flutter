@@ -24,12 +24,12 @@ enum ApiKeySource {
 
 /// Backend environment the sample documents it is pointing at.
 ///
-/// Fixed at build time by `--dart-define=OCTOPUS_SERVER` (see [octopusServer]):
-/// [start] routes the SDK to `***REDACTED-HOST***` via [ApiServer] when it is
-/// `demo2`, otherwise the native SDK's default (production) host. The
-/// Config-screen picker is therefore display-only — recorded for the Settings
-/// card and cross-platform Config parity, not a runtime host switch.
-enum ServerEnv { demo2, prod }
+/// Fixed at build time: [start] routes the SDK to the host injected via
+/// `--dart-define=OCTOPUS_API_HOST` (see [octopusApiHost]) when one is set,
+/// otherwise the native SDK's default (production) host. The Config-screen
+/// picker is therefore display-only — recorded for the Settings card and
+/// cross-platform Config parity, not a runtime host switch.
+enum ServerEnv { custom, prod }
 
 /// Material brightness chosen on the Config screen.
 enum AppThemeChoice { system, light, dark }
@@ -221,7 +221,8 @@ class AppState extends ChangeNotifier {
   /// [disconnectUser] (token expiry, force-logout). Now always reflects
   /// the latest emission from `OctopusSDK.connectionState`.
   ///
-  /// **Excludes guests.** On a forced-login community (and on `demo2`), the
+  /// **Excludes guests.** On a forced-login community (and on a non-prod
+  /// backend), the
   /// SDK auto-establishes an anonymous *guest* session right after
   /// [disconnectUser] — emitted as `OctopusConnected(isGuest: true)`. A plain
   /// `is OctopusConnected` check would treat that guest as "connected" and the
@@ -429,18 +430,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Route the SDK to demo2 when the build was launched with
-      // `--dart-define=OCTOPUS_SERVER=demo2`; the published native SDK
-      // defaults to prod (`api.8pus.io`) when no apiServer is passed, so
-      // sample QA against demo2 keys must steer the SDK explicitly via
-      // `ApiServer`. We use the canonical demo2 host
-      // (`***REDACTED-HOST***`) — the same one the iOS / Android samples
-      // hit in their own QA configs.
-      final apiServer = octopusServer.trim().toLowerCase() == 'demo2'
-          ? ApiServer(host: '***REDACTED-HOST***')
+      // Route the SDK to a non-production host when one was injected at build
+      // time via `--dart-define=OCTOPUS_API_HOST`; the published native SDK
+      // defaults to prod (`api.8pus.io`) when no apiServer is passed, so an
+      // internal QA build must steer the SDK to its backend explicitly via
+      // `ApiServer`. Empty host → prod default. The host value is injected at
+      // build time and never committed.
+      final apiServer = octopusApiHost.trim().isNotEmpty
+          ? ApiServer(host: octopusApiHost.trim())
           : null;
       // No `appManagedFields` here on purpose. The Flutter sample tests
-      // against the demo2 keys, each of which the backend issued
+      // against the demo keys, each of which the backend issued
       // for a specific managed-fields shape (NO/ALL/SOME). Hardcoding
       // `[NICKNAME]` at init time was producing a host↔community mismatch
       // with the `NO_MANAGED_FIELDS_…` keys that swallows `forceLogin`
@@ -508,11 +508,12 @@ class AppState extends ChangeNotifier {
   /// Connects the configured SSO user with a **persistent** token provider
   /// — the SDK will re-invoke the provider on every refresh (e.g.
   /// `refreshEntitlements()`) so a change to [_currentEntitlements] takes
-  /// effect without reconnecting. Falls back to the static-token path when
-  /// no SSO secret was injected at build time (signer can't sign anyway,
-  /// the pre-baked [octopusUserToken] is still useful for QA).
+  /// effect without reconnecting. Falls back to a trivial provider returning
+  /// the pre-baked [octopusUserToken] when no SSO secret was injected at build
+  /// time (the signer can't sign anyway, but the pre-baked token is still
+  /// useful for QA).
   ///
-  /// On the static-token fallback path, the bundled [octopusUserToken] is
+  /// On the pre-baked-token fallback path, the bundled [octopusUserToken] is
   /// signed against the build-time [octopusUserId] seed — connecting with a
   /// different runtime [effectiveUserId] will surface a BE auth error. The
   /// Config screen documents this; the SSO-secret path (used in normal QA)
@@ -525,11 +526,11 @@ class AppState extends ChangeNotifier {
     _currentEntitlements = Set.unmodifiable(entitlements);
     final userId = effectiveUserId;
     if (hasInjectedSsoSecret) {
-      demoLog.apiCall('connectUserWithTokenProvider', {
+      demoLog.apiCall('connectUser (tokenProvider)', {
         'userId': userId,
         'entitlements': _currentEntitlements.toList()..sort(),
       });
-      await octopus.connectUserWithTokenProvider(
+      await octopus.connectUser(
         userId: userId,
         tokenProvider: () async => ClientUserTokenSigner.signClientUserToken(
           userId: userId,
@@ -537,15 +538,19 @@ class AppState extends ChangeNotifier {
         ),
       );
     } else {
-      // Keyless / public build: no secret to sign with — connect with the
-      // pre-baked JWT (from `--dart-define=OCTOPUS_USER_TOKEN=…`). The SDK
-      // will surface `RefreshEntitlementsNoClientTokenProviderError` on
+      // Keyless / public build: no secret to sign with — connect with a
+      // trivial provider returning the pre-baked JWT (from
+      // `--dart-define=OCTOPUS_USER_TOKEN=…`). When that token is empty, the
+      // SDK surfaces `RefreshEntitlementsNoClientTokenProviderError` on
       // refresh; that's the documented keyless-build behavior.
-      demoLog.apiCall('connectUser (static token)', {
+      demoLog.apiCall('connectUser (pre-baked token)', {
         'userId': userId,
         'token': octopusUserToken.isEmpty ? '<empty>' : '<redacted>',
       });
-      await octopus.connectUser(userId: userId, token: octopusUserToken);
+      await octopus.connectUser(
+        userId: userId,
+        tokenProvider: () async => octopusUserToken,
+      );
     }
     notifyListeners();
   }
@@ -566,13 +571,13 @@ class AppState extends ChangeNotifier {
   ///
   /// [appManagedFields] defaults to the same empty list `initialize()` uses —
   /// see the comment block in [start] for why hardcoding `[NICKNAME]` here
-  /// would conflict with the `NO_MANAGED_FIELDS_…` demo2 keys. Override only
+  /// would conflict with the `NO_MANAGED_FIELDS_…` demo keys. Override only
   /// when you specifically want to demo per-community managed-field shapes.
   ///
-  /// [apiServer] defaults to the same demo2 routing [start] applies
-  /// (`***REDACTED-HOST***` when launched with `--dart-define=OCTOPUS_SERVER=demo2`)
-  /// — otherwise a switch from a demo2 init would silently fall back to prod
-  /// and produce a host↔community mismatch.
+  /// [apiServer] defaults to the same host routing [start] applies (the host
+  /// injected via `--dart-define=OCTOPUS_API_HOST`, if any) — otherwise a
+  /// switch from a non-prod init would silently fall back to prod and produce
+  /// a host↔community mismatch.
   Future<void> switchToCommunity(
     String apiKey, {
     List<ProfileField> appManagedFields = const [],
@@ -580,8 +585,8 @@ class AppState extends ChangeNotifier {
   }) async {
     final resolvedServer =
         apiServer ??
-        (octopusServer.trim().toLowerCase() == 'demo2'
-            ? ApiServer(host: '***REDACTED-HOST***')
+        (octopusApiHost.trim().isNotEmpty
+            ? ApiServer(host: octopusApiHost.trim())
             : null);
     await octopus.switchCommunity(
       apiKey: apiKey,

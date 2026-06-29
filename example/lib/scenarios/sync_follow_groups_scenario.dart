@@ -101,7 +101,7 @@ class _SyncFollowGroupsScenarioState extends State<SyncFollowGroupsScenario> {
     if (groups.isEmpty) {
       setResult(
         'No groups in this community to sync. Provision at least one group on '
-        'the backend (demo2) — the SDK only follows groups that exist.',
+        'the backend — the SDK only follows groups that exist.',
         isError: true,
       );
       return;
