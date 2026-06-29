@@ -64,8 +64,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
       'A long enough prefill text from the host app demonstration scenario.';
 
   /// Display name of the group the dropdown defaults to when QA has not picked
-  /// one yet — the stable open read+write group every demo2 community ships
-  /// (per the the demo backend fixtures). Falls back to the
+  /// one yet — the stable open read+write group every demo community ships
+  /// (per the demo backend fixtures). Falls back to the
   /// first available group when no group with this name is loaded.
   static const String _defaultGroupName = 'General';
 
@@ -88,7 +88,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   void initState() {
     super.initState();
     // Prefill the post-id field with the injected demo post id so presets 2 & 5
-    // open live content out of the box. `--dart-define` injects a stable demo2
+    // open live content out of the box. `--dart-define` injects a stable demo
     // post (OCTOPUS_DEMO_POST_ID) by default; a keyless / public build leaves
     // it empty and the presets fall back to manual entry. See
     // octopus_demo_config.dart.
@@ -185,7 +185,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 labelText: 'Post id (presets 2 & 5)',
                 helperText:
                     'Prefilled from OCTOPUS_DEMO_POST_ID when injected '
-                    '(`--dart-define` injects a stable demo2 post by default). '
+                    '(`--dart-define` injects a stable demo post by default). '
                     'Plug your own post id to open it in bridge mode; empty on '
                     'a keyless / public build.',
                 border: OutlineInputBorder(),

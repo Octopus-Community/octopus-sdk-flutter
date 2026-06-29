@@ -38,13 +38,13 @@ class _ConfigScreenState extends State<ConfigScreen> {
         );
 
   AppThemeChoice _theme = AppThemeChoice.system;
-  // The server is fixed at build time (--dart-define=OCTOPUS_SERVER), so this
+  // The server is fixed at build time (--dart-define=OCTOPUS_API_HOST), so this
   // is final: the Config picker only displays it, it can't be changed. Default
   // to the server the native SDK is actually built against (prod for the
   // published SDK) so the recorded config matches reality.
   final ServerEnv _serverEnv = octopusIsProdServer
       ? ServerEnv.prod
-      : ServerEnv.demo2;
+      : ServerEnv.custom;
   final _customKeyController = TextEditingController();
 
   /// Free-text User ID controller — seeded with the build-time
@@ -292,16 +292,17 @@ class _ConfigScreenState extends State<ConfigScreen> {
               label: 'Server',
               selected: _serverEnv,
               segments: const [
-                (ServerEnv.demo2, 'demo2'),
+                (ServerEnv.custom, 'custom'),
                 (ServerEnv.prod, 'prod'),
               ],
               // Display-only: the host is fixed at build time by
-              // `--dart-define=OCTOPUS_SERVER` (see [octopusServer]) and routed
-              // in `AppState.start`, so there is nothing to pick at runtime.
+              // `--dart-define=OCTOPUS_API_HOST` (see [octopusApiHost]) and
+              // routed in `AppState.start`, so there is nothing to pick at
+              // runtime.
               enabled: false,
               onChanged: (_) {},
               helperText:
-                  'Set by the build (--dart-define=OCTOPUS_SERVER); '
+                  'Set by the build (--dart-define=OCTOPUS_API_HOST); '
                   'shown for reference.',
             ),
             const SizedBox(height: 32),

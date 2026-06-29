@@ -56,7 +56,7 @@ class HomeTab extends StatelessWidget {
             // injected, or "Demo (--dart-define)" / "Custom" / "Demo (no key
             // injected)" for the other sources — see [DemoConfig.apiKeyLabel].
             ('API key source', config?.apiKeyLabel ?? '—'),
-            ('Server', config?.serverEnv == ServerEnv.prod ? 'prod' : 'demo2'),
+            ('Server', config?.serverEnv == ServerEnv.prod ? 'prod' : 'custom'),
           ],
         ),
         const SizedBox(height: 12),
