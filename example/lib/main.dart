@@ -468,7 +468,7 @@ class _MainScreenState extends State<MainScreen> {
     // We could use `OctopusHomeContent` on Android (no-navbar variant) and
     // re-show the Flutter `AppBar` so the title matches the other tabs, but
     // iOS doesn't yet have an `OctopusHomeContent` equivalent
-    // (internal tracking). Keeping both platforms on
+    // (tracked internally). Keeping both platforms on
     // `OctopusHomeScreen` aligns them; the non-embedded integration modes
     // (Modal / Fullscreen / Sheet) are demonstrated by their respective
     // scenarios in the Scenarios tab — each gives the SDK a chrome-clean

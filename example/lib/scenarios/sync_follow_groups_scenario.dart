@@ -17,7 +17,7 @@ import '../widgets/scenario_scaffold.dart';
 /// ids). If the community has no groups yet, the presets report that the
 /// backend community needs groups provisioned.
 ///
-/// Mirrors the Android sample (internal tracking): three trigger
+/// Mirrors the Android sample: three trigger
 /// flavours — **invert all**, **FOLLOW all**, **UNFOLLOW all** — plus an
 /// `actionDate` offset selector. FOLLOW-all / UNFOLLOW-all let QA reach the
 /// [SyncFollowGroupStatus.alreadyFollowed] / [SyncFollowGroupStatus.alreadyUnfollowed]

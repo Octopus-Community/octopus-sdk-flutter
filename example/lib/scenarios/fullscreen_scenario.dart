@@ -68,7 +68,7 @@ import '../widgets/scenario_scaffold.dart';
 /// routes silently dropped SDK sub-navigation; the root cause turned out
 /// to be the overlay gating reparenting the PlatformView (fixed in
 /// `octopus_home_screen.dart` — the tree shape is now stable), not the
-/// route shape. History in `internal tracking`.
+/// route shape. History tracked internally.
 class FullscreenScenario extends StatelessWidget {
   const FullscreenScenario({super.key});
 
