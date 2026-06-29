@@ -40,8 +40,8 @@ import '../widgets/scenario_scaffold.dart';
 /// which pops the host route.
 ///
 /// **Preset 4 auto-pops on `PostCreated`.** The native embedded shell does
-/// not yet expose a `createPostScreenDismissed` callback (tracked on
-/// internal tracking), so
+/// not yet expose a `createPostScreenDismissed` callback (tracked
+/// internally), so
 /// after a successful publish the native side keeps navigating internally
 /// (typically to post-detail / feed) — leaving the host route mounted. The
 /// Preset 4 `onRun` listens to the global [OctopusSDK.events] stream and
@@ -551,8 +551,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               // OctopusSDK.showOctopusCreatePostScreen already provides on
               // both platforms. The native embedded shell currently keeps
               // navigating internally after publish (post-detail / feed) —
-              // see the cross-platform-sync issues
-              // internal tracking.
+              // tracked internally via the cross-platform-sync issues.
               // The `OctopusSDK.events` stream is a non-replaying broadcast
               // controller, so the microtask gap between `.listen()` and the
               // following `Navigator.push` cannot deliver a buffered stale

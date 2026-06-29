@@ -25,8 +25,8 @@ import '../widgets/scenario_scaffold.dart';
 /// - **iOS**: a native close (X) leading action on the SDK's root nav-bar
 ///   (`navBarLeadingAction: OctopusNavBarLeadingAction.close`).
 /// - **Android**: the SDK's back chevron (the native Android `OctopusHomeScreen`
-///   public composable does not yet expose a Back/Close picker — tracking
-///   internal tracking).
+///   public composable does not yet expose a Back/Close picker — tracked
+///   internally).
 /// - Either platform: dragging the Material drag handle (rendered above the
 ///   embedded view via `showDragHandle: true`). On iOS, swiping the sheet body
 ///   also dismisses (UIKit's gesture chain lets the dismiss recognizer win
@@ -51,8 +51,7 @@ import '../widgets/scenario_scaffold.dart';
 /// (fixed in `octopus_home_screen.dart` — the tree shape is now stable), and,
 /// on iOS, the legacy `NavigationView` dropping pushes under modal hosting
 /// (now addressed by `navigationMode: navigationStack`, above). The bottom
-/// sheet primitive itself was never at fault. History in
-/// `internal tracking`.
+/// sheet primitive itself was never at fault. History tracked internally.
 ///
 /// **Login + profile-edit routing.** Both callbacks resolve `Navigator.of`
 /// against the modal's `BuildContext` with `rootNavigator: true`, which
@@ -125,8 +124,7 @@ class SheetScenario extends StatelessWidget {
                 // close icon exists internally as `NavigationIconType.Close`,
                 // but isn't reachable from the public surface). Android falls
                 // back to the back-chevron via `showBackButton: true`.
-                // Tracking the Android public API gap:
-                // an internal issue
+                // The Android public API gap is tracked internally.
                 navBarLeadingAction: OctopusNavBarLeadingAction.close,
                 bottomSafeAreaInset: bottomSafeArea,
                 // Deep-link target for this mode: the sample post for Preset 2,
