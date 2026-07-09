@@ -34,6 +34,38 @@ dependencies:
   octopus_sdk_flutter: ^1.12.2
 ```
 
+## Platform setup
+
+A couple of one-time native steps the embedded community UI needs. Full setup
+guide (including Swift Package Manager): the
+[setup guide](https://doc.octopuscommunity.com/docs/SDK/sso).
+
+### Android
+
+- **`MainActivity` must extend `FlutterFragmentActivity`** (not `FlutterActivity`) —
+  the embedded community view depends on it:
+  ```kotlin
+  import io.flutter.embedding.android.FlutterFragmentActivity
+
+  class MainActivity : FlutterFragmentActivity()
+  ```
+- Add the INTERNET permission in `android/app/src/main/AndroidManifest.xml`:
+  ```xml
+  <uses-permission android:name="android.permission.INTERNET" />
+  ```
+- Keep `minSdk 21` / `compileSdk 35` (see the requirements table above).
+
+### iOS
+
+- Set the minimum deployment target to **14.0** in `ios/Podfile`:
+  ```ruby
+  platform :ios, '14.0'
+  ```
+- On **Swift Package Manager** (the default since Flutter 3.44) the plugin and
+  its native dependencies resolve automatically — no Podfile step needed.
+- On the **CocoaPods** path, run `cd ios && pod install`; if you hit a gRPC
+  conflict, add `pod 'gRPC-Swift', :modular_headers => true` to your `Podfile`.
+
 ## Quick start
 
 Pick the auth mode that matches your app:
@@ -254,6 +286,21 @@ A fully wired sample with theming, push, deep links, bridge mode, multi-communit
 switching, and all integration shapes (embedded / fullscreen / modal / bottom
 sheet) lives under [`example/`](example/) in the repo.
 
+## Troubleshooting
+
+- **The community screen is blank or crashes on Android** — make sure
+  `MainActivity` extends `FlutterFragmentActivity` (see [Platform setup](#platform-setup)).
+- **iOS build can't resolve the native pods** — set the deployment target to
+  `14.0` and run `cd ios && pod install --repo-update`; on a gRPC naming
+  conflict add `pod 'gRPC-Swift', :modular_headers => true`.
+- **"Invalid token" / authentication failures** — verify your API key and that
+  your `tokenProvider` returns a valid, unexpired JWT signed with the shared
+  secret. The SDK re-invokes it on every refresh (e.g. `refreshEntitlements()`).
+- **The feed doesn't load** — check device connectivity and confirm the SDK was
+  `initialize()`d before you connect a user or mount the screen.
+
+More: [doc.octopuscommunity.com](https://doc.octopuscommunity.com).
+
 ## Resources
 
 - Full documentation: [doc.octopuscommunity.com](https://doc.octopuscommunity.com)
@@ -262,28 +309,6 @@ sheet) lives under [`example/`](example/) in the repo.
 - Issues: [GitHub](https://github.com/Octopus-Community/octopus-sdk-flutter/issues)
 - Native counterparts: [Android](https://github.com/Octopus-Community/octopus-sdk-android),
   [iOS](https://github.com/Octopus-Community/octopus-sdk-swift)
-
-## Git hooks (optional)
-
-For contributors, the repo ships an opt-in [lefthook](https://lefthook.dev)
-configuration ([`lefthook.yml`](lefthook.yml)). Nothing is installed
-automatically — enable it only if you want it:
-
-```bash
-brew install lefthook   # or any install method from lefthook.dev
-lefthook install
-```
-
-Once installed:
-
-- **pre-commit** — runs `dart format --set-exit-if-changed` on staged Dart
-  files and a fast `flutter analyze --no-pub` pass.
-- **commit-msg** — checks the message against the
-  [Conventional Commits](https://www.conventionalcommits.org) format
-  (`type(scope): description`).
-
-Skip once with `LEFTHOOK=0 git commit ...`, or uninstall anytime with
-`lefthook uninstall`.
 
 ## License
 
