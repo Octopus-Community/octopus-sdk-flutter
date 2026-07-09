@@ -3,10 +3,9 @@ import 'package:flutter/foundation.dart' show immutable;
 /// Reactive snapshot of the SDK's user-connection state.
 ///
 /// Exposed via [OctopusSDK.connectionState]. Mirrors the native Android
-/// `ConnectionState` sealed interface (`NotConnected` / `Connected`). On iOS,
-/// only the connected/not-connected distinction is observable through the
-/// public surface — see [OctopusConnected.isGuest] for the guest-flag platform
-/// asymmetry.
+/// `ConnectionState` sealed interface (`NotConnected` / `Connected`). On iOS it
+/// is derived from the native `profile` publisher, and the guest flag is read
+/// from the profile (native iOS 1.12.6+) — see [OctopusConnected.isGuest].
 @immutable
 sealed class OctopusConnectionState {
   const OctopusConnectionState();
@@ -27,17 +26,14 @@ class OctopusNotConnected extends OctopusConnectionState {
 }
 
 /// A user is connected. The connection may be a regular authenticated user or
-/// (on Android only) an anonymous guest — see [isGuest].
+/// an anonymous guest — see [isGuest].
 class OctopusConnected extends OctopusConnectionState {
   /// Whether the connected user is a guest (anonymous) session.
   ///
-  /// **Platform asymmetry.** Only Android distinguishes guest connections in
-  /// the public SDK surface. On iOS, the SDK does not expose guest status, so
-  /// this field is always `false` even if the underlying session is a guest
-  /// one. Code that needs to gate features on non-guest status should rely on
-  /// [OctopusSDK.isUserConnected], which already encodes this asymmetry:
-  /// `true` only for non-guest connections on Android, and `true` for any
-  /// connection on iOS.
+  /// Reported on both platforms: Android exposes it natively; iOS exposes it via
+  /// `OctopusProfile.isGuest` since native SDK 1.12.6 (older iOS SDKs always
+  /// reported `false`). To gate features on a fully authenticated user, prefer
+  /// [OctopusSDK.isUserConnected] (`true` only for a connected, non-guest user).
   final bool isGuest;
 
   const OctopusConnected({this.isGuest = false});

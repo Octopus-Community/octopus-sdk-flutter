@@ -7,7 +7,7 @@ import '../octopus_demo_config.dart';
 
 /// Host-side client-user-token signer.
 ///
-/// `OctopusSDK.connectUserWithTokenProvider` calls a host-supplied closure
+/// `OctopusSDK.connectUser(tokenProvider:)` calls a host-supplied closure
 /// (registered persistently for the connection's lifetime) every time the
 /// native SDK needs a fresh user JWT — initial connect, and every refresh
 /// (e.g. when `refreshEntitlements()` mints a new JWT with the host's

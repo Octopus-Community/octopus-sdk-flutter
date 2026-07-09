@@ -49,13 +49,16 @@ class RefreshEntitlementsScenario extends StatelessWidget {
               final result = await app.octopus.refreshEntitlements();
               switch (result) {
                 case OctopusSuccess():
-                  final fresh = app.profile?.entitlements ?? const <String>{};
-                  final freshLabel = fresh.isEmpty
-                      ? '<empty set>'
-                      : fresh.join(', ');
+                  // Don't read app.profile here: the refreshed profile
+                  // arrives through the reactive `profile` stream, an
+                  // independent channel from this method's Future, so a
+                  // synchronous read immediately after `await` can race
+                  // ahead of it and observe the pre-refresh value. The
+                  // Live state card below is correct because it rebuilds
+                  // reactively off that same stream.
                   setResult(
-                    'refreshEntitlements succeeded. '
-                    'Current entitlements: $freshLabel.',
+                    'refreshEntitlements succeeded — the updated '
+                    'entitlements appear in the Live state below.',
                   );
                 case OctopusInvalidArguments<OctopusServerError>(:final errors):
                   // Typed-error path: pattern-match every known subtype so

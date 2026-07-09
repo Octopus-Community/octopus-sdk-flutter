@@ -1,8 +1,8 @@
 # Octopus Community SDK for Flutter
 
 [![pub package](https://img.shields.io/pub/v/octopus_sdk_flutter.svg)](https://pub.dev/packages/octopus_sdk_flutter)
-[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.12.0-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
-[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.12.2-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
+[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.12.1-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
+[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.12.6-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
 
 Drop a fully moderated, white-label community — feed, posts, comments, reactions,
 profiles, push, and analytics — into your Flutter app. The package wraps the
@@ -31,7 +31,7 @@ You also need an Octopus **API key** for your community. Reach out to
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.12.1
+  octopus_sdk_flutter: ^1.12.2
 ```
 
 ## Quick start
@@ -262,3 +262,30 @@ sheet) lives under [`example/`](example/) in the repo.
 - Issues: [GitHub](https://github.com/Octopus-Community/octopus-sdk-flutter/issues)
 - Native counterparts: [Android](https://github.com/Octopus-Community/octopus-sdk-android),
   [iOS](https://github.com/Octopus-Community/octopus-sdk-swift)
+
+## Git hooks (optional)
+
+For contributors, the repo ships an opt-in [lefthook](https://lefthook.dev)
+configuration ([`lefthook.yml`](lefthook.yml)). Nothing is installed
+automatically — enable it only if you want it:
+
+```bash
+brew install lefthook   # or any install method from lefthook.dev
+lefthook install
+```
+
+Once installed:
+
+- **pre-commit** — runs `dart format --set-exit-if-changed` on staged Dart
+  files and a fast `flutter analyze --no-pub` pass.
+- **commit-msg** — checks the message against the
+  [Conventional Commits](https://www.conventionalcommits.org) format
+  (`type(scope): description`).
+
+Skip once with `LEFTHOOK=0 git commit ...`, or uninstall anytime with
+`lefthook uninstall`.
+
+## License
+
+Distributed under the **Octopus Community Mobile SDK License** — see
+[LICENSE](LICENSE) for the full text.

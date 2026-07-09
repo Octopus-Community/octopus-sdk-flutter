@@ -47,9 +47,11 @@ class OctopusHomeScreen extends StatefulWidget {
 
   /// If true, shows the leading back button in the navigation bar. On Android
   /// the M3 chevron is rendered directly; on iOS the bridge backfills to
-  /// `OctopusNavBarLeadingAction.back` when [navBarLeadingAction] is null (an
-  /// explicit [navBarLeadingAction] takes precedence). The tap is surfaced as
-  /// `backRequested` → [onBack] on both platforms.
+  /// `OctopusNavBarLeadingAction.back` when [navBarLeadingAction] is null. On
+  /// both platforms an explicit [navBarLeadingAction] takes precedence over
+  /// this flag (Android via the native `leadingNavigationIcon`, iOS via
+  /// `navBarLeadingAction`). The tap is surfaced as `backRequested` → [onBack]
+  /// on both platforms.
   final bool showBackButton;
 
   /// Whether the navigation-bar title is centered. `true` centers the title in
@@ -217,7 +219,7 @@ class OctopusHomeScreen extends StatefulWidget {
 
   /// Requests a native host-driven leading nav-bar button (close or back) on
   /// the SDK's **root** screen, whose tap fires [onBack]. Defaults to `null`
-  /// (no native leading action).
+  /// (no override — each platform keeps its existing root leading icon).
   ///
   /// Use this to give a Flutter-hosted modal an always-available dismiss
   /// affordance: the SDK paints the matching native button and routes its tap
@@ -226,12 +228,20 @@ class OctopusHomeScreen extends StatefulWidget {
   /// button lives inside the SDK's own nav bar, so it never reparents the
   /// embedded `PlatformView` and is hidden automatically on deeper screens.
   ///
-  /// **iOS-only** (wrapped iOS SDK 1.12.2+) — the iOS SDK paints no root
-  /// dismiss button for a Flutter-hosted `UiKitView` otherwise. On Android
-  /// this is a no-op: the native back arrow is controlled by [showBackButton]
-  /// (also routed to [onBack]), so pair `navBarLeadingAction` (iOS) with
-  /// `showBackButton: true` (Android) for a native affordance on both. See
-  /// [OctopusNavBarLeadingAction].
+  /// **Supported on both platforms:**
+  /// - **Android** → maps to the native
+  ///   `OctopusHomeScreen(leadingNavigationIcon:)` (wrapped native SDK 1.12.1+).
+  ///   When set, the requested icon (close / back) overrides the root leading
+  ///   icon regardless of [showBackButton]; when `null`, the native default
+  ///   (a back arrow gated by [showBackButton]) is preserved. Use
+  ///   [OctopusNavBarLeadingAction.close] for a Close (X) the back arrow can't
+  ///   express.
+  /// - **iOS** → maps to the native `OctopusHomeScreen(navBarLeadingAction:)`
+  ///   (wrapped iOS SDK 1.12.2+) — the iOS SDK paints no root dismiss button
+  ///   for a Flutter-hosted `UiKitView` otherwise. When `null`, the bridge
+  ///   backfills to `.back` if [showBackButton] is `true`.
+  ///
+  /// See [OctopusNavBarLeadingAction].
   final OctopusNavBarLeadingAction? navBarLeadingAction;
 
   const OctopusHomeScreen({

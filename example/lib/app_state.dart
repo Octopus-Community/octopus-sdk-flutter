@@ -228,8 +228,9 @@ class AppState extends ChangeNotifier {
   /// `is OctopusConnected` check would treat that guest as "connected" and the
   /// disconnect would look like a no-op in the UI. We therefore exclude guests,
   /// matching `OctopusSDK.isUserConnected` (`state is OctopusConnected &&
-  /// !state.isGuest`). Note the documented platform asymmetry: iOS never sets
-  /// `isGuest`, so there a guest still reads as connected.
+  /// !state.isGuest`). The guest flag is reported on both platforms (iOS via
+  /// `OctopusProfile.isGuest` since native SDK 1.12.6), so this excludes guests
+  /// on iOS too.
   bool get userConnected {
     final state = _connectionState;
     return state is OctopusConnected && !state.isGuest;

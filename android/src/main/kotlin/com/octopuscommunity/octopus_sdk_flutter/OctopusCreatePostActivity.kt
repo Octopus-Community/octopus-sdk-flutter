@@ -8,12 +8,20 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.octopuscommunity.sdk.domain.model.CreatePostScreenInfo
 import com.octopuscommunity.sdk.domain.model.OctopusPostCTA
@@ -41,8 +49,24 @@ import java.io.File
  *
  * On `finish()` (X tap, system back, or publish success) the activity ends and
  * the plugin completes its `Result.success(null)` waiting on the Dart side.
+ *
+ * The native editor closes itself by calling the wrapped SDK's internal
+ * `navigateUp()`, which — for a screen hosted in a normal multi-destination
+ * `NavHost` — pops back to whatever screen came before it. Here `CreatePostRoute`
+ * would otherwise be the sole/start destination, so that `popBackStack()` call
+ * has nothing to pop and silently no-ops: neither the X button nor a
+ * successful publish would ever close the activity (only the OS's own back
+ * dispatcher does, since Navigation-Compose stops intercepting system back at
+ * the root — which is how a raw back gesture "accidentally" works today).
+ * [RootRoute] restores the invariant the SDK assumes: it sits *below*
+ * `CreatePostRoute` so `popBackStack()` has something real to pop to, and
+ * reaching it back after having visited `CreatePostRoute` finishes the
+ * activity.
  */
 class OctopusCreatePostActivity : ComponentActivity() {
+
+    @Serializable
+    private data object RootRoute
 
     @Serializable
     private data object CreatePostRoute
@@ -104,11 +128,39 @@ class OctopusCreatePostActivity : ComponentActivity() {
                         },
                         onNavigateToUrl = { UrlOpeningStrategy.HandledByOctopus }
                     ) {
+                        // Tracks whether we've reached CreatePostRoute at least once, so the
+                        // very first back-stack emission (still RootRoute, before the
+                        // LaunchedEffect below navigates forward) doesn't finish() early.
+                        var reachedCreatePost by remember { mutableStateOf(false) }
+                        val backStackEntry by navController.currentBackStackEntryAsState()
+                        LaunchedEffect(backStackEntry) {
+                            when {
+                                backStackEntry?.destination?.hasRoute<CreatePostRoute>() == true ->
+                                    reachedCreatePost = true
+                                backStackEntry?.destination?.hasRoute<RootRoute>() == true &&
+                                    reachedCreatePost -> finish()
+                            }
+                        }
+                        // Fires once per Activity *instance* — but a config change (rotation,
+                        // dark-mode toggle, font-scale, multi-window resize) recreates the
+                        // Activity while NavController restores its saved back stack via its
+                        // own Saver, so this can re-run against an ALREADY-restored
+                        // `[RootRoute, CreatePostRoute]` stack. launchSingleTop avoids pushing
+                        // a duplicate CreatePostRoute in that case (which would otherwise need
+                        // an extra X-tap/back to actually finish the activity).
+                        LaunchedEffect(Unit) {
+                            navController.navigate(CreatePostRoute) {
+                                launchSingleTop = true
+                            }
+                        }
                         NavHost(
                             modifier = Modifier.fillMaxSize(),
                             navController = navController,
-                            startDestination = CreatePostRoute
+                            startDestination = RootRoute
                         ) {
+                            composable<RootRoute> {
+                                Box(modifier = Modifier.fillMaxSize())
+                            }
                             composable<CreatePostRoute> {
                                 NativeOctopusCreatePostScreen(
                                     navController = navController,
@@ -153,6 +205,11 @@ class OctopusCreatePostActivity : ComponentActivity() {
     }
 
     private fun buildInfoFromIntent(intent: Intent): CreatePostScreenInfo {
+        // Computed up-front so it rides whichever info we return (prefilled,
+        // empty, or the catch fallback). The native create-post screen wires it
+        // for this editor session and clears it on dispose — we don't call
+        // OctopusSDK.setBridgeShareTokenProvider ourselves.
+        val bridgeShareTokenProvider = bridgeShareTokenProviderFromIntent(intent)
         return try {
             val text = intent.getStringExtra(EXTRA_TEXT)
             val topicId = intent.getStringExtra(EXTRA_TOPIC_ID)
@@ -164,7 +221,9 @@ class OctopusCreatePostActivity : ComponentActivity() {
             } else null
             val imageUri = imagePath?.let { Uri.fromFile(File(it)) }
             if (text == null && imageUri == null) {
-                return CreatePostScreenInfo()
+                return CreatePostScreenInfo(
+                    bridgeShareTokenProvider = bridgeShareTokenProvider
+                )
             }
             CreatePostScreenInfo(
                 prefilledPost = OctopusPrefilledPost(
@@ -172,16 +231,38 @@ class OctopusCreatePostActivity : ComponentActivity() {
                     image = imageUri,
                     topicId = topicId,
                     cta = cta
-                )
+                ),
+                bridgeShareTokenProvider = bridgeShareTokenProvider
             )
         } catch (e: Exception) {
             Log.w("OctopusCreatePostActivity", "Invalid prefill — opening empty editor", e)
-            CreatePostScreenInfo()
+            CreatePostScreenInfo(bridgeShareTokenProvider = bridgeShareTokenProvider)
+        }
+    }
+
+    /**
+     * The bridge-share token provider wired to the Dart side, or `null` when the
+     * host registered none. When set, the native editor invokes it at publish
+     * time for a prefilled share carrying an image (community forbids member
+     * pictures); the lambda runs the same native→Dart bridge-token round-trip
+     * as `fetchOrCreateClientObjectRelatedPost`, keyed by the Dart-supplied
+     * requestId. Passing it through the public [CreatePostScreenInfo] field lets
+     * the native screen own the provider's lifecycle (wire on open via its
+     * `@OptIn(InternalOctopusApi)` `setBridgeShareTokenProvider`, clear on
+     * dispose) — so this bridge never opts into the internal API itself.
+     */
+    private fun bridgeShareTokenProviderFromIntent(
+        intent: Intent
+    ): (suspend (bridgeFingerprint: String) -> String?)? {
+        val requestId = intent.getStringExtra(EXTRA_BRIDGE_TOKEN_REQUEST_ID) ?: return null
+        return { fingerprint ->
+            OctopusSDKFlutterPlugin.requestBridgeToken(requestId, fingerprint)
         }
     }
 
     companion object {
         private const val EXTRA_TEXT = "octopus.text"
+        private const val EXTRA_BRIDGE_TOKEN_REQUEST_ID = "octopus.bridgeTokenRequestId"
         private const val EXTRA_TOPIC_ID = "octopus.topicId"
         private const val EXTRA_IMAGE_PATH = "octopus.imagePath"
         private const val EXTRA_CTA_URL = "octopus.ctaUrl"
@@ -208,6 +289,13 @@ class OctopusCreatePostActivity : ComponentActivity() {
             val intent = Intent(context, OctopusCreatePostActivity::class.java)
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             args ?: return intent
+
+            // Bridge-share token round-trip id: present only when the host set
+            // CreatePostScreenInfo.bridgeShareTokenProvider. The activity rebuilds
+            // a suspend lambda from it that calls back into Dart at publish time.
+            (args["bridgeTokenRequestId"] as? String)?.let {
+                intent.putExtra(EXTRA_BRIDGE_TOKEN_REQUEST_ID, it)
+            }
 
             @Suppress("UNCHECKED_CAST")
             val prefilled = args["prefilledPost"] as? Map<String, Any?>

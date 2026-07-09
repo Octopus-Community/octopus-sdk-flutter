@@ -27,32 +27,36 @@ import '../widgets/scenario_scaffold.dart';
 /// - Android keeps the platform's default fullscreen-dialog transition;
 ///   the system back gesture/button still pops the route.
 ///
-/// **1.12.2 — native dismiss + sub-navigation in a modal.** This scenario
-/// uses two iOS APIs the wrapped SDK 1.12.2 added specifically for
-/// modal hosting by Flutter / React Native plugins:
+/// **Native dismiss + sub-navigation in a modal.** This scenario uses two
+/// wrapped-SDK APIs added specifically for modal hosting by Flutter / React
+/// Native plugins:
 /// - [OctopusHomeScreen.navigationMode] is set to
-///   [OctopusNavigationMode.navigationStack]. iOS reparents the SDK's
-///   hosting controller during a modal presentation; the default legacy
-///   `NavigationView` can silently drop sub-navigation pushes there (a post
-///   tap not opening its detail), and `navigationStack` keeps them working.
-///   No-op on Android (the Compose `NavHost` keeps its back stack already).
+///   [OctopusNavigationMode.navigationStack] (iOS-only, wrapped iOS SDK
+///   1.12.2+). iOS reparents the SDK's hosting controller during a modal
+///   presentation; the default legacy `NavigationView` can silently drop
+///   sub-navigation pushes there (a post tap not opening its detail), and
+///   `navigationStack` keeps them working. No-op on Android (the Compose
+///   `NavHost` keeps its back stack already).
 /// - [OctopusHomeScreen.navBarLeadingAction] is set to
-///   [OctopusNavBarLeadingAction.close], so the iOS SDK paints a **native
-///   close button** inside its own nav bar whose tap fires [onBack]. This
-///   replaces the host-owned close-bar workaround the scenario used before
-///   1.12.2: the iOS SDK only paints its own close button when presented
-///   natively (`.sheet` / `.fullScreenCover`), which never happens for a
-///   Flutter-hosted `UiKitView`, so previously the modal had no native
-///   dismissal affordance. Unlike a `trailingWidget` overlay, the native
-///   button never reparents the embedded `PlatformView` (no #63-style
-///   sub-navigation drop) and the SDK hides it automatically on deeper
-///   screens, where its own back chevron takes over.
+///   [OctopusNavBarLeadingAction.close], so the SDK paints a **native close
+///   button** inside its own nav bar whose tap fires [onBack] — on **both
+///   platforms** (Android via the native `leadingNavigationIcon`, wrapped
+///   native Android SDK 1.12.1+; iOS via `navBarLeadingAction`, 1.12.2+). This
+///   replaces the host-owned close-bar workaround the scenario used before:
+///   the iOS SDK only paints its own close button when presented natively
+///   (`.sheet` / `.fullScreenCover`), which never happens for a Flutter-hosted
+///   `UiKitView`, so previously the modal had no native dismissal affordance
+///   on iOS, and the Android wrapper could only show a back arrow. Unlike a
+///   `trailingWidget` overlay, the native button never reparents the embedded
+///   `PlatformView` (no #63-style sub-navigation drop) and the SDK hides it
+///   automatically on deeper screens, where its own back chevron takes over.
 ///
-/// `navBarLeadingAction` is a no-op on Android, so [showBackButton] is left
-/// `true` there: the native Android SDK renders its own leading back arrow
-/// (also routed to [onBack]), and the Android system back gesture/button
-/// pops the route too. The modal therefore has a native dismissal
-/// affordance on both platforms with no host-owned chrome.
+/// An explicit `navBarLeadingAction` takes precedence over [showBackButton] on
+/// both platforms, so the modal shows the Close (X) regardless. [showBackButton]
+/// is left `true` as a harmless fallback (it would drive the icon only if
+/// `navBarLeadingAction` were `null`); the Android system back gesture/button
+/// pops the route too. The modal therefore has a native dismissal affordance
+/// on both platforms with no host-owned chrome.
 ///
 /// **Bottom inset.** The route hosts the SDK PlatformView edge-to-edge
 /// (`SafeArea(bottom: false)`), so the host forwards the device's bottom

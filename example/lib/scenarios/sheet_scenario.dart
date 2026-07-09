@@ -22,17 +22,15 @@ import '../widgets/scenario_scaffold.dart';
 /// Demonstrates that the embedded [OctopusHomeScreen] widget can be hosted
 /// inside any standard Flutter presentation primitive — here a draggable
 /// bottom sheet rather than a full-page route. The sheet closes via:
-/// - **iOS**: a native close (X) leading action on the SDK's root nav-bar
-///   (`navBarLeadingAction: OctopusNavBarLeadingAction.close`).
-/// - **Android**: the SDK's back chevron (the native Android `OctopusHomeScreen`
-///   public composable does not yet expose a Back/Close picker — tracked
-///   internally).
+/// - **Both platforms**: a native close (X) leading action on the SDK's root
+///   nav-bar (`navBarLeadingAction: OctopusNavBarLeadingAction.close`) — Android
+///   via the native `leadingNavigationIcon` (wrapped native SDK 1.12.1+), iOS
+///   via `navBarLeadingAction` (1.12.2+). Tapping it fires `onBack`.
 /// - Either platform: dragging the Material drag handle (rendered above the
-///   embedded view via `showDragHandle: true`). On iOS, swiping the sheet body
-///   also dismisses (UIKit's gesture chain lets the dismiss recognizer win
-///   alongside the inner scroll); on Android the embedded view eagerly claims
-///   body pointers (so the SDK feed scrolls inside the sheet) — the handle is
-///   the dismiss gesture there.
+///   embedded view via `showDragHandle: true`). On both platforms the embedded
+///   view eagerly claims body pointers (so the SDK feed scrolls inside the
+///   sheet), so dragging the body scrolls the feed rather than dismissing —
+///   the handle (or the X) is the dismiss gesture.
 ///
 /// **Modal sub-navigation (iOS).** A bottom sheet is a modal presentation,
 /// so this scenario sets [OctopusHomeScreen.navigationMode] to
@@ -101,48 +99,64 @@ class SheetScenario extends StatelessWidget {
           useSafeArea: true,
           showDragHandle: true,
           builder: (modalContext) {
-            return SizedBox(
-              height: MediaQuery.sizeOf(modalContext).height * 0.9,
-              child: OctopusHomeScreen(
-                theme: app.effectiveOctopusTheme(),
-                // A bottom sheet is a modal presentation: keep the SDK's
-                // sub-navigation working on iOS (no-op on Android).
-                navigationMode: OctopusNavigationMode.navigationStack,
-                // Render a native close (X) leading action on the SDK's root
-                // screen so the modal sheet has an obvious dismiss affordance
-                // in addition to the M3 drag handle above the AndroidView.
-                // The tap is routed through `backRequested` → onBack. On iOS,
-                // the X is the discoverable chrome (swipe-to-dismiss anywhere
-                // also works since UIKit delegates to the inner UIScrollView);
-                // on Android the embedded view eagerly claims body pointers
-                // (the SDK feed scrolls inside the sheet), so the close
-                // affordance falls back to the X / drag handle / back chevron.
-                //
-                // Cross-platform parity caveat: this currently renders X on
-                // iOS only. The Android native `OctopusHomeScreen` public
-                // composable does NOT yet expose a Back/Close picker (the
-                // close icon exists internally as `NavigationIconType.Close`,
-                // but isn't reachable from the public surface). Android falls
-                // back to the back-chevron via `showBackButton: true`.
-                // The Android public API gap is tracked internally.
-                navBarLeadingAction: OctopusNavBarLeadingAction.close,
-                bottomSafeAreaInset: bottomSafeArea,
-                // Deep-link target for this mode: the sample post for Preset 2,
-                // an active push deep link otherwise. Read at mount only
-                // (PlatformView creationParams) — fine, the sheet is freshly
-                // built each time.
-                notification: notification,
-                onBack: () => Navigator.of(modalContext).pop(),
-                onNavigateToLogin: () => Navigator.of(
-                  modalContext,
-                  rootNavigator: true,
-                ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-                onModifyUser: (field) =>
-                    Navigator.of(modalContext, rootNavigator: true).push(
-                      MaterialPageRoute(
-                        builder: (_) => ProfileEditPage(fieldToEdit: field),
+            // Keep the SDK's bottom input bar (comment composer / post editor)
+            // above the software keyboard. The sheet is a fixed fraction of the
+            // screen and showModalBottomSheet does not resize for the IME, so
+            // without this the sheet's bottom — where the native input sits —
+            // slides behind the keyboard (masking it on both platforms). Lift
+            // the content by the keyboard inset and cap its height to the space
+            // that remains above the keyboard. Collapses to the plain 90% sheet
+            // when the keyboard is closed (`viewInsets.bottom == 0`).
+            final mediaQuery = MediaQuery.of(modalContext);
+            final keyboardInset = mediaQuery.viewInsets.bottom;
+            final fullHeight = mediaQuery.size.height;
+            final maxHeight = fullHeight * 0.9;
+            final available = fullHeight - keyboardInset;
+            return Padding(
+              padding: EdgeInsets.only(bottom: keyboardInset),
+              child: SizedBox(
+                height: maxHeight < available ? maxHeight : available,
+                child: OctopusHomeScreen(
+                  theme: app.effectiveOctopusTheme(),
+                  // A bottom sheet is a modal presentation: keep the SDK's
+                  // sub-navigation working on iOS (no-op on Android).
+                  navigationMode: OctopusNavigationMode.navigationStack,
+                  // Render a native close (X) leading action on the SDK's root
+                  // screen so the modal sheet has an obvious dismiss affordance
+                  // in addition to the M3 drag handle above the AndroidView.
+                  // The tap is routed through `backRequested` → onBack. On both
+                  // platforms the embedded view eagerly claims body pointers (the
+                  // SDK feed scrolls inside the sheet), so dragging the body
+                  // scrolls rather than dismisses — the close affordance is the
+                  // X / drag handle.
+                  //
+                  // Cross-platform parity: the native close (X) now renders on
+                  // BOTH platforms. The Android native `OctopusHomeScreen` public
+                  // composable gained a `leadingNavigationIcon: NavigationIconType?`
+                  // (wrapped native SDK 1.12.1+) — the Flutter wrapper maps
+                  // `OctopusNavBarLeadingAction.close` to `NavigationIconType.Close`
+                  // (closing the former Android public-API gap, tracked
+                  // internally). It takes precedence over the default
+                  // `showBackButton`, so the X shows instead of a chevron.
+                  navBarLeadingAction: OctopusNavBarLeadingAction.close,
+                  bottomSafeAreaInset: bottomSafeArea,
+                  // Deep-link target for this mode: the sample post for Preset 2,
+                  // an active push deep link otherwise. Read at mount only
+                  // (PlatformView creationParams) — fine, the sheet is freshly
+                  // built each time.
+                  notification: notification,
+                  onBack: () => Navigator.of(modalContext).pop(),
+                  onNavigateToLogin: () => Navigator.of(
+                    modalContext,
+                    rootNavigator: true,
+                  ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
+                  onModifyUser: (field) =>
+                      Navigator.of(modalContext, rootNavigator: true).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
                       ),
-                    ),
+                ),
               ),
             );
           },
@@ -159,11 +173,14 @@ class SheetScenario extends StatelessWidget {
           'Open the SDK as a modal bottom sheet — host integration mode where '
           'OctopusHomeScreen is presented inside a showModalBottomSheet sized '
           'to 90% of the viewport (Flutter equivalent of iOS non-fullscreen '
-          'sheet). The sheet closes via the SDK leading action (X on iOS, '
-          '← on Android — pending the Android close-icon API), by dragging '
-          'the Material drag handle above the embedded view, or by swiping '
-          'the sheet body down on iOS (Android consumes body drags to scroll '
-          'the SDK feed — use the handle instead). Preset 2 opens it deep-'
+          'sheet). The sheet closes via the SDK leading action — a native '
+          'close (X) icon shown on both platforms (Android via the native '
+          'leadingNavigationIcon, wrapped native SDK 1.12.1+; iOS via '
+          'navBarLeadingAction) — or by dragging '
+          'the Material drag handle above the embedded view. On both platforms '
+          'the embedded view consumes body drags to scroll the SDK feed, so '
+          'dragging the body scrolls rather than dismisses — use the handle or '
+          'the X. Preset 2 opens it deep-'
           'linked to the sample post so this mode can be QA-verified without '
           'a live push.',
       resultTestId: 'sheet-result',

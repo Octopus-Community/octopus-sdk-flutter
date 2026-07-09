@@ -37,13 +37,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
+
+      - name: Clear stale pub.dev token (self-hosted runner hygiene)
+        # The release workflow's OIDC step (dart-lang/setup-dart) writes an
+        # `--env-var PUB_TOKEN` pub.dev entry into the persistent user-level
+        # pub-tokens.json. On a self-hosted runner that file survives between
+        # jobs, so every later `flutter pub get` aborts with "requires
+        # PUB_TOKEN but not defined" (exit 65). Drop it first — fetching public
+        # deps needs no token. `|| true` makes it a no-op when nothing is set.
+        run: dart pub token remove https://pub.dev || true
 
       - name: Resolve example dependencies
         working-directory: example
@@ -97,7 +106,7 @@ jobs:
           esac
 
       - name: Run integration tests on an emulator
-        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2.37.0
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           arch: ${{ steps.emu.outputs.arch }}
@@ -118,14 +127,21 @@ jobs:
           script: flutter test integration_test -d emulator-5554
 
   ios:
-    name: Integration tests (iOS simulator)
+    name: Integration tests (iOS ${{ matrix.dependency-manager }})
     runs-on: [self-hosted]
     # Non-blocking until promoted to required (refactor plan chunk #19).
     continue-on-error: true
     timeout-minutes: 45
+    strategy:
+      # The plugin ships BOTH a podspec and a Package.swift (SPM/CocoaPods
+      # dual-support), so exercise each iOS dependency-manager path. fail-fast
+      # off so one path failing doesn't cancel the other.
+      fail-fast: false
+      matrix:
+        dependency-manager: [cocoapods, spm]
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
@@ -133,18 +149,34 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Force the CocoaPods integration path
-        # The plugin is CocoaPods-only (no Swift Package Manager support yet).
-        # Recent Flutter auto-migrates the example to SPM on build, which here
-        # breaks the Octopus pods compile ("Unknown attribute 'MainActor'").
-        # Pin the example to the known-good pods path the local builds use.
-        run: flutter config --no-enable-swift-package-manager
+      - name: Select the iOS dependency manager
+        # Pin the example to the path this matrix leg exercises. The plugin
+        # supports both: SPM (Flutter's default since 3.44, resolves the native
+        # SDK via octopus-sdk-swift) and CocoaPods (the podspec, still supported).
+        run: |
+          if [ "${{ matrix.dependency-manager }}" = "spm" ]; then
+            flutter config --enable-swift-package-manager
+          else
+            flutter config --no-enable-swift-package-manager
+          fi
+
+      - name: Clear stale pub.dev token (self-hosted runner hygiene)
+        # The release workflow's OIDC step (dart-lang/setup-dart) writes an
+        # `--env-var PUB_TOKEN` pub.dev entry into the persistent user-level
+        # pub-tokens.json. On a self-hosted runner that file survives between
+        # jobs, so every later `flutter pub get` aborts with "requires
+        # PUB_TOKEN but not defined" (exit 65). Drop it first — fetching public
+        # deps needs no token. `|| true` makes it a no-op when nothing is set.
+        run: dart pub token remove https://pub.dev || true
 
       - name: Resolve example dependencies
         working-directory: example
         run: flutter pub get
 
       - name: Refresh CocoaPods CDN cache
+        # Only needed on the CocoaPods leg — on the SPM leg the native Octopus
+        # SDK comes from octopus-sdk-swift (SPM), not the pod CDN.
+        if: matrix.dependency-manager == 'cocoapods'
         # CocoaPods checks for new podspec versions only during `pod repo
         # update` — the per-`pod install` path falls back to locally-cached
         # versions ("Returning local because checking is only performed in

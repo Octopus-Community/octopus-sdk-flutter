@@ -30,8 +30,9 @@ import '../widgets/scenario_scaffold.dart';
 ///   drag handle, no explicit close button.
 /// - The Modal scenario sets `fullscreenDialog: true` instead, which
 ///   presents with the modal slide-up transition on iOS, disables the iOS
-///   swipe-back gesture, and shows the SDK's native close button on iOS
-///   (`navBarLeadingAction: close`) so the modal stays dismissable.
+///   swipe-back gesture, and shows the SDK's native close button
+///   (`navBarLeadingAction: close`) on both platforms so the modal stays
+///   dismissable.
 ///
 /// **Inline push vs `OctopusSDK.showOctopusHomeScreen`.** The public
 /// helper pushes this exact route shape (`Scaffold` +

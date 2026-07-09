@@ -25,6 +25,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.octopuscommunity.sdk.domain.model.ProfileField
+import com.octopuscommunity.sdk.ui.components.NavigationIconType
 import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
@@ -57,7 +58,8 @@ class OctopusEmbeddedView(
     private val deepLink: String? = null,
     private val bottomSafeAreaInsetDp: Int = 0,
     private val showNavBar: Boolean = true,
-    private val initialScreen: InitialScreenSpec = InitialScreenSpec.MainFeed
+    private val initialScreen: InitialScreenSpec = InitialScreenSpec.MainFeed,
+    private val navBarLeadingAction: NavigationIconType? = null
 ) : PlatformView, LifecycleOwner, ViewModelStoreOwner {
 
     class Factory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
@@ -75,20 +77,27 @@ class OctopusEmbeddedView(
                 } else {
                     InitialScreenSpec.fromMap(args["initialScreen"])
                 }
-                // `navigationMode` and `navBarLeadingAction` are iOS-only
-                // (wrapped iOS SDK 1.12.2+) and intentionally NOT read here:
-                // - navigationMode: the Android bridge always drives the SDK
-                //   through a Compose NavHost, which keeps its back stack
-                //   across modal hosting, so there is no NavigationView vs
-                //   NavigationStack choice to make.
-                // - navBarLeadingAction: the native Android OctopusHomeScreen
-                //   already renders a leading back arrow on the root screen,
-                //   controlled by `showBackButton` and routed to the same
-                //   `onBack`/`backRequested` event. There is no separate
-                //   close-icon variant to wire.
-                // The Dart layer emits these keys for both platforms; Android
-                // simply ignores them (no-op), matching the documented
-                // asymmetry on OctopusNavigationMode / OctopusNavBarLeadingAction.
+                // `navigationMode` is iOS-only (wrapped iOS SDK 1.12.2+) and
+                // intentionally NOT read here: the Android bridge always drives
+                // the SDK through a Compose NavHost, which keeps its back stack
+                // across modal hosting, so there is no NavigationView vs
+                // NavigationStack choice to make. The Dart layer emits the key
+                // for both platforms; Android simply ignores it (no-op).
+                //
+                // `navBarLeadingAction` IS consumed on Android (wrapped native
+                // SDK 1.12.1+): the native `OctopusHomeScreen` gained a
+                // `leadingNavigationIcon: NavigationIconType?` so a host can
+                // override the root leading icon with a Close (X) — useful when
+                // the SDK is mounted somewhere it cannot dismiss itself (e.g. a
+                // modal route). We map the wire string here; when absent we pass
+                // null so the native default (`if (backIcon) Back else null`,
+                // driven by `showBackButton`) is preserved. Both Close and Back
+                // route their tap to the same `onBack`/`backRequested` event.
+                val navBarLeadingAction = when (args["navBarLeadingAction"] as? String) {
+                    "close" -> NavigationIconType.Close
+                    "back" -> NavigationIconType.Back
+                    else -> null
+                }
                 OctopusEmbeddedView(
                     context = context,
                     showBackButton = args["showBackButton"] as? Boolean ?: false,
@@ -113,7 +122,8 @@ class OctopusEmbeddedView(
                     deepLink = deepLink,
                     bottomSafeAreaInsetDp = (args["bottomSafeAreaInset"] as? Number)?.toInt() ?: 0,
                     showNavBar = args["showNavBar"] as? Boolean ?: true,
-                    initialScreen = initialScreen
+                    initialScreen = initialScreen,
+                    navBarLeadingAction = navBarLeadingAction
                 )
             }
 
@@ -228,6 +238,7 @@ class OctopusEmbeddedView(
                             bottomSafeAreaInsetDp = bottomSafeAreaInsetDp,
                             showNavBar = showNavBar,
                             initialScreen = initialScreen,
+                            leadingNavigationIcon = navBarLeadingAction,
                         )
                     }
                 }

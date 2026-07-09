@@ -10,7 +10,7 @@
 /// On deeper SDK screens the SDK paints its own back chevron instead, so this
 /// item only appears at the root.
 ///
-/// **Platform support.**
+/// **Platform support — both platforms.**
 /// - **iOS** → maps to the native `OctopusHomeScreen(navBarLeadingAction:)`
 ///   (`.close(onTap:)` / `.back(onTap:)`), available in the wrapped iOS SDK
 ///   **1.12.2+**. This is the native replacement for the
@@ -19,12 +19,15 @@
 ///   when presented natively (`.sheet` / `.fullScreenCover`), which never
 ///   happens for a Flutter-hosted `UiKitView`, so before 1.12.2 a
 ///   Flutter-hosted modal had no native dismiss affordance.
-/// - **Android** → **no-op.** The Android SDK already renders its own leading
-///   back arrow on the root screen — controlled by
-///   [OctopusHomeScreen.showBackButton] and routed to the same `onBack`
-///   callback — so the wire key is ignored. On a cross-platform host, pair
-///   `navBarLeadingAction` (iOS) with `showBackButton: true` (Android) to get a
-///   native dismiss affordance on both platforms; both fire `onBack`.
+/// - **Android** → maps to the native
+///   `OctopusHomeScreen(leadingNavigationIcon:)` (`NavigationIconType.Close` /
+///   `.Back`), available in the wrapped native Android SDK **1.12.1+**. The
+///   root leading icon is overridden with the requested affordance regardless
+///   of [OctopusHomeScreen.showBackButton]; tapping it fires the same `onBack`
+///   callback. Leaving it `null` keeps the existing Android behaviour — a back
+///   arrow gated by [OctopusHomeScreen.showBackButton]. Use [close] when you
+///   host the SDK somewhere it cannot dismiss itself (e.g. a modal route) and
+///   need a Close (X) affordance the back arrow can't express.
 enum OctopusNavBarLeadingAction {
   /// A close button rendered with the SDK's "close" icon — typically for a
   /// modally-presented host (e.g. a `fullscreenDialog` route).

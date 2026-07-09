@@ -108,9 +108,19 @@ final Map<String, Future<String?> Function(String fingerprint)>
     _bridgeTokenProviders = <String, Future<String?> Function(String)>{};
 int _bridgeTokenRequestCounter = 0;
 
+// The in-flight requestId of the create-post editor's bridge-share token
+// provider, if any. Unlike [fetchOrCreateClientObjectRelatedPost] (call-scoped,
+// removed in a `finally`), the editor's provider must outlive the launch call —
+// it is consulted later, at publish time. The native editor holds a single
+// bridge-share provider (last-write-wins, cleared when the editor closes), so
+// opening a new editor supersedes the previous one; we drop the stale Dart
+// entry then to keep [_bridgeTokenProviders] bounded.
+String? _createPostBridgeTokenRequestId;
+
 // Persistent client-user tokenProviders, keyed by a stable providerId per
-// connected user. Registered by [OctopusSDK.connectUserWithTokenProvider] and
-// cleared on [OctopusSDK.disconnectUser]. The native SDK invokes the provider
+// connected user. Registered when connecting with a tokenProvider (see
+// [OctopusSDK.connectUser]) and cleared on [OctopusSDK.disconnectUser]. The
+// native SDK invokes the provider
 // initially (on connect) AND on every refresh (e.g. `refreshEntitlements`
 // minting a fresh JWT with the host's current entitlement set), so the
 // provider must round-trip back to Dart each time — not capture a static
@@ -206,7 +216,8 @@ class OctopusSDK {
   }
 
   /// Handles a native `clientUserTokenRequest`: looks up the persistent Dart
-  /// provider registered by [connectUserWithTokenProvider] under the request's
+  /// provider registered when connecting with a tokenProvider (see
+  /// [connectUser]) under the request's
   /// `providerId`, awaits the freshly-signed JWT, and replies via
   /// [OctopusSDKPlatform.provideClientUserToken]. An empty token reply tells
   /// the native SDK "no token available — fail the refresh" (mirrors the
@@ -499,9 +510,9 @@ class OctopusSDK {
   /// [showBackButton] - If true, shows the back button in the navigation bar.
   ///   Renders the Android M3 leading back arrow directly; on iOS, backfills
   ///   to `OctopusNavBarLeadingAction.back` when [navBarLeadingAction] is
-  ///   null (an explicit [navBarLeadingAction] wins). The tap is surfaced as
-  ///   `backRequested` (routed to [OctopusHomeScreen.onBack]) on both
-  ///   platforms.
+  ///   null. On both platforms an explicit [navBarLeadingAction] takes
+  ///   precedence over this flag. The tap is surfaced as `backRequested`
+  ///   (routed to [OctopusHomeScreen.onBack]) on both platforms.
   /// [titleCentered] - If true, centers the title in the native top app bar.
   ///   Supported on both platforms: Android maps it to the native
   ///   `OctopusHomeScreen(titleCentered:)` composable param, iOS to
@@ -532,15 +543,21 @@ class OctopusSDK {
   /// [navBarLeadingAction] - Requests a native host-driven close / back button
   ///   on the SDK's root screen whose tap is surfaced as a `backRequested`
   ///   event (routed to [OctopusHomeScreen.onBack]). Defaults to `null`.
-  ///   **iOS-only** (wrapped iOS SDK 1.12.2+); a no-op on Android, where the
-  ///   leading back arrow is controlled by [showBackButton]. See
+  ///   **Supported on both platforms:** Android maps it to the native
+  ///   `OctopusHomeScreen(leadingNavigationIcon:)` (wrapped native SDK 1.12.1+),
+  ///   iOS to `OctopusHomeScreen(navBarLeadingAction:)` (wrapped iOS SDK
+  ///   1.12.2+). When `null`, each platform keeps its existing root leading icon
+  ///   (a back arrow gated by [showBackButton]). See
   ///   [OctopusNavBarLeadingAction].
   ///
-  /// **Gesture handling (Android)** — pointer events landing inside the
+  /// **Gesture handling (both platforms)** — pointer events landing inside the
   /// embedded view are dispatched directly to the native side via an
   /// `EagerGestureRecognizer`, so the SDK's internal scroll (the feed) wins
   /// vertical drags and the embedded UI's own taps / long-press / swipe-to-
-  /// react work as designed. As a consequence, ancestor Flutter gesture
+  /// react work as designed — including inside a `showModalBottomSheet`, where
+  /// the modal route's drag-to-dismiss would otherwise steal the vertical drag
+  /// (on iOS as well, despite UIKit's recognizer delegation —
+  /// flutter/flutter#26425, #66270). As a consequence, ancestor Flutter gesture
   /// recognizers — a parent `ListView`/`PageView`/`TabBarView`, a draggable
   /// modal without an explicit drag-handle, an `InteractiveViewer` — will
   /// NOT see pointers whose finger lands inside the embedded view's bounds
@@ -548,10 +565,7 @@ class OctopusSDK {
   /// expose the affordance OUTSIDE the embedded view: Material 3's
   /// `showDragHandle: true` on `showModalBottomSheet`, an explicit close
   /// button, the back chevron via [showBackButton], or a layout where the
-  /// parent's gesture area doesn't overlap the SDK. On iOS, `UiKitView`
-  /// defers to UIKit's gesture-recognizer delegation chain and ancestor
-  /// recognizers can still win where UIKit's delegate allows — a
-  /// platform asymmetry documented in flutter/flutter#26425 and #66270.
+  /// parent's gesture area doesn't overlap the SDK.
   static Widget embeddedView({
     String? navBarTitle,
     bool navBarPrimaryColor = false,
@@ -581,14 +595,17 @@ class OctopusSDK {
       'interceptUrls': interceptUrls,
       if (bottomSafeAreaInset > 0) 'bottomSafeAreaInset': bottomSafeAreaInset,
       if (!showNavBar) 'showNavBar': false,
-      // Emit only the non-default values; the native bridges default to
-      // `.automatic` / no leading action when the key is absent (matching the
-      // `titleCentered` / `showNavBar` "emit only non-default" wire pattern).
-      // Both keys are consumed by the iOS bridge only — Android ignores them.
-      // Always emit so the bridge sees the host's explicit choice (the Flutter
-      // wrapper's default differs from the native iOS `.automatic` default —
-      // the bridge needs the wire value to know which one the host picked).
+      // `navigationMode` is consumed by the iOS bridge only (Android ignores
+      // it). It is always emitted so the bridge sees the host's explicit choice:
+      // the Flutter wrapper's default differs from the native iOS `.automatic`
+      // default, so the bridge needs the wire value to know which one the host
+      // picked.
       'navigationMode': navigationMode.name,
+      // `navBarLeadingAction` is consumed by BOTH bridges (Android maps it to
+      // the native `leadingNavigationIcon`, wrapped native SDK 1.12.1+; iOS to
+      // `navBarLeadingAction`, 1.12.2+). Emit only the non-null value: both
+      // bridges default to no override when the key is absent, matching the
+      // `titleCentered` / `showNavBar` "emit only non-default" wire pattern.
       if (navBarLeadingAction != null)
         'navBarLeadingAction': navBarLeadingAction.name,
       if (theme != null) ...theme.toMap(),
@@ -598,33 +615,45 @@ class OctopusSDK {
       ),
     };
 
+    // Eagerly claim every pointer that lands on the embedded platform view so
+    // the SDK's internal scroll (the native feed / LazyColumn) wins vertical
+    // drags over any ancestor Flutter recognizer — most importantly a
+    // `showModalBottomSheet`'s drag-to-dismiss, but also a parent `ListView`.
+    // Without it the platform view only sees pointers no Flutter ancestor has
+    // claimed, and a bottom-sheet parent steals every vertical drag, leaving
+    // the native feed unscrollable inside the sheet.
+    //
+    // Required on BOTH platforms. iOS was previously left without it, on the
+    // assumption that UIKit's gesture-recognizer delegation lets the inner
+    // `UIScrollView` win automatically — but inside a Flutter
+    // `showModalBottomSheet` the modal route's pan recognizer wins the vertical
+    // drag on iOS too, so the embedded feed could not be scrolled there
+    // (flutter/flutter#26425, #66270). Claiming eagerly on iOS as well makes
+    // scrolling work and brings the two platforms in line.
+    //
+    // Trade-off (both platforms): ancestor recognizers won't see pointers that
+    // land inside the embedded view (horizontal swipes included), so hosts must
+    // expose dismiss / navigation affordances OUTSIDE it — Material 3's
+    // `showDragHandle: true`, an explicit close button, or the back chevron via
+    // [showBackButton].
+    final gestureRecognizers = <Factory<OneSequenceGestureRecognizer>>{
+      Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+    };
+
     return defaultTargetPlatform == TargetPlatform.iOS
         ? UiKitView(
             viewType: viewType,
             creationParams: creationParams,
             creationParamsCodec: const StandardMessageCodec(),
+            gestureRecognizers: gestureRecognizers,
+            hitTestBehavior: PlatformViewHitTestBehavior.opaque,
           )
         : defaultTargetPlatform == TargetPlatform.android
             ? AndroidView(
                 viewType: viewType,
                 creationParams: creationParams,
                 creationParamsCodec: const StandardMessageCodec(),
-                // Eagerly claim every pointer that lands on the AndroidView so
-                // the SDK's internal LazyColumn wins vertical drags over any
-                // ancestor Flutter recognizer (typically a
-                // `showModalBottomSheet`'s drag-to-dismiss, or a parent
-                // `ListView`). Without this, the AndroidView only sees
-                // pointers no Flutter ancestor has claimed, and a bottom-sheet
-                // parent steals every vertical drag — the native feed is
-                // unscrollable inside the sheet. iOS `UiKitView` doesn't need
-                // an equivalent: UIKit's gesture recognizer delegation lets
-                // the inner `UIScrollView` win automatically (the documented
-                // platform asymmetry — flutter/flutter#26425, #66270).
-                gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                  Factory<OneSequenceGestureRecognizer>(
-                    () => EagerGestureRecognizer(),
-                  ),
-                },
+                gestureRecognizers: gestureRecognizers,
                 hitTestBehavior: PlatformViewHitTestBehavior.opaque,
               )
             : const SizedBox.shrink();
@@ -657,33 +686,88 @@ class OctopusSDK {
   /// [showOctopusCreatePostScreen]. The prefill payload is carried verbatim
   /// under `prefilledPost` (reusing [CreatePostScreenInfo.toMap]); the theme
   /// keys are flattened in, matching [embeddedView].
+  ///
+  /// When [bridgeTokenRequestId] is non-null, the host supplied a
+  /// [CreatePostScreenInfo.bridgeShareTokenProvider]; the id and a
+  /// `hasBridgeShareTokenProvider` flag are added so the native editor can
+  /// request a signature back over the event channel at publish time (same
+  /// round-trip as [fetchOrCreateClientObjectRelatedPost]). Both keys are
+  /// honoured on Android and iOS — the native iOS editor wires them to
+  /// `OctopusPrefilledPost.sign`.
   @visibleForTesting
   static Map<String, dynamic> createPostScreenArgs({
     CreatePostScreenInfo? info,
     OctopusTheme? theme,
+    String? bridgeTokenRequestId,
   }) {
     return <String, dynamic>{
       if (theme != null) ...theme.toMap(),
       ...(info ?? const CreatePostScreenInfo()).toMap(),
+      if (bridgeTokenRequestId != null) ...<String, dynamic>{
+        'bridgeTokenRequestId': bridgeTokenRequestId,
+        'hasBridgeShareTokenProvider': true,
+      },
     };
   }
 
-  /// Connect a user to the Octopus SDK
+  /// Connect a user to the Octopus SDK.
   ///
-  /// Note: You must call initialize() before connecting a user
+  /// Note: You must call initialize() before connecting a user.
   ///
-  /// [userId] - Unique identifier for the user
-  /// [token] - JWT token for user authentication (get from your backend)
-  /// [nickname] - User's display name (optional)
-  /// [bio] - User's bio (optional)
-  /// [picture] - User's profile picture URL or base64 (optional)
+  /// Provide a [tokenProvider]: the SDK invokes it whenever it needs a signed
+  /// JWT to authenticate the user — initially (on connect) **and** on every
+  /// subsequent refresh (e.g. [refreshEntitlements] minting a fresh JWT with
+  /// the host's current entitlement set). This mirrors the single native
+  /// `OctopusSDK.connectUser(user, tokenProvider:)` contract on Android and
+  /// iOS, and is what lets [refreshEntitlements] succeed. The provider is
+  /// unregistered automatically by [disconnectUser]; connecting again replaces
+  /// the previous provider (last-write-wins).
+  ///
+  /// [userId] - Unique identifier for the user.
+  /// [tokenProvider] - Async callback returning a freshly-signed JWT (get it
+  ///   from your backend). The SDK may call it more than once.
+  /// [nickname] - User's display name (optional).
+  /// [bio] - User's bio (optional).
+  /// [picture] - User's profile picture URL or base64 (optional).
+  /// [token] - **Deprecated.** A pre-minted static JWT. Prefer [tokenProvider]:
+  ///   a static token cannot be re-minted when the SDK re-authenticates the
+  ///   user (e.g. [refreshEntitlements]), so it fails once the JWT expires. To
+  ///   migrate, wrap your token in a provider: `tokenProvider: () async => t`.
+  ///
+  /// Exactly one of [tokenProvider] or [token] must be provided.
   Future<void> connectUser({
     required String userId,
-    required String token,
+    Future<String> Function()? tokenProvider,
     String? nickname,
     String? bio,
     String? picture,
+    @Deprecated(
+      'Use tokenProvider instead. A static token cannot be re-minted when the '
+      'SDK re-authenticates the user (e.g. refreshEntitlements), so it fails '
+      'once the JWT expires. Will be removed in a future major version.',
+    )
+    String? token,
   }) {
+    if (tokenProvider != null && token != null) {
+      throw ArgumentError(
+        'connectUser requires exactly one of `tokenProvider` or `token`, '
+        'not both.',
+      );
+    }
+    if (tokenProvider != null) {
+      return _connectUserWithTokenProvider(
+        userId: userId,
+        tokenProvider: tokenProvider,
+        nickname: nickname,
+        bio: bio,
+        picture: picture,
+      );
+    }
+    if (token == null) {
+      throw ArgumentError(
+        'connectUser requires either `tokenProvider` or `token`.',
+      );
+    }
     return OctopusSDKPlatform.instance.connectUser(
       userId: userId,
       token: token,
@@ -693,22 +777,37 @@ class OctopusSDK {
     );
   }
 
-  /// Connect a user with a **persistent** token provider — the native SDK
-  /// invokes [tokenProvider] initially (on connect) AND on every subsequent
-  /// refresh (e.g. [refreshEntitlements] minting a fresh JWT with the host's
-  /// current entitlement set). Mirrors the native Android/iOS
-  /// `OctopusSDK.connectUser(user, tokenProvider:)` contract.
+  /// Connect a user with a **persistent** token provider.
   ///
-  /// Use [connectUser] (static `token`) when the JWT is pre-minted and
-  /// doesn't need to change for the connection's lifetime. Use this method
-  /// when [tokenProvider] can re-mint with updated claims — required for
-  /// [refreshEntitlements] to succeed (without a persistent provider, the
-  /// SDK returns `RefreshEntitlementsNoClientTokenProviderError`).
-  ///
-  /// The provider is unregistered automatically by [disconnectUser]; calling
-  /// this method again with the same [userId] replaces the previous
-  /// provider (last-write-wins).
+  /// Deprecated: call [connectUser] with its `tokenProvider` parameter instead
+  /// — same behavior, one canonical entry point that matches the native
+  /// `OctopusSDK.connectUser(user, tokenProvider:)` shape.
+  @Deprecated(
+    'Use connectUser(tokenProvider:) instead. '
+    'Will be removed in a future major version.',
+  )
   Future<void> connectUserWithTokenProvider({
+    required String userId,
+    required Future<String> Function() tokenProvider,
+    String? nickname,
+    String? bio,
+    String? picture,
+  }) {
+    return _connectUserWithTokenProvider(
+      userId: userId,
+      tokenProvider: tokenProvider,
+      nickname: nickname,
+      bio: bio,
+      picture: picture,
+    );
+  }
+
+  /// Shared implementation behind [connectUser] (with a `tokenProvider`) and
+  /// the deprecated `connectUserWithTokenProvider`. Registers the persistent
+  /// provider under a unique `providerId` (so the native side can round-trip
+  /// back to Dart on every refresh) and connects via the platform. Rolls the
+  /// registration back if the platform call throws.
+  Future<void> _connectUserWithTokenProvider({
     required String userId,
     required Future<String> Function() tokenProvider,
     String? nickname,
@@ -893,12 +992,12 @@ class OctopusSDK {
   /// Reactive stream of the current [OctopusConnectionState].
   ///
   /// Emits whenever the user transitions between connected and not-connected
-  /// (and, on Android, whenever the guest flag flips). Consecutive duplicate
-  /// values are collapsed, so it emits only on an actual change. The latest
-  /// snapshot is replayed to late subscribers. Mirrors the native Android
+  /// (and whenever the guest flag flips). Consecutive duplicate values are
+  /// collapsed, so it emits only on an actual change. The latest snapshot is
+  /// replayed to late subscribers. Mirrors the native Android
   /// `OctopusSDK.connectionState`; on iOS, the value is derived from the
-  /// `profile` publisher (see [OctopusConnected.isGuest] for the guest-flag
-  /// asymmetry).
+  /// `profile` publisher and the guest flag is read from `OctopusProfile.isGuest`
+  /// (native iOS 1.12.6+ — see [OctopusConnected.isGuest]).
   static Stream<OctopusConnectionState> get connectionState {
     _initializeEventChannel();
     return buildConnectionStateStream(eventStream, _lastConnectionState);
@@ -925,9 +1024,9 @@ class OctopusSDK {
   /// Reactive convenience stream derived from [connectionState]: `true` only
   /// when a fully authenticated (non-guest) user is connected.
   ///
-  /// **Platform asymmetry.** On Android, `true` iff the connection is
-  /// non-guest. On iOS, `true` whenever a user is connected — the iOS public
-  /// SDK does not distinguish guest sessions. Consecutive duplicate values are
+  /// `true` iff a connected, non-guest user is present — on both platforms.
+  /// (iOS distinguishes guest sessions since native SDK 1.12.6; older iOS SDKs
+  /// reported every connection as non-guest.) Consecutive duplicate values are
   /// collapsed; the latest value is replayed to late subscribers. Mirrors the
   /// native Android `OctopusSDK.isUserConnected`.
   static Stream<bool> get isUserConnected =>
@@ -1531,13 +1630,44 @@ class OctopusSDK {
   /// these intents fire so the host can re-present the editor with the
   /// freshly-connected user; the iOS modal stays presented under the host's
   /// pushed login route — pick the dismiss timing that fits your UX.
+  ///
+  /// **Signing prefilled image shares.** Set
+  /// [CreatePostScreenInfo.bridgeShareTokenProvider] when opening the editor in
+  /// a community that forbids member pictures: at publish time the SDK invokes
+  /// it with the content fingerprint and the host backend returns a signing
+  /// JWT (it reuses the same native→Dart round-trip as
+  /// [fetchOrCreateClientObjectRelatedPost]). The provider is scoped to this
+  /// editor session — opening another editor supersedes it. Supported on both
+  /// platforms (iOS via plugin pods `1.12.4`+); see
+  /// [CreatePostScreenInfo.bridgeShareTokenProvider] for the small
+  /// platform difference when the provider replies `null`.
   Future<void> showOctopusCreatePostScreen({
     CreatePostScreenInfo? info,
     OctopusTheme? theme,
   }) {
     _initializeEventChannel();
+    // Supersede any previous editor's bridge-share provider: the native editor
+    // holds a single one (last-write-wins) and clears it when it closes, so the
+    // prior Dart entry is stale once a new editor opens. Drop it to keep
+    // [_bridgeTokenProviders] bounded.
+    final previousRequestId = _createPostBridgeTokenRequestId;
+    if (previousRequestId != null) {
+      _bridgeTokenProviders.remove(previousRequestId);
+      _createPostBridgeTokenRequestId = null;
+    }
+    String? requestId;
+    final provider = info?.bridgeShareTokenProvider;
+    if (provider != null) {
+      requestId = 'bridgeToken_${_bridgeTokenRequestCounter++}';
+      _bridgeTokenProviders[requestId] = provider;
+      _createPostBridgeTokenRequestId = requestId;
+    }
     return OctopusSDKPlatform.instance.showCreatePostScreen(
-      OctopusSDK.createPostScreenArgs(info: info, theme: theme),
+      OctopusSDK.createPostScreenArgs(
+        info: info,
+        theme: theme,
+        bridgeTokenRequestId: requestId,
+      ),
     );
   }
 }

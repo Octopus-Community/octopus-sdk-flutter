@@ -3,8 +3,8 @@
 // Hardcoded on purpose — these are stable test identities, not secrets, and
 // they ship in the public OSS mirror. Each value is the literal `sub` the
 // host-side SSO signer (`ClientUserTokenSigner`) embeds in the user JWT and
-// hands to `connectUserWithTokenProvider` (or the static `connectUser` path
-// when no SSO secret was injected at build time).
+// hands to `connectUser(tokenProvider:)` (or a trivial provider returning the
+// pre-baked token when no SSO secret was injected at build time).
 //
 // The build-time `--dart-define=OCTOPUS_USER_ID=<value>` still acts as the
 // initial seed for fresh installs / CI, but at runtime the Config screen

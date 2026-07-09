@@ -71,12 +71,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     private var eventsJob: Job? = null
     private var isInitialisedJob: Job? = null
 
-    // Pending bridge token requests, keyed by the in-flight requestId. The
-    // suspend tokenProvider lambda parks a CompletableDeferred here and awaits
-    // it; the Dart `provideBridgeToken` reply completes it. Concurrent — the
-    // lambda may run off the main thread while the reply arrives on it.
-    private val bridgeTokenDeferreds = ConcurrentHashMap<String, CompletableDeferred<String?>>()
-
     // Pending client-user-token requests, keyed by the in-flight requestId. The
     // persistent connectUser tokenProvider lambda registered via
     // `connectUserWithTokenProvider` parks a CompletableDeferred here and
@@ -125,6 +119,46 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             // the foreground Dart isolate.
             OctopusEventEmitter.sendEvent(eventName, data)
             Log.d("OctopusSDKFlutterPlugin", "sendEvent completed")
+        }
+
+        // Pending bridge-token requests, keyed by the in-flight requestId.
+        // PROCESS-STATIC (not per-instance) so a separately-launched
+        // [OctopusCreatePostActivity] — which holds no plugin reference — and a
+        // secondary FlutterEngine share the same in-flight set, the same
+        // reasoning as the process-static event emitter above. The suspend
+        // provider parks a CompletableDeferred here and awaits it; the Dart
+        // `provideBridgeToken` reply completes it. Concurrent: the requestId
+        // scopes each request, and the lambda may run off the main thread while
+        // the reply arrives on it.
+        internal val bridgeTokenDeferreds =
+            ConcurrentHashMap<String, CompletableDeferred<String?>>()
+
+        /**
+         * Runs the native→Dart bridge-token round-trip for [requestId]: parks a
+         * deferred, emits a `bridgeTokenRequest` event carrying [fingerprint],
+         * and awaits the matching `provideBridgeToken` reply (the host returns
+         * `null` when no signature is needed). Shared by
+         * [fetchOrCreateClientObjectRelatedPost] and the create-post editor's
+         * bridge-share signer ([OctopusCreatePostActivity]).
+         */
+        internal suspend fun requestBridgeToken(
+            requestId: String,
+            fingerprint: String
+        ): String? {
+            val deferred = CompletableDeferred<String?>()
+            bridgeTokenDeferreds[requestId] = deferred
+            return try {
+                // The event sink must be touched on the main thread.
+                withContext(Dispatchers.Main) {
+                    sendEvent(
+                        "bridgeTokenRequest",
+                        mapOf("requestId" to requestId, "fingerprint" to fingerprint)
+                    )
+                }
+                deferred.await()
+            } finally {
+                bridgeTokenDeferreds.remove(requestId)
+            }
         }
     }
 
@@ -900,22 +934,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
 
         val tokenProvider: (suspend (String) -> String?)? = if (hasTokenProvider) {
-            { fingerprint ->
-                val deferred = CompletableDeferred<String?>()
-                bridgeTokenDeferreds[requestId] = deferred
-                try {
-                    // The event sink must be touched on the main thread.
-                    withContext(Dispatchers.Main) {
-                        sendEvent(
-                            "bridgeTokenRequest",
-                            mapOf("requestId" to requestId, "fingerprint" to fingerprint)
-                        )
-                    }
-                    deferred.await()
-                } finally {
-                    bridgeTokenDeferreds.remove(requestId)
-                }
-            }
+            { fingerprint -> requestBridgeToken(requestId, fingerprint) }
         } else null
 
         scope.launch {

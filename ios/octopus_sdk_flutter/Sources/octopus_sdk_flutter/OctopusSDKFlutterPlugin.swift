@@ -474,21 +474,14 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       }
       // iOS requires a tokenProvider block. When the Dart caller did not supply
       // one, pass a block that always returns nil (no signature) — matching
-      // Android's optional tokenProvider semantics.
+      // Android's optional tokenProvider semantics. When supplied, reuse the
+      // shared native→Dart round-trip (`requestBridgeToken`) also used by the
+      // create-post editor's bridge-share signer.
       let tokenProvider: @Sendable (String) async throws -> String?
       if hasTokenProvider {
         tokenProvider = { [weak self] fingerprint in
           guard let self else { return nil }
-          return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            DispatchQueue.main.async {
-              // Defensive: if a stale continuation is still parked for this id
-              // (the SDK re-invoked the block within one call), resume it with
-              // nil before overwriting so it can never leak or hang.
-              self.bridgeTokenContinuations[requestId]?.resume(returning: nil)
-              self.bridgeTokenContinuations[requestId] = continuation
-              self.sendEvent("bridgeTokenRequest", data: ["requestId": requestId, "fingerprint": fingerprint])
-            }
-          }
+          return await self.requestBridgeToken(requestId: requestId, fingerprint: fingerprint)
         }
       } else {
         tokenProvider = { _ in nil }
@@ -1208,20 +1201,20 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   }
 
   /// Derives `connectionStateChanged` from `octopus.$profile`: the iOS public
-  /// SDK has no `ConnectionState` publisher, so the cheapest faithful proxy is
-  /// "profile is set → connected; profile is nil → not connected". Guest
-  /// sessions are not observable through the iOS public surface, so `isGuest`
-  /// is always reported as `false`; this asymmetry is documented on
-  /// `OctopusConnected.isGuest`.
+  /// SDK has no dedicated `ConnectionState` publisher, so the profile publisher
+  /// is the source — "profile is set → connected; profile is nil → not
+  /// connected" — and the guest flag is read from `OctopusProfile.isGuest`
+  /// (exposed on the iOS public surface since native SDK 1.12.6). Both the
+  /// connected and guest signals now match Android; see `OctopusConnected.isGuest`.
   private func startObservingConnectionState() {
     guard let octopus else { return }
     octopus.$profile
       .receive(on: DispatchQueue.main)
       .sink { [weak self] profile in
-        if profile != nil {
+        if let profile {
           self?.sendEvent(
             "connectionStateChanged",
-            data: ["connected": true, "isGuest": false]
+            data: ["connected": true, "isGuest": profile.isGuest]
           )
         } else {
           self?.sendEvent(
@@ -1428,6 +1421,36 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     case .cry: return "cry"
     case .rage: return "rage"
     case .unknown: return "unknown"
+    }
+  }
+
+  // MARK: - Bridge token round-trip
+
+  /// Runs the native→Dart bridge-token round-trip for [requestId]: parks a
+  /// continuation, emits a `bridgeTokenRequest` event carrying the
+  /// [fingerprint], and awaits the matching `provideBridgeToken` reply (the
+  /// host returns `nil` when no signature is available). Returns the signed
+  /// token, or `nil`.
+  ///
+  /// Shared by `fetchOrCreateClientObjectRelatedPost` and the create-post
+  /// editor's bridge-share signer (`OctopusCreatePostPresenter`), mirroring
+  /// Android's process-shared `requestBridgeToken`. The continuations map is
+  /// keyed by [requestId] and the Dart side mints a globally-unique id per
+  /// invocation, so the two call sites never collide.
+  func requestBridgeToken(requestId: String, fingerprint: String) async -> String? {
+    return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+      DispatchQueue.main.async { [weak self] in
+        guard let self else {
+          continuation.resume(returning: nil)
+          return
+        }
+        // Defensive: if a stale continuation is still parked for this id (the
+        // SDK re-invoked the block within one call), resume it with nil before
+        // overwriting so it can never leak or hang.
+        self.bridgeTokenContinuations[requestId]?.resume(returning: nil)
+        self.bridgeTokenContinuations[requestId] = continuation
+        self.sendEvent("bridgeTokenRequest", data: ["requestId": requestId, "fingerprint": fingerprint])
+      }
     }
   }
 

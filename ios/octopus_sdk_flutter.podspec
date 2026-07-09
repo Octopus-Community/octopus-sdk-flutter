@@ -14,13 +14,15 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  # Sources live under the Swift Package layout so the podspec and Package.swift
+  # share the exact same files (SPM / CocoaPods dual-support).
+  s.source_files = 'octopus_sdk_flutter/Sources/octopus_sdk_flutter/**/*.swift'
   s.dependency 'Flutter'
   s.platform = :ios, '14.0'
   s.static_framework = true
   # Add Octopus Community SDK dependencies (CocoaPods names)
-  s.dependency 'OctopusCommunity', '1.12.2'
-  s.dependency 'OctopusCommunityUI', '1.12.2'
+  s.dependency 'OctopusCommunity', '1.12.6'
+  s.dependency 'OctopusCommunityUI', '1.12.6'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
@@ -30,5 +32,5 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   # required reason APIs, update the PrivacyInfo.xcprivacy file to describe your
   # plugin's privacy impact, and then uncomment this line. For more information,
   # see https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
-  s.resource_bundles = {'octopus_sdk_flutter_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
+  s.resource_bundles = {'octopus_sdk_flutter_privacy' => ['octopus_sdk_flutter/Sources/octopus_sdk_flutter/PrivacyInfo.xcprivacy']}
 end

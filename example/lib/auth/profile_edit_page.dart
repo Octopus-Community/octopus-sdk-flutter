@@ -53,7 +53,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       });
       await app.octopus.connectUser(
         userId: userId,
-        token: octopusUserToken,
+        tokenProvider: () async => octopusUserToken,
         nickname: nickname,
         bio: bio,
       );

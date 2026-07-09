@@ -54,13 +54,22 @@ jobs:
       ok: ${{ steps.mark-ok.outputs.ok }}
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
+
+      - name: Clear stale pub.dev token (self-hosted runner hygiene)
+        # The release workflow's OIDC step (dart-lang/setup-dart) writes an
+        # `--env-var PUB_TOKEN` pub.dev entry into the persistent user-level
+        # pub-tokens.json. On a self-hosted runner that file survives between
+        # jobs, so every later `flutter pub get` aborts with "requires
+        # PUB_TOKEN but not defined" (exit 65). Drop it first — fetching public
+        # deps needs no token. `|| true` makes it a no-op when nothing is set.
+        run: dart pub token remove https://pub.dev || true
 
       - name: Resolve dependencies
         run: flutter pub get
@@ -110,13 +119,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
+
+      - name: Clear stale pub.dev token (self-hosted runner hygiene)
+        # The release workflow's OIDC step (dart-lang/setup-dart) writes an
+        # `--env-var PUB_TOKEN` pub.dev entry into the persistent user-level
+        # pub-tokens.json. On a self-hosted runner that file survives between
+        # jobs, so every later `flutter pub get` aborts with "requires
+        # PUB_TOKEN but not defined" (exit 65). Drop it first — fetching public
+        # deps needs no token. `|| true` makes it a no-op when nothing is set.
+        run: dart pub token remove https://pub.dev || true
 
       - name: Resolve dependencies
         run: flutter pub get
@@ -153,7 +171,7 @@ jobs:
       ok: ${{ steps.mark-ok.outputs.ok }}
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install gitleaks (pinned + checksum-verified, macOS)
         # Self-hosted macOS: download the darwin binary matching the runner's
@@ -195,7 +213,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install gitleaks (pinned + checksum-verified, Linux)
         env:
@@ -223,7 +241,7 @@ jobs:
       ok: ${{ steps.mark-ok.outputs.ok }}
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install actionlint (pinned + checksum-verified, macOS)
         # Same self-hosted macOS pattern as gitleaks. Checksums from
@@ -265,7 +283,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install actionlint (pinned + checksum-verified, Linux)
         env:

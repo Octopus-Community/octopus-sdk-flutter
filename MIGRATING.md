@@ -5,10 +5,61 @@ This guide consolidates the migration notes for every minor release of the
 first (with before/after code), then the additive surface introduced in that
 release. The most recent version is at the top.
 
+- [To 1.12.2 (from 1.12.0/1.12.1)](#to-1122-from-11201121)
 - [To 1.12.0 (from 1.11.x)](#to-1120-from-111x)
 - [To 1.11.0 (from 1.10.x)](#to-1110-from-110x)
 - [To 1.10.0 (from 1.9.x)](#to-1100-from-19x)
 - [To 1.9.0](#to-190)
+
+---
+
+## To 1.12.2 (from 1.12.0/1.12.1)
+
+No breaking API changes — purely additive plus one deprecation.
+
+### Deprecated — `connectUser`'s static `token` parameter
+
+`OctopusSDK.connectUser`'s `token` parameter (a pre-minted static JWT) is
+deprecated in favor of `tokenProvider`, an async callback the SDK invokes
+whenever it needs a signed JWT — on initial connect **and** on every
+subsequent refresh (e.g. `refreshEntitlements()`). A static token cannot be
+re-minted, so a long-lived session eventually fails once it expires.
+
+**Before:**
+```dart
+await octopus.connectUser(userId: userId, token: jwt);
+```
+
+**After:**
+```dart
+await octopus.connectUser(
+  userId: userId,
+  tokenProvider: () async => fetchFreshJwtFromYourBackend(),
+);
+```
+
+`token` still works — no breaking change, will be removed in a future major
+version. Passing both `tokenProvider` and `token` now throws `ArgumentError`
+in every build (previously a debug-only `assert` that release builds
+silently skipped, silently preferring `tokenProvider` if a caller mistakenly
+passed both).
+
+### New
+
+- **`bridgeShareTokenProvider` on `CreatePostScreenInfo`** — sign prefilled
+  image shares on the create-post editor when a community forbids member
+  pictures. See [CHANGELOG.md](CHANGELOG.md) `## 1.12.2` for the full
+  contract.
+- **`navBarLeadingAction` on `OctopusHomeScreen` now works on Android too**
+  (previously iOS-only).
+- **iOS SPM (Swift Package Manager) dual-support** — the plugin now ships a
+  `Package.swift` alongside the existing podspec; CocoaPods still supported.
+- **iOS: `OctopusConnectionState.isGuest` now reported** (previously always
+  `false` on iOS, see 1.12.0's note above).
+
+### Dependencies
+- Android Octopus SDK: 1.12.0 → 1.12.1
+- iOS Octopus SDK: 1.12.2 → 1.12.6
 
 ---
 

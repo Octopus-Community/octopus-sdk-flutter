@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
+import '../auth/bridge_token_signer.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
 import '../octopus_demo_config.dart';
@@ -28,6 +31,10 @@ import '../widgets/scenario_scaffold.dart';
 ///   factory inside a `try/catch` so QA can observe each
 ///   [OctopusPrefilledPostValidationError] subtype as the result panel text.
 /// - Preset 5 (standalone post details) reuses the same post id field.
+/// - Preset 6 opens the standalone native editor via
+///   [OctopusSDK.showOctopusCreatePostScreen] with a prefilled image share and
+///   a `bridgeShareTokenProvider` (signs the share in a pictures-off community;
+///   wired on both platforms). Mirrors the native sample bridge-share section.
 ///
 /// Each preset pushes a new [MaterialPageRoute] hosting the requested
 /// embedded view directly — without an outer host [AppBar] (only a top
@@ -36,7 +43,11 @@ import '../widgets/scenario_scaffold.dart';
 /// every screen. Wrapping a host [AppBar] around it would stack two headers.
 /// The top [SafeArea] (added in [_openRoute]) is still required: the Android
 /// PlatformView consumes the system-bar insets, so without it the SDK top bar
-/// would render under the status bar. The SDK's back arrow fires `onBack`,
+/// would render under the status bar. The device bottom gesture-area inset is
+/// forwarded to the SDK via `bottomSafeAreaInset` (not a host bottom [SafeArea])
+/// so the embedded feed stays edge-to-edge while the SDK floats its
+/// bottom-pinned content above the gesture area — the same idiom as the
+/// Fullscreen / Modal / Sheet scenarios. The SDK's back arrow fires `onBack`,
 /// which pops the host route.
 ///
 /// **Preset 4 auto-pops on `PostCreated`.** The native embedded shell does
@@ -109,25 +120,41 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
 
   Future<void> _openRoute(
     BuildContext context, {
-    required Widget Function(BuildContext routeContext) builder,
+    required Widget Function(
+      BuildContext routeContext,
+      double bottomSafeAreaInset,
+    )
+    builder,
   }) {
     // Builder receives the pushed route's context so embedded callbacks
     // (onBack / onNavigateToLogin / onModifyUser) resolve their Navigator
     // from inside the route — same idiom as sheet_scenario, defensive
     // against the outer scenario State being torn down while the pushed
-    // route is still on top.
+    // route is still on top. It also receives the device bottom gesture-area
+    // inset to forward to the embedded SDK (see below).
     //
-    // Wrap in `Scaffold` + `SafeArea(bottom: false)` — the same shape
-    // `OctopusSDK.showOctopusHomeScreen` uses. The `Scaffold` paints a surface
-    // behind the status-bar inset (without it the unpainted top area shows the
-    // route's black backdrop); `SafeArea(bottom: false)` offsets the SDK's
-    // native top bar below the status bar — on Android the PlatformView calls
-    // `consumeWindowInsets(systemBars)`, assuming the host owns the insets —
-    // while leaving the gesture-area inset to the SDK's own bottom handling.
+    // Wrap in `Scaffold` + `SafeArea(bottom: false)`. The `Scaffold` paints a
+    // surface behind the status-bar inset (without it the unpainted top area
+    // shows the route's black backdrop); `SafeArea(bottom: false)` offsets the
+    // SDK's native top bar below the status bar. The bottom gesture-area inset
+    // is NOT applied by the host SafeArea: the platform view consumes the
+    // system insets (`consumeWindowInsets(systemBars)`), so instead the host
+    // measures the device bottom inset off the raw View and forwards it to the
+    // SDK via `bottomSafeAreaInset` — the same edge-to-edge idiom as the
+    // Fullscreen / Modal / Sheet scenarios. The SDK then floats its own
+    // bottom-pinned content (feed "Write a post" pill, comment composer + its
+    // legal disclaimer) above the gesture area while the feed still scrolls
+    // edge-to-edge underneath.
+    final bottomSafeAreaInset = MediaQueryData.fromView(
+      View.of(context),
+    ).viewPadding.bottom;
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (routeContext) => Scaffold(
-          body: SafeArea(bottom: false, child: builder(routeContext)),
+          body: SafeArea(
+            bottom: false,
+            child: builder(routeContext, bottomSafeAreaInset),
+          ),
         ),
       ),
     );
@@ -326,19 +353,21 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               );
               await _openRoute(
                 context,
-                builder: (routeContext) => OctopusHomeScreen(
-                  theme: app.effectiveOctopusTheme(),
-                  showBackButton: true,
-                  onBack: () => Navigator.of(routeContext).pop(),
-                  onNavigateToLogin: () => Navigator.of(
-                    routeContext,
-                  ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-                  onModifyUser: (field) => Navigator.of(routeContext).push(
-                    MaterialPageRoute(
-                      builder: (_) => ProfileEditPage(fieldToEdit: field),
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusHomeScreen(
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      showBackButton: true,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
               );
               if (!mounted) return;
               setResult('Returned to scenario.');
@@ -372,22 +401,24 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               );
               await _openRoute(
                 context,
-                builder: (routeContext) => OctopusHomeScreen(
-                  theme: app.effectiveOctopusTheme(),
-                  showBackButton: true,
-                  onBack: () => Navigator.of(routeContext).pop(),
-                  onNavigateToLogin: () => Navigator.of(
-                    routeContext,
-                  ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-                  onModifyUser: (field) => Navigator.of(routeContext).push(
-                    MaterialPageRoute(
-                      builder: (_) => ProfileEditPage(fieldToEdit: field),
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusHomeScreen(
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      showBackButton: true,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
+                      initialScreen: OctopusInitialScreen.post(
+                        PostScreenInfo(postId: postId),
+                      ),
                     ),
-                  ),
-                  initialScreen: OctopusInitialScreen.post(
-                    PostScreenInfo(postId: postId),
-                  ),
-                ),
               );
               if (!mounted) return;
               setResult('Returned to scenario.');
@@ -423,22 +454,24 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               );
               await _openRoute(
                 context,
-                builder: (routeContext) => OctopusHomeScreen(
-                  theme: app.effectiveOctopusTheme(),
-                  showBackButton: true,
-                  onBack: () => Navigator.of(routeContext).pop(),
-                  onNavigateToLogin: () => Navigator.of(
-                    routeContext,
-                  ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-                  onModifyUser: (field) => Navigator.of(routeContext).push(
-                    MaterialPageRoute(
-                      builder: (_) => ProfileEditPage(fieldToEdit: field),
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusHomeScreen(
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      showBackButton: true,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
+                      initialScreen: OctopusInitialScreen.group(
+                        GroupScreenInfo(groupId: groupId),
+                      ),
                     ),
-                  ),
-                  initialScreen: OctopusInitialScreen.group(
-                    GroupScreenInfo(groupId: groupId),
-                  ),
-                ),
               );
               if (!mounted) return;
               setResult('Returned to scenario.');
@@ -516,6 +549,14 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 'for the image-share flow).',
               );
 
+              // Measure the device bottom gesture-area inset off the raw View
+              // and forward it to the SDK (edge-to-edge idiom, matching the
+              // other scenarios) so the createPost editor's legal disclaimer
+              // clears the gesture area while the editor stays edge-to-edge.
+              final bottomSafeAreaInset = MediaQueryData.fromView(
+                View.of(context),
+              ).viewPadding.bottom;
+
               // Build the route up-front so the PostCreated listener can
               // remove *this specific route* by reference. `Navigator.pop()`
               // would target the navigator's current top, which may have
@@ -528,6 +569,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                     bottom: false,
                     child: OctopusHomeScreen(
                       theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
                       showBackButton: true,
                       onBack: () => Navigator.of(routeContext).pop(),
                       onNavigateToLogin: () => Navigator.of(routeContext).push(
@@ -603,30 +645,126 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               );
               await _openRoute(
                 context,
-                builder: (routeContext) => OctopusPostDetailsScreen(
-                  postId: postId,
-                  theme: app.effectiveOctopusTheme(),
-                  // `onBack` wires the SDK back chevron (rendered on iOS by
-                  // the bridge's `showBackButton` backfill, on Android by
-                  // the native top app bar) to a host-owned route pop.
-                  // Without this the chevron would be inert at the
-                  // bridge-mode start destination.
-                  onBack: () => Navigator.of(routeContext).pop(),
-                  onNavigateToLogin: () => Navigator.of(
-                    routeContext,
-                  ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-                  onModifyUser: (field) => Navigator.of(routeContext).push(
-                    MaterialPageRoute(
-                      builder: (_) => ProfileEditPage(fieldToEdit: field),
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusPostDetailsScreen(
+                      postId: postId,
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      // `onBack` wires the SDK back chevron (rendered on iOS by
+                      // the bridge's `showBackButton` backfill, on Android by
+                      // the native top app bar) to a host-owned route pop.
+                      // Without this the chevron would be inert at the
+                      // bridge-mode start destination.
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
               );
               if (!mounted) return;
               setResult('Returned to scenario.');
             } catch (e) {
               setResult(
                 'Failed to open standalone post details: $e',
+                isError: true,
+              );
+            }
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-initial-screen-6',
+          label: 'Preset 6 · Standalone editor + signed image share',
+          onRun: (setResult) async {
+            final text = _prefillTextCtrl.text;
+            final ctaLabel = _ctaLabelCtrl.text;
+            final ctaUrl = _ctaUrlCtrl.text;
+            final topicId = _effectiveGroupId(app.groups);
+
+            OctopusPostCTA? cta;
+            if (ctaLabel.isNotEmpty || ctaUrl.isNotEmpty) {
+              final parsedUrl = Uri.tryParse(ctaUrl);
+              if (parsedUrl == null) {
+                setResult(
+                  'CTA url is not a valid URI: "$ctaUrl"',
+                  isError: true,
+                );
+                return;
+              }
+              cta = OctopusPostCTA(url: parsedUrl, label: ctaLabel);
+            }
+
+            // Carry a real image so this exercises the bridge-share image path:
+            // showOctopusCreatePostScreen forwards image bytes to the native
+            // editor (unlike the embedded createPost route, which drops them).
+            Uint8List imageBytes;
+            try {
+              final data = await rootBundle.load('assets/logo.png');
+              imageBytes = data.buffer.asUint8List();
+            } catch (e) {
+              setResult('Failed to load assets/logo.png: $e', isError: true);
+              return;
+            }
+
+            OctopusPrefilledPost prefill;
+            try {
+              prefill = OctopusPrefilledPost(
+                text: text,
+                image: imageBytes,
+                topicId: topicId,
+                cta: cta,
+              );
+            } on OctopusPrefilledPostValidationError catch (e) {
+              setResult(
+                'OctopusPrefilledPost rejected: ${e.runtimeType} '
+                '(${e.message ?? 'no message'})',
+                isError: true,
+              );
+              return;
+            }
+
+            try {
+              demoLog.apiCall('showOctopusCreatePostScreen', {
+                'prefilledText': text,
+                'image': 'assets/logo.png (${imageBytes.length} bytes)',
+                'topicId': topicId ?? '(none)',
+                'cta': cta == null
+                    ? '(none)'
+                    : 'label="${cta.label}", url=${cta.url}',
+                'bridgeShareTokenProvider': hasInjectedSsoSecret
+                    ? 'set (signs via demo SSO secret)'
+                    : 'set (returns null — no SSO secret injected)',
+              });
+              setResult(
+                'Opening the standalone native editor via '
+                'OctopusSDK.showOctopusCreatePostScreen(...) with a prefilled '
+                'image share and a bridgeShareTokenProvider. In a community '
+                'that forbids member pictures the SDK invokes the provider at '
+                'publish time with the content fingerprint; the demo signer '
+                'returns an HS256 JWT (or null when no SSO secret is injected). '
+                'Wired on both platforms. When the signer returns null, iOS '
+                'shows a signing error and keeps the editor open, while Android '
+                'lets the server reject the unsigned image. Mirrors the native '
+                'sample bridge-share section.',
+              );
+              await OctopusSDK().showOctopusCreatePostScreen(
+                info: CreatePostScreenInfo(
+                  prefilledPost: prefill,
+                  // signBridgeFingerprint is synchronous (String?); wrap it to
+                  // match the Future<String?> provider contract, mirroring the
+                  // bridge-to-client-object scenario's _hostBridgeTokenProvider.
+                  bridgeShareTokenProvider: (fingerprint) async =>
+                      BridgeTokenSigner.signBridgeFingerprint(fingerprint),
+                ),
+                theme: app.effectiveOctopusTheme(),
+              );
+            } catch (e) {
+              setResult(
+                'Failed to open the standalone create-post editor: $e',
                 isError: true,
               );
             }

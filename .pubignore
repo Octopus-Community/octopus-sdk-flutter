@@ -33,9 +33,16 @@ SESSION_STATE.md
 example/lib/debug/
 test/
 
-# Obsolete hand-run release script (replaced by sdk-release.yml workflow, chunk #5)
-scripts/release-on-public-repo.sh
+# Internal dev / release scripts — none of these belong in the consumed
+# package. Mirrors `.gitattributes` (`scripts export-ignore`) and the
+# public-mirror allowlist, which both keep scripts/ out of the public
+# distribution (e.g. run-sample.sh references the demo backend and dev
+# tooling). .pubignore governs the pub.dev tarball independently of those,
+# so it must repeat the exclusion — otherwise the launcher ships to pub.dev.
+scripts/
+
+# Opt-in local git hooks — dev-only, not consumed by host apps.
+lefthook.yml
 
 # Release tooling — not part of the consumable package
 melos.yaml
-scripts/verify_native_pins.dart

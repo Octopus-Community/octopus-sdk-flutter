@@ -14,10 +14,9 @@ class ConnectionScenario extends StatelessWidget {
   ///
   /// Distinguishes a real connected user from an anonymous **guest** session
   /// (the SDK auto-establishes a guest after `disconnectUser` on a
-  /// forced-login community). **Platform note:** only Android reports
-  /// `OctopusConnected.isGuest`; iOS never sets it (the public iOS SDK has no
-  /// guest indicator — tracked for the native team), so on iOS a guest reads
-  /// as plain "connected".
+  /// forced-login community). **Platform note:** `OctopusConnected.isGuest` is
+  /// reported on both platforms — Android natively, iOS via
+  /// `OctopusProfile.isGuest` (native iOS SDK `1.12.6+`).
   static String _connectionLabel(OctopusConnectionState? state) =>
       switch (state) {
         OctopusConnected(isGuest: true) => 'connected · guest',
@@ -42,8 +41,8 @@ class ConnectionScenario extends StatelessWidget {
           'falls back to the pre-baked OCTOPUS_USER_TOKEN — connect still '
           'works but refreshEntitlements returns NoClientTokenProvider.\n\n'
           'After Disconnect, a forced-login community re-establishes a '
-          'guest session — Android shows it as "connected · guest", iOS '
-          'as plain "connected" (iOS exposes no guest flag yet).',
+          'guest session — shown as "connected · guest" on both platforms '
+          '(iOS reports the guest flag since native SDK 1.12.6).',
       resultTestId: 'connection-result',
       liveState: KeyValueCard(
         title: 'Live state',
