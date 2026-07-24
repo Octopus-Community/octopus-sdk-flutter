@@ -1,3 +1,8 @@
+## 1.12.3
+
+### Fixed
+- **`showOctopusHomeScreen` / `openNotification` now reserve the Android system navigation-bar inset by default.** On edge-to-edge Android (API 35+), the full-screen helper previously let the SDK's floating "Write a post" button sit behind the system navigation bar: the route uses `SafeArea(bottom: false)` and the embedded native view consumes the system-bar insets, so nothing reserved the bottom. The helper now auto-reserves the launching view's bottom safe area. A new optional `double? bottomSafeAreaInset` on both methods overrides it — `null` (default) = auto, `0` = the previous edge-to-edge look, a larger value = clear extra host bottom chrome. Additive, no breaking change; iOS is unaffected (native 10pt floor). The `OctopusHomeScreen` widget's own contract is unchanged — hosts that mount it directly still pass `bottomSafeAreaInset` themselves (as the sample scenarios do).
+
 ## 1.12.2
 
 ### New Features

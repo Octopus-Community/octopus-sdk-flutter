@@ -1525,6 +1525,15 @@ class OctopusSDK {
   /// compatibility with 1.11.0's API but is **not currently wired** —
   /// the full-screen route already exposes back/dismiss affordances on
   /// both platforms, so an extra overlay close button is redundant here.
+  ///
+  /// [bottomSafeAreaInset] controls the bottom padding the embedded native
+  /// screen reserves for its floating "Write a post" button. Leave it `null`
+  /// (default) and the helper auto-reserves the launching view's bottom safe
+  /// area, keeping the button clear of the Android system navigation bar on
+  /// edge-to-edge devices (API 35+), where it would otherwise be occluded.
+  /// Pass `0` to opt back into the previous edge-to-edge look, or a larger
+  /// value to clear additional host bottom chrome. See
+  /// [OctopusHomeScreen.bottomSafeAreaInset] for the underlying contract.
   Future<void> showOctopusHomeScreen(
     BuildContext context, {
     String? navBarTitle,
@@ -1535,7 +1544,19 @@ class OctopusSDK {
     UrlOpeningStrategy Function(String)? onNavigateToUrl,
     Widget? closeWidget,
     OctopusNotification? notification,
+    double? bottomSafeAreaInset,
   }) {
+    // Edge-to-edge Android (API 35+): the embedded PlatformView consumes the
+    // system-bar insets internally, and this route's `SafeArea(bottom: false)`
+    // deliberately does not pad the bottom, so the SDK's floating "Write a
+    // post" button would otherwise sit behind the system navigation bar.
+    // Reserve that inset by default. Read the raw View (not `MediaQuery.of`)
+    // so an ancestor `SafeArea` that already consumed `padding.bottom` can't
+    // zero it out. iOS is unaffected (native 10pt floor). Callers can override:
+    // pass `0` to opt back into the edge-to-edge look, or a larger value to
+    // clear their own bottom chrome.
+    final effectiveBottomInset = bottomSafeAreaInset ??
+        MediaQueryData.fromView(View.of(context)).viewPadding.bottom;
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (routeContext) => Scaffold(
@@ -1546,6 +1567,7 @@ class OctopusSDK {
               navBarTitle: navBarTitle,
               navBarPrimaryColor: navBarPrimaryColor,
               showBackButton: true,
+              bottomSafeAreaInset: effectiveBottomInset,
               onBack: () => Navigator.of(routeContext).pop(),
               onNavigateToLogin: onNavigateToLogin,
               onModifyUser: onModifyUser,
@@ -1592,6 +1614,7 @@ class OctopusSDK {
     required VoidCallback onNavigateToLogin,
     Function(String?)? onModifyUser,
     UrlOpeningStrategy Function(String)? onNavigateToUrl,
+    double? bottomSafeAreaInset,
   }) {
     return showOctopusHomeScreen(
       context,
@@ -1602,6 +1625,7 @@ class OctopusSDK {
       onModifyUser: onModifyUser,
       onNavigateToUrl: onNavigateToUrl,
       notification: notification,
+      bottomSafeAreaInset: bottomSafeAreaInset,
     );
   }
 

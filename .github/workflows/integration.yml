@@ -42,6 +42,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
+          flutter-version: "3.44.5"
           channel: stable
           cache: true
 
@@ -56,7 +57,22 @@ jobs:
 
       - name: Resolve example dependencies
         working-directory: example
-        run: flutter pub get
+        # Self-heal a corrupt shared ~/.pub-cache on the self-hosted runner: a
+        # truncated/partial cached download makes pub get fail its hash check. On
+        # failure, clear the cache and re-resolve once — a non-zero pub get is
+        # never benign, so retrying here is safe (unlike the device test step,
+        # which can exit non-zero for harmless reasons). Compile-time cache
+        # staleness from SDK drift is handled separately by pinning Flutter above.
+        # The clean wipes the SHARED cache, so it could in theory race a
+        # concurrent pr.yml `flutter pub get` on the same mini — but it only
+        # fires when the cache is already bad, and pr.yml recovers via its
+        # GitHub-hosted fallback, so the blast radius stays bounded.
+        run: |
+          if ! flutter pub get; then
+            echo "::warning::pub get failed on the shared self-hosted cache — clearing it and retrying once"
+            dart pub cache clean --force
+            flutter pub get
+          fi
 
       - name: Write a dummy google-services.json
         # The example wires firebase_messaging (push-notification demo), whose
@@ -124,6 +140,13 @@ jobs:
           # iOS simulators, macOS, and Chrome to Flutter. Without a device
           # selector the runner aborts with "More than one device connected"
           # before any test runs. Mirrors the iOS job's `-d "$SIM_UDID"` line.
+          # NOTE: android-emulator-runner runs `script` line-by-line (each line
+          # is its own `sh -c`), so multi-line shell control flow (if/then/fi)
+          # breaks here — keep this a single command. Cache corruption is guarded
+          # upstream (Flutter pin + pub-get self-heal), not retried around the
+          # device run: a device test can exit non-zero for harmless reasons
+          # (e.g. simulator/emulator app-teardown races) and a blind retry would
+          # turn a green run red.
           script: flutter test integration_test -d emulator-5554
 
   ios:
@@ -146,6 +169,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
+          flutter-version: "3.44.5"
           channel: stable
           cache: true
 
@@ -171,7 +195,22 @@ jobs:
 
       - name: Resolve example dependencies
         working-directory: example
-        run: flutter pub get
+        # Self-heal a corrupt shared ~/.pub-cache on the self-hosted runner: a
+        # truncated/partial cached download makes pub get fail its hash check. On
+        # failure, clear the cache and re-resolve once — a non-zero pub get is
+        # never benign, so retrying here is safe (unlike the device test step,
+        # which can exit non-zero for harmless reasons). Compile-time cache
+        # staleness from SDK drift is handled separately by pinning Flutter above.
+        # The clean wipes the SHARED cache, so it could in theory race a
+        # concurrent pr.yml `flutter pub get` on the same mini — but it only
+        # fires when the cache is already bad, and pr.yml recovers via its
+        # GitHub-hosted fallback, so the blast radius stays bounded.
+        run: |
+          if ! flutter pub get; then
+            echo "::warning::pub get failed on the shared self-hosted cache — clearing it and retrying once"
+            dart pub cache clean --force
+            flutter pub get
+          fi
 
       - name: Refresh CocoaPods CDN cache
         # Only needed on the CocoaPods leg — on the SPM leg the native Octopus
@@ -187,27 +226,70 @@ jobs:
         # specs repository is too out-of-date".
         run: pod repo update
 
-      - name: Boot an iPhone simulator
+      - name: Create and boot a dedicated iPhone simulator
+        id: sim
+        # Give THIS job its own throwaway simulator instead of booting the first
+        # shared one. The persistent self-hosted mac runs multiple runner agents
+        # off one CoreSimulator device set, so the two matrix legs (and any
+        # concurrent PR run) all picked the SAME device with the old step. Two
+        # `flutter test` processes then attached to one device's VM service and
+        # fought over one DDS/app, producing the intermittent reds we saw:
+        # "A DDS instance is already connected", "found nothing to terminate",
+        # and "0 tests passed / No tests were found" — all despite every test
+        # passing on-device. A per-job device isolates them; the cleanup step
+        # below deletes it (kept `if: always()` so a red run still tidies up).
         run: |
-          # Pick the first available iPhone simulator on the runner and boot it.
-          # The python is a single line so it stays inside the YAML block
-          # scalar. Export its UDID for the test step.
-          UDID="$(xcrun simctl list devices available --json | python3 -c "import json,sys; devs=json.load(sys.stdin)['devices']; print(next((d['udid'] for rt,l in devs.items() if 'iOS' in rt for d in l if d['name'].startswith('iPhone')), ''))")"
-          if [ -z "$UDID" ]; then
-            echo "No available iPhone simulator on this runner." >&2
+          # Derive the device type + runtime from an available iPhone so the
+          # created device is guaranteed bootable on this runner's Xcode.
+          simspec="$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              for d in devices:
+                  if d["name"].startswith("iPhone") and d.get("deviceTypeIdentifier"):
+                      print(d["deviceTypeIdentifier"], runtime)
+                      sys.exit(0)
+          ' || true)"
+          devtype="${simspec%% *}"
+          runtime="${simspec##* }"
+          if [ -z "$simspec" ] || [ -z "$devtype" ] || [ -z "$runtime" ]; then
+            echo "No bootable iPhone device type/runtime on this runner." >&2
             exit 1
           fi
-          # `|| true`: on the persistent self-hosted Mac the sim may already be
-          # Booted from a previous run, where `boot` exits non-zero ("Unable to
-          # boot device in current state: Booted"). That's fine — `bootstatus`
-          # below is the real readiness gate.
-          xcrun simctl boot "$UDID" || true
-          # boot is async (returns while still "Booting"); block until the sim
-          # is fully booted so the test step doesn't race a half-up simulator.
-          xcrun simctl bootstatus "$UDID" -b
-          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          # run_id+run_attempt+leg → a name unique to this job execution, so
+          # concurrent legs/PRs never collide and re-runs get a fresh device.
+          name="octopus-ci-${{ matrix.dependency-manager }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          udid="$(xcrun simctl create "$name" "$devtype" "$runtime")"
+          # Record the UDID for the cleanup step BEFORE booting: if boot or
+          # bootstatus fails, the device already exists and the `if: always()`
+          # cleanup must still be able to delete it (else it leaks — the exact
+          # case the cleanup is there to prevent).
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "Created $name ($udid) [$devtype / $runtime]"
+          xcrun simctl boot "$udid"
+          # boot is async (returns while still "Booting"); block until fully
+          # booted so the test step doesn't race a half-up simulator.
+          xcrun simctl bootstatus "$udid" -b
+          echo "SIM_UDID=$udid" >> "$GITHUB_ENV"
 
       - name: Run integration tests on the simulator
         working-directory: example
-        # No API key injected on purpose (see Android job).
-        run: flutter test integration_test -d "$SIM_UDID"
+        # No API key injected on purpose (see Android job). The wrapper runs the
+        # suite once (no retry — a blind retry turned a green run red in PR #162)
+        # and only rewrites a non-zero exit to success when every test passed but
+        # flutter hit the benign iOS-simulator post-test teardown race (the app
+        # exited before flutter's `simctl terminate`, so it "found nothing to
+        # terminate" and re-raised it as an "unhandled error during finalization
+        # of test"). It never masks a real test failure — full rationale + the
+        # exact match conditions are in the script header.
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-run-integration-tests.sh" "$SIM_UDID"
+
+      - name: Delete the dedicated simulator
+        # Always, so a failed run doesn't leak a device onto the persistent
+        # runner (leftover booted devices are what caused the collisions above).
+        if: always()
+        run: |
+          udid="${{ steps.sim.outputs.udid }}"
+          if [ -n "$udid" ]; then
+            xcrun simctl shutdown "$udid" || true
+            xcrun simctl delete "$udid" || true
+          fi
