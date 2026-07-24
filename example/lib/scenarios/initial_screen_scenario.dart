@@ -35,6 +35,11 @@ import '../widgets/scenario_scaffold.dart';
 ///   [OctopusSDK.showOctopusCreatePostScreen] with a prefilled image share and
 ///   a `bridgeShareTokenProvider` (signs the share in a pictures-off community;
 ///   wired on both platforms). Mirrors the native sample bridge-share section.
+/// - Preset 7 opens the community via the top-level
+///   [OctopusSDK.showOctopusHomeScreen] helper with no `bottomSafeAreaInset`
+///   (auto inset) — the only preset exercising the client-facing helper whose
+///   default auto-reserves the Android nav-bar inset (unlike presets 1-5,
+///   which mount the widget directly and forward the inset themselves).
 ///
 /// Each preset pushes a new [MaterialPageRoute] hosting the requested
 /// embedded view directly — without an outer host [AppBar] (only a top
@@ -331,7 +336,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
       description:
           'Mount the embedded community on a specific initial screen — main '
           'feed, a single post (bridge mode), a single group (bridge mode), '
-          'the post editor, or the standalone OctopusPostDetailsScreen widget. '
+          'the post editor, the standalone OctopusPostDetailsScreen widget, or '
+          'via the top-level showOctopusHomeScreen helper (auto bottom inset). '
           'Use the input form below to plug a real post id / group / prefill '
           'so QA exercises live content (not just not-found stubs). Each '
           'preset pushes a new route hosting the SDK directly; the SDK '
@@ -765,6 +771,60 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
             } catch (e) {
               setResult(
                 'Failed to open the standalone create-post editor: $e',
+                isError: true,
+              );
+            }
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-initial-screen-7',
+          label:
+              'Preset 7 · Open via showOctopusHomeScreen helper (auto inset)',
+          onRun: (setResult) async {
+            try {
+              demoLog.apiCall('showOctopusHomeScreen', {
+                'bottomSafeAreaInset': 'null (auto)',
+              });
+              setResult(
+                'Opening the community via the top-level '
+                'OctopusSDK().showOctopusHomeScreen(context) helper — the '
+                'client-facing entry point (unlike the other presets, which '
+                'mount the OctopusHomeScreen widget directly and forward the '
+                'inset themselves). No bottomSafeAreaInset is passed, so the '
+                'helper auto-reserves the launching view bottom safe area: on '
+                'edge-to-edge Android (API 35+) the floating "Write a post" '
+                'button clears the system navigation bar. Tap the SDK back '
+                'arrow to return.',
+              );
+              // Deliberately NO bottomSafeAreaInset argument: this exercises the
+              // helper's auto-default (the exact path a host app uses). Passing
+              // `bottomSafeAreaInset: 0` here reproduces the pre-fix overlap;
+              // the auto-default is what keeps the floating button above the
+              // Android system nav bar. iOS is unaffected (native 10pt floor).
+              //
+              // Callbacks resolve their Navigator from the scenario's own
+              // `context` (not a route context): unlike the sibling presets,
+              // the helper owns its MaterialPageRoute internally and never
+              // exposes one — so passing our own context IS the client-facing
+              // pattern. Safe: the scenario route stays mounted beneath the
+              // SDK route the helper pushes onto the same navigator.
+              await OctopusSDK().showOctopusHomeScreen(
+                context,
+                theme: app.effectiveOctopusTheme(),
+                onNavigateToLogin: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
+                onModifyUser: (field) => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ProfileEditPage(fieldToEdit: field),
+                  ),
+                ),
+              );
+              if (!mounted) return;
+              setResult('Returned to scenario.');
+            } catch (e) {
+              setResult(
+                'Failed to open via showOctopusHomeScreen helper: $e',
                 isError: true,
               );
             }

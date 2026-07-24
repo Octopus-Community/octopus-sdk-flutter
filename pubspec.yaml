@@ -1,6 +1,6 @@
 name: octopus_sdk_flutter
 description: White-label social community SDK for Flutter — embed a moderated community in your app.
-version: 1.12.2
+version: 1.12.3
 homepage: https://www.octopuscommunity.com
 repository: https://github.com/Octopus-Community/octopus-sdk-flutter
 issue_tracker: https://github.com/Octopus-Community/octopus-sdk-flutter/issues

@@ -56,6 +56,14 @@ class _NotSeenNotificationsScenarioState
   void _openOctopus(BuildContext context) {
     final app = AppScope.of(context);
     final navigator = Navigator.of(context);
+    // Capture the device's bottom gesture-area inset against the launching
+    // View before the push (immune to an ancestor SafeArea / bottom-nav
+    // removePadding, which zero `viewPadding.bottom`), and forward it so the
+    // SDK's floating "Write a post" button clears the Android system nav bar
+    // on edge-to-edge devices. Mirrors `fullscreen_scenario.dart`.
+    final bottomSafeArea = MediaQueryData.fromView(
+      View.of(context),
+    ).viewPadding.bottom;
     demoLog.apiCall('Navigator.push(OctopusHomeScreen)');
     unawaited(
       navigator.push(
@@ -64,15 +72,15 @@ class _NotSeenNotificationsScenarioState
           // `OctopusSDK.showOctopusHomeScreen` uses. The `Scaffold` paints a
           // surface behind the status-bar inset (without it the unpainted top
           // area shows the route's black backdrop); `SafeArea(bottom: false)`
-          // offsets the SDK's native top bar below the status bar — on Android
-          // the PlatformView consumes the system-bar insets, assuming the host
-          // owns them — while leaving the gesture-area inset to the SDK.
+          // offsets the SDK's native top bar below the status bar, while the
+          // captured `bottomSafeAreaInset` reserves the gesture-area inset.
           builder: (routeContext) => Scaffold(
             body: SafeArea(
               bottom: false,
               child: OctopusHomeScreen(
                 theme: app.effectiveOctopusTheme(),
                 showBackButton: true,
+                bottomSafeAreaInset: bottomSafeArea,
                 onBack: () => Navigator.of(routeContext).pop(),
                 onNavigateToLogin: () => Navigator.of(
                   routeContext,

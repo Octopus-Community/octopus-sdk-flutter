@@ -31,7 +31,7 @@ You also need an Octopus **API key** for your community. Reach out to
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.12.2
+  octopus_sdk_flutter: ^1.12.3
 ```
 
 ## Platform setup
