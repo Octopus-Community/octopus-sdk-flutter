@@ -220,7 +220,11 @@ class OctopusCreatePostActivity : ComponentActivity() {
                 OctopusPostCTA(url = Uri.parse(ctaUrl), label = ctaLabel)
             } else null
             val imageUri = imagePath?.let { Uri.fromFile(File(it)) }
-            if (text == null && imageUri == null) {
+            // Text and image are both optional since native 1.13: a topicId- or
+            // CTA-only prefill opens the editor on the preselected group with
+            // empty, user-editable fields. Only a wholly empty prefill is
+            // dropped — it is indistinguishable from opening a plain editor.
+            if (text == null && imageUri == null && topicId == null && cta == null) {
                 return CreatePostScreenInfo(
                     bridgeShareTokenProvider = bridgeShareTokenProvider
                 )
@@ -235,7 +239,7 @@ class OctopusCreatePostActivity : ComponentActivity() {
                 bridgeShareTokenProvider = bridgeShareTokenProvider
             )
         } catch (e: Exception) {
-            Log.w("OctopusCreatePostActivity", "Invalid prefill — opening empty editor", e)
+            Log.w("OctopusSdkFlutter", "Invalid prefill — opening empty editor", e)
             CreatePostScreenInfo(bridgeShareTokenProvider = bridgeShareTokenProvider)
         }
     }

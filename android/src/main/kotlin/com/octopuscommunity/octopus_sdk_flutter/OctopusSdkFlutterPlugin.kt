@@ -12,6 +12,7 @@ import com.octopuscommunity.sdk.domain.model.ConnectionMode
 import com.octopuscommunity.sdk.domain.model.Gamification
 import com.octopuscommunity.sdk.domain.model.Moderation
 import com.octopuscommunity.sdk.domain.model.OctopusEvent
+import com.octopuscommunity.sdk.domain.model.OctopusCommunityData
 import com.octopuscommunity.sdk.domain.model.OctopusItem
 import com.octopuscommunity.sdk.domain.model.OctopusPost
 import com.octopuscommunity.sdk.domain.model.OctopusReactionKind
@@ -25,6 +26,7 @@ import com.octopuscommunity.sdk.domain.network.OctopusResult
 import com.octopuscommunity.sdk.domain.network.ServerError
 import com.octopuscommunity.sdk.domain.model.OctopusGroup
 import com.octopuscommunity.sdk.domain.repository.ClientPostError
+import com.octopuscommunity.sdk.domain.repository.ClientUserError
 import com.octopuscommunity.sdk.domain.repository.CommunityConfigRepository.OverrideCommunityAccessError
 import com.octopuscommunity.sdk.domain.repository.GroupFollowUnfollowError
 import com.octopuscommunity.sdk.domain.repository.RefreshEntitlementsError
@@ -37,6 +39,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +48,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -84,6 +88,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     // Active client-object-post observation jobs, keyed by the Dart-supplied
     // observationId (one per getClientObjectRelatedPostFlow subscription).
     private val clientObjectPostJobs = ConcurrentHashMap<String, Job>()
+    private val communityDataJobs = ConcurrentHashMap<String, Job>()
 
     companion object {
         @Volatile
@@ -359,6 +364,62 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 val observationId = call.argument<String>("observationId")
                     ?: return result.error("INVALID_ARGS", "observationId is required", null)
                 clientObjectPostJobs.remove(observationId)?.cancel()
+                result.success(null)
+            }
+
+            "fetchCommunityData" -> {
+                val profileId = call.argument<String>("profileId")
+                val clientUserId = call.argument<String>("clientUserId")
+                if ((profileId == null) == (clientUserId == null)) {
+                    return result.error(
+                        "INVALID_ARGS",
+                        "exactly one of profileId or clientUserId is required",
+                        null
+                    )
+                }
+                if (!OctopusSDK.isInitialised) {
+                    return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+                }
+                scope.launch {
+                    try {
+                        // Android names the Octopus id `userId`; the wrapper calls it
+                        // `profileId` throughout (matching iOS + the screen events).
+                        val data = if (profileId != null) {
+                            OctopusSDK.fetchCommunityData(profileId)
+                        } else {
+                            OctopusSDK.fetchCommunityDataByClientUserId(clientUserId!!)
+                        }
+                        result.success(data?.let { serializeCommunityData(it) })
+                    } catch (e: Exception) {
+                        Log.e("OctopusSdkFlutter", "fetchCommunityData failed", e)
+                        result.error("FETCH_FAILED", e.message, null)
+                    }
+                }
+            }
+
+            "startCommunityDataObservation" -> {
+                val observationId = call.argument<String>("observationId")
+                    ?: return result.error("INVALID_ARGS", "observationId is required", null)
+                val profileId = call.argument<String>("profileId")
+                val clientUserId = call.argument<String>("clientUserId")
+                if ((profileId == null) == (clientUserId == null)) {
+                    return result.error(
+                        "INVALID_ARGS",
+                        "exactly one of profileId or clientUserId is required",
+                        null
+                    )
+                }
+                if (!OctopusSDK.isInitialised) {
+                    return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+                }
+                startCommunityDataObservation(observationId, profileId, clientUserId)
+                result.success(null)
+            }
+
+            "stopCommunityDataObservation" -> {
+                val observationId = call.argument<String>("observationId")
+                    ?: return result.error("INVALID_ARGS", "observationId is required", null)
+                communityDataJobs.remove(observationId)?.cancel()
                 result.success(null)
             }
 
@@ -694,6 +755,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             eventsJob?.cancel()
             clientObjectPostJobs.values.forEach { it.cancel() }
             clientObjectPostJobs.clear()
+            communityDataJobs.values.forEach { it.cancel() }
+            communityDataJobs.clear()
             OctopusSDK.stop()
             result.success(null)
         } catch (e: Exception) {
@@ -739,8 +802,13 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
         scope.launch {
             try {
-                OctopusSDK.connectUser(user = clientUser, tokenProvider = { token })
-                result.success(null)
+                // The native SDK REPORTS a refusal (banned user, rejected JWT,
+                // missing token) in its OctopusResult — it does not throw.
+                // Dropping it would report success while the user stays
+                // anonymous, so forward it to Dart.
+                val connectResult =
+                    OctopusSDK.connectUser(user = clientUser, tokenProvider = { token })
+                result.success(encodeOctopusResult(connectResult, ::encodeClientUserError))
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error connecting user", e)
                 result.error("CONNECT_ERROR", e.message, null)
@@ -785,7 +853,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         )
         scope.launch {
             try {
-                OctopusSDK.connectUser(
+                val connectResult = OctopusSDK.connectUser(
                     user = clientUser,
                     tokenProvider = {
                         val requestId =
@@ -800,13 +868,28 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                                     "requestId" to requestId,
                                 )
                             )
-                            deferred.await()
+                            // Bound the round-trip: a Dart side that never
+                            // replies (host bug, provider hanging on a dead
+                            // network call) would otherwise park this
+                            // coroutine forever, and with it the caller's
+                            // Future. This native SDK refuses an empty token
+                            // locally, as ClientUserError.MissingToken, so a
+                            // timeout surfaces through the normal typed path.
+                            withTimeoutOrNull(CLIENT_USER_TOKEN_TIMEOUT_MS) {
+                                deferred.await()
+                            } ?: run {
+                                Log.w(
+                                    "OctopusSdkFlutter",
+                                    "Client user token request $requestId timed out"
+                                )
+                                ""
+                            }
                         } finally {
                             clientUserTokenDeferreds.remove(requestId)
                         }
                     }
                 )
-                result.success(null)
+                result.success(encodeOctopusResult(connectResult, ::encodeClientUserError))
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error connecting user with tokenProvider", e)
                 result.error("CONNECT_ERROR", e.message, null)
@@ -815,8 +898,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     }
 
     /// Resumes the parked client-user-token request with the freshly-signed
-    /// JWT (or an empty string when the Dart side couldn't sign — the native
-    /// SDK treats an empty token as a tokenProvider failure).
+    /// JWT (or an empty string when the Dart side couldn't sign — this native
+    /// SDK refuses an empty token locally, as `ClientUserError.MissingToken`).
     private fun provideClientUserToken(call: MethodCall, result: Result) {
         val requestId = call.argument<String>("requestId")
             ?: return result.error("INVALID_ARGS", "requestId is required", null)
@@ -964,11 +1047,67 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                         )
                     )
                 }
+            } catch (e: CancellationException) {
+                // Normal teardown (stopClientObjectPostObservation / stop() /
+                // re-subscribe). Rethrow so cancellation keeps propagating —
+                // swallowing it would break structured concurrency and log an
+                // error for an ordinary unsubscribe.
+                throw e
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "client object post observation failed", e)
             }
         }
     }
+
+    /// Collects the community-data flow for the member identified by exactly one
+    /// of [profileId] / [clientUserId] and forwards each emission (the data, or
+    /// `null`) as a `communityDataChanged` event tagged with [observationId]. The
+    /// first emission replays the current value to a freshly-subscribed Dart
+    /// listener.
+    private fun startCommunityDataObservation(
+        observationId: String,
+        profileId: String?,
+        clientUserId: String?
+    ) {
+        communityDataJobs.remove(observationId)?.cancel()
+        communityDataJobs[observationId] = scope.launch {
+            try {
+                val flow = if (profileId != null) {
+                    OctopusSDK.communityDataFlow(profileId)
+                } else {
+                    OctopusSDK.communityDataFlowByClientUserId(clientUserId!!)
+                }
+                flow.collect { data ->
+                    sendEvent(
+                        "communityDataChanged",
+                        mapOf(
+                            "observationId" to observationId,
+                            "communityData" to data?.let { serializeCommunityData(it) }
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                // Normal teardown (stopCommunityDataObservation / stop() /
+                // re-subscribe). Rethrow so cancellation keeps propagating —
+                // swallowing it would break structured concurrency and log an
+                // error for an ordinary unsubscribe.
+                throw e
+            } catch (e: Exception) {
+                Log.e("OctopusSdkFlutter", "community data observation failed", e)
+            }
+        }
+    }
+
+    /// Serializes a native [OctopusCommunityData] for the platform channel. The
+    /// native `userId` is sent as `profileId` — the wrapper's name for the Octopus
+    /// id on every surface (matching iOS and the screen-displayed events).
+    private fun serializeCommunityData(data: OctopusCommunityData): Map<String, Any?> = mapOf(
+        "profileId" to data.userId,
+        "messageCount" to data.messageCount,
+        "gamification" to data.gamification?.let {
+            mapOf("level" to it.level, "score" to it.score)
+        }
+    )
 
     /// Decodes the wire `clientPost` map into a native [ClientPost]. Materializes
     /// a `localImage` attachment's bytes into a temp file ([Resource.Local]);
@@ -1133,6 +1272,23 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         return mapOf("type" to type, "message" to e.errorMessage)
     }
 
+    /// Maps a native [ClientUserError] leaf onto its Dart wire `type` + message.
+    ///
+    /// The wire `type` values are shared with iOS and with the Dart
+    /// `ClientUserError.fromWire`; `test/octopus_connect_user_error_parity_test.dart`
+    /// asserts the three sides agree. Not every variant exists on both
+    /// platforms — Android has no `invalidToken` / `communityAccessDenied`
+    /// counterpart, which the Dart doc records.
+    private fun encodeClientUserError(e: ClientUserError): Map<String, Any?> {
+        val type = when (e) {
+            is ClientUserError.MissingToken -> "missingToken"
+            is ClientUserError.UserBanned -> "userBanned"
+            is ClientUserError.ProfileError -> "profileError"
+            is ClientUserError.Other -> "other"
+        }
+        return mapOf("type" to type, "message" to e.errorMessage)
+    }
+
     // endregion
 
     private fun startNotSeenNotificationsCollection() {
@@ -1167,7 +1323,10 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                     "profileChanged",
                     mapOf(
                         "profile" to profile?.let {
-                            mapOf("entitlements" to it.entitlements.toList())
+                            mapOf(
+                                "entitlements" to it.entitlements.toList(),
+                                "clientUserId" to it.clientUserId
+                            )
                         }
                     )
                 )
@@ -1503,8 +1662,13 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             )
             is OctopusEvent.ScreenDisplayed.CreatePost -> mapOf("type" to "createPost")
             is OctopusEvent.ScreenDisplayed.Profile -> mapOf("type" to "profile")
+            is OctopusEvent.ScreenDisplayed.Activity -> mapOf("type" to "activity")
             is OctopusEvent.ScreenDisplayed.OtherUserProfile -> mapOf(
                 "type" to "otherUserProfile",
+                "profileId" to event.profileId
+            )
+            is OctopusEvent.ScreenDisplayed.OtherUserPosts -> mapOf(
+                "type" to "otherUserPosts",
                 "profileId" to event.profileId
             )
             is OctopusEvent.ScreenDisplayed.EditProfile -> mapOf("type" to "editProfile")
@@ -1513,7 +1677,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             is OctopusEvent.ScreenDisplayed.ValidateNickname -> mapOf("type" to "validateNickname")
             is OctopusEvent.ScreenDisplayed.SettingsList -> mapOf("type" to "settingsList")
             is OctopusEvent.ScreenDisplayed.SettingsAccount -> mapOf("type" to "settingsAccount")
-            is OctopusEvent.ScreenDisplayed.SettingsAbout -> mapOf("type" to "settingsAbout")
             is OctopusEvent.ScreenDisplayed.ReportExplanation -> mapOf("type" to "reportExplanation")
             is OctopusEvent.ScreenDisplayed.DeleteAccount -> mapOf("type" to "deleteAccount")
         }
@@ -1551,6 +1714,12 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         listeningSink = null
     }
 }
+
+/// How long this bridge waits for Dart to answer a `clientUserTokenRequest`
+/// before falling back to an empty token, which this native SDK refuses locally
+/// as `ClientUserError.MissingToken`. Generous on purpose: the host's provider
+/// usually calls its own backend.
+private const val CLIENT_USER_TOKEN_TIMEOUT_MS = 60_000L
 
 /// Encodes a native [OctopusResult] into the platform-channel wire map shared
 /// with the Dart side: `{"type":"success"}` or

@@ -1,3 +1,274 @@
+## 1.13.0
+
+### Dependencies
+- Android Octopus SDK: 1.12.1 → 1.13.2
+- iOS Octopus SDK: 1.12.6 → 1.13.2
+- New direct dependency: `meta: ^1.9.0`, for the `@useResult` annotation on the
+  result-returning APIs (`package:flutter/foundation.dart` only re-exports a
+  subset of `meta` and not that one). Already in every Flutter app's transitive
+  graph, and pinned there: the `flutter` package itself depends on `meta` at an
+  exact version (`1.17.0` on the toolchain this repo builds against), so
+  declaring `^1.9.0` adds a name to `pubspec.yaml` without giving the solver
+  anything new to choose — the SDK's pin still wins.
+
+Both native pins move to the 1.13 line. Most of what 1.13 brings is inherited
+with no wrapper change: **24 SDK languages** (15 new, including Arabic with
+RTL), **large-screen content width** (content capped and centered on tablets
+instead of stretching edge-to-edge), a **"View group" entry in the post
+menu**, the community background color applied on every native screen
+(iOS 1.13.2), design-system polish, and — on iOS — Xcode 27 compatibility
+(1.13.1) plus a fix for a banned user being logged out under a non-English
+locale (1.13.2). Android 1.13.2 additionally fixes **in-app browser theming**
+(links the SDK opens no longer mix a toolbar from one color scheme with content
+from the other, and a translucent color slot is dropped instead of rendering as
+a see-through toolbar) and **text legibility on hosts that darken `background`
+without redefining its content colors** — most visibly the profile overflow
+menu, whose labels were invisible. It also makes the native public Flows safe to
+collect before `initialize()`, re-binding them on every re-initialization:
+inherited plumbing, no wrapper API change.
+
+### Breaking
+- **`SettingsAboutScreen` removed from the `Screen` hierarchy.** The native SDKs
+  removed the "About the community" screen in 1.13.0 — its three legal links
+  were already duplicated in the Activity and Profile overflow menus — so the
+  `settingsAbout` screen-displayed event no longer exists on either platform and
+  the wrapper can no longer receive it. Source-breaking only for hosts with an
+  exhaustive `switch` over `Screen` that has no `default`/wildcard arm: delete
+  the `SettingsAboutScreen()` arm. No runtime behavior change — the event was
+  already unreachable once the native screen was gone. See
+  [MIGRATING.md](MIGRATING.md#to-1130-from-112x).
+
+- **`connectUser` now returns an `OctopusResult`** — it used to report success on
+  a refused connection (see *Fixed* below for the defect and the typed errors).
+  Calls keep compiling (`void` is a top type); a host class that **overrides or
+  implements** `connectUser` / `connectUserWithTokenProvider` with the old
+  `Future<void>` return type does not. Compiling is not the same as analyzing
+  clean: a bare statement that drops the result now raises `unused_result`, see
+  the `@useResult` entry below. See
+  [MIGRATING.md](MIGRATING.md#to-1130-from-112x).
+
+- **Behaviour change (not source-breaking) — on iOS, `await connectUser(...)` now
+  waits for the connection attempt.** It could not report a refusal without
+  waiting for one: the iOS bridge used to fire the reply *before* the native call
+  had done anything, so the `Future` completed in a few milliseconds no matter
+  what happened next. It now completes when the attempt does. Android already
+  awaited, so this closes an asymmetry rather than opening one — but **read this
+  if you `await connectUser(...)` on a blocking path** (a splash screen, a
+  navigation guard): on iOS that `await` can now take as long as the network
+  does, and up to the 60 s token-provider timeout if your `tokenProvider` never
+  answers. Timing is unchanged for a call you never await — but dropping the
+  result as a bare statement now raises an `unused_result` warning, where
+  `unawaited(...)` does not, see the `@useResult` entry below. See
+  [MIGRATING.md](MIGRATING.md#to-1130-from-112x).
+
+- **`connectUser` and `connectUserWithTokenProvider` are `@useResult`.** Ignoring
+  their result raises an `unused_result` **warning**, and `flutter analyze` /
+  `dart analyze --fatal-warnings` exit non-zero on warnings alone — so a host that
+  upgrades without changing a line can see its own CI go red on those two call
+  sites. Nothing breaks at runtime and no behaviour changes; handle the result, or
+  discard it explicitly with `final _ = await …` (Dart 3.7+ for a non-binding `_`;
+  below that, use `// ignore: unused_result` — see
+  [MIGRATING.md](MIGRATING.md#to-1130-from-112x)). The annotation is deliberately
+  **not** extended to the other `OctopusResult`-returning methods here: that is a
+  separate, separately-migratable break and belongs in its own change.
+
+- **Behaviour change (not source-breaking) — `OctopusPrefilledPost` accepts a
+  content-less payload.** Matching the native 1.13 relaxation, a payload carrying
+  only a `topicId` and/or a `cta` is now accepted and opens the editor on the
+  preselected group with empty, user-editable fields; it previously threw
+  `OctopusPrefilledPostContentEmptyError`. **Read this if you relied on that
+  throw** as your only empty-payload check: you now get an empty editor instead
+  of an error, so validate host-side before constructing the payload. The error
+  class is kept and still exported so existing `switch` statements over
+  `OctopusPrefilledPostValidationError` stay exhaustive, but it is never thrown
+  again — the natives kept their `ContentEmpty` case for the same reason.
+  Whatever content *is* provided is still validated (text length, CTA
+  label/url). The Android bridge's full-screen create-post entry point had the
+  same pre-1.13 rule baked in and silently dropped a `topicId`/`cta`-only
+  prefill; it now only drops a wholly empty one. See
+  [MIGRATING.md](MIGRATING.md#to-1130-from-112x).
+
+- **Behaviour change (not source-breaking) — on Android, `bottomSafeAreaInset: 0`
+  resolves the inset from the mount point.** On the four embedded widgets, `0` no
+  longer means "reserve nothing" but "reserve whatever bottom padding the ambient
+  `MediaQuery` still has left". That is what keeps the native floating "Write a
+  post" pill clear of the system navigation bar on edge-to-edge Android (API 35+)
+  with no host configuration — the full contract is under `### Fixed` below.
+  **Read this if you pass a literal `0` (or any value ≤ 0) to mean "reserve
+  nothing", or if you mount one of these widgets in a host that pads the layout
+  without consuming the padding** — a `Column` above a fixed footer, a plain
+  `Padding`, a `Stack` bottom overlay: those shapes now reserve the navigation-bar
+  inset a second time inside the native view. Both are addressed by consuming the
+  padding (`MediaQuery.removePadding(context: context, removeBottom: true,
+  child: …)`) or by passing the total you want. No signature, type or default
+  changed, and **iOS is unaffected** — it deliberately does not resolve. See
+  [MIGRATING.md](MIGRATING.md#to-1130-from-112x).
+
+### New Features
+- **Two new screen-displayed events from the native Unified Profile work.** Both
+  are additive members of the `Screen` hierarchy, delivered through the existing
+  `OctopusSDK.events` stream:
+  - `OtherUserPostsScreen(profileId:)` — another member's activity (their posts
+    list), kept distinct from the profile summary reported by
+    `OtherUserProfileScreen` so host analytics can tell the two apart. Emitted on
+    **both** platforms.
+  - `ActivityScreen` — the connected user's own activity, emitted instead of
+    `ProfileScreen` when the community runs in Unified Profile mode.
+    **Android only**; the iOS native SDK has no equivalent screen event.
+
+  **When they fire.** Both come from the native activity screen, but they are not
+  gated the same way, and only one of them needs Unified Profile:
+  - `OtherUserPostsScreen` fires on the **ordinary** path — tap another member's
+    avatar or name and the SDK opens that member's activity, with no Unified
+    Profile involved. Verified on device: the event arrives with
+    `onNavigateToProfile` unwired.
+  - `ActivityScreen` is the connected user's own activity, which is what replaces
+    `ProfileScreen` once the community runs in Unified Profile mode — so that one
+    does depend on the gate below.
+
+  Add both arms to keep your switch exhaustive.
+
+- **Unified Profile: read a member's community data.** Enrich **your own**
+  profile screen with a member's Octopus stats instead of sending the user to the
+  SDK's native profile screen:
+  - `OctopusSDK().fetchCommunityData(profileId: …)` /
+    `fetchCommunityData(clientUserId: …)` — a one-shot refreshed snapshot,
+    returning `OctopusCommunityData?`.
+  - `OctopusSDK.communityDataFlow(profileId: …)` /
+    `communityDataFlow(clientUserId: …)` — the reactive counterpart; emits the
+    current value then again on every refresh. Each subscription drives its own
+    native observation and is torn down on cancel.
+  - New models `OctopusCommunityData` (`profileId`, `messageCount`,
+    `gamification`) and `OctopusGamification` (`level`, `score`). Every field
+    past `profileId` is nullable — `null` means "the community does not publish
+    this", not zero. `gamification` is `null` when the community has no
+    gamification configured. `score` is **always `null` through this API**, your
+    own profile included: both natives resolve community data from a member's
+    *public* profile, which never carries the score (back-office consumers only).
+    It exists for forward-compatibility, matching the native models — use `level`
+    to show a member's standing.
+  - Identify the member by **exactly one** of `profileId` (their Octopus id, e.g.
+    from `OtherUserProfileScreen`) or `clientUserId` (your app's own id, which
+    requires the community to expose client user ids). Passing both, or neither,
+    throws an `ArgumentError` in every build — thrown synchronously for
+    `communityDataFlow`, when the stream is built. An unknown member yields
+    `null` rather than an error, so a UI binding never breaks.
+  - **Naming note:** the native Android SDK calls the Octopus id `userId` and
+    splits the API in two (`fetchCommunityData` /
+    `fetchCommunityDataByClientUserId`); this wrapper uses `profileId`
+    everywhere — matching iOS and the id already reported by the screen events —
+    and takes the id kind as a named parameter instead.
+- **`OctopusProfile.clientUserId`** — the connected user's id in **your** system,
+  as passed to `connectUser`. Populated in SSO mode for a non-guest user; `null`
+  in Octopus-authentication mode and for a guest. The native SDKs hold it locally,
+  independent of the community's expose-client-user-ids setting — that setting
+  gates *other* members' client user ids, not the connected user's. Use it to
+  correlate the Octopus profile with your own user record before calling
+  `fetchCommunityData`.
+
+- **Unified Profile: handle profile taps yourself** — new optional
+  `onNavigateToProfile` on all six public entry points: the four widgets
+  (`OctopusHomeScreen`, `OctopusHomeContent`, `OctopusPostDetailsScreen`,
+  `OctopusGroupDetailsScreen`) and the two navigation helpers
+  (`OctopusSDK.showOctopusHomeScreen`, `OctopusSDK.openNotification`). When you
+  pass it, the SDK routes **every** profile tap to you — another member's and the
+  connected user's own — with that member's `clientUserId`, and stops showing its
+  native profile screens. Pair it with `fetchCommunityData` to render your own
+  profile page.
+
+  **Passing the callback is the activation switch**, so it is opt-in: leave it
+  null (the default) and nothing changes — existing hosts keep the SDK's profile
+  screens. Activation is an **AND gate**: wiring it alone is not enough, the
+  community must also be configured to expose client user ids. A member with no
+  client user id (a guest, or a back-office-created profile) opens the Octopus
+  activity screen instead, so you never receive a tap you cannot resolve.
+
+  It is **mount-time**: Android takes it as a parameter of the native composable,
+  so changing it on an already-mounted view has no effect until the view is
+  rebuilt. The iOS SDK exposes a runtime setter instead; the bridge absorbs that
+  asymmetry — it sets the native callback when a view mounts opted in, and clears
+  it when a view mounts opted out — so the *Dart-facing* contract reads the same
+  on both platforms.
+
+  One caveat that is **not** symmetric, because the iOS setter lives on the
+  shared SDK instance: on iOS it is last-mount-wins. If you keep two embedded
+  views alive at once (one behind a pushed route or a modal) and they disagree
+  about opting in, the most recent mount decides for both — and popping back does
+  not restore the first view's choice, since it does not remount. Keep a single
+  embedded view alive, or opt every one of them in the same way. Android is
+  per-view and unaffected.
+
+  This is also what unlocks the `ActivityScreen` event above — the connected
+  user's own activity only replaces the profile screen once Unified Profile is
+  active. `OtherUserPostsScreen` does **not** depend on it and already fires
+  without this callback; see the note on that entry.
+
+  On iOS this additionally wires the native SDK's separate
+  `onNavigateToProfileEditCallback`, which the activity screen uses to gate its
+  "Edit my profile" item — it is routed to your existing `onModifyUser`, so you
+  still get a single hook. Because the native SDK hides that item when the
+  callback is nil, iOS only offers it to hosts that passed `onModifyUser`.
+  **Known divergence:** Android wires its equivalent unconditionally (one native
+  parameter serves both edit paths there), so on Android the item is shown even to
+  a host with no `onModifyUser`, where tapping it does nothing. Gating it would
+  take more than mirroring the iOS check — the native Android SDK *requires* that
+  callback in SSO mode with app-managed profile fields — so it is left as-is for
+  now. Pass `onModifyUser` alongside `onNavigateToProfile` and both platforms
+  behave identically.
+
+  Beneath those entry points, `OctopusSDK.embeddedView` — the low-level platform
+  view, for hosts that mount it themselves — gains two matching flags:
+  `interceptProfileTaps` (opt into the native callback) and
+  `hasModifyUserHandler` (tells iOS whether to offer the activity screen's "Edit
+  my profile" item, per the divergence above). The four widgets derive both from
+  the callbacks you pass them, so you only set them yourself if you build directly
+  on `embeddedView`.
+
+Still **not exposed** from the native Unified Profile surface: the standalone
+activity/profile screen entry points (Android's `navigateToOctopusActivity` /
+`navigateToOctopusProfile`, iOS's `OctopusInitialScreen.activity` and
+`OctopusProfileScreen`). They are additive on top of the callback above and left
+to a follow-up.
+
+### Fixed
+- **`connectUser` no longer reports success when the connection was refused** — with one native iOS path that still resolves, described below. Both bridges called the native SDK's `connectUser` and discarded its result — Android threw away the returned `OctopusResult`, iOS bound the non-throwing overload that only debug-logs — so a banned user, a JWT the backend rejects, or a missing token resolved exactly like a successful connection. A host had nothing to display and no way to know: the typical symptom was a login screen that appeared to do nothing. `connectUser` and the deprecated `connectUserWithTokenProvider` now return `Future<OctopusResult<void, ClientUserError>>`, carrying the refusal.
+  - **Call sites keep compiling; overrides do not.** `void` is a top type in Dart, so every existing *call* still compiles — `await octopus.connectUser(...)` as a statement, an assignment to a `Future<void>`, `unawaited(...)`, `Future.wait`, a tearoff stored in a `Future<void> Function({...})` typedef. Compiling is not analyzing clean, though: the first of those, the bare statement, now raises an `unused_result` warning — see the `@useResult` entry in *Breaking*. The others assign, pass or return the value, which counts as using it. What breaks is a class that **overrides or implements** `connectUser` (or `connectUserWithTokenProvider`) while still declaring the old `Future<void>` return type — a host wrapper around `OctopusSDK`, or a hand-written `OctopusSDKPlatform` fake in host tests: `invalid_override`. Widen the override's return type. Mocks that never redeclare the method (mocktail-style `noSuchMethod`) are unaffected. See [MIGRATING.md](MIGRATING.md#to-1130-from-112x).
+  - **The typed leaves are deliberately not symmetric across platforms.** `ClientUserMissingTokenError` only ever comes from Android; `ClientUserInvalidTokenError` and `ClientUserCommunityAccessDeniedError` only from iOS; `ClientUserBannedError`, `ClientUserProfileError` and `ClientUserOtherError` from both. The per-platform table in the `ClientUserError` doc comment is the reference, and it is machine-checked against both bridges by `scripts/verify_connect_user_parity.dart` — a native bump that adds a variant on one side fails that guard until the table is updated. **Switch on these exhaustively, with no `default`/wildcard arm**: the hierarchy is sealed, so a catch-all raises `unreachable_switch_default` (or `unreachable_switch_case` for a `_` wildcard) and `flutter analyze` fails on warnings. Narrow with `errors.cast<ClientUserError>()` first — the result binds `List<OctopusServerError>`, which is not sealed. An unknown wire `type` folds into `ClientUserOtherError`, and a new leaf only ever arrives by upgrading this package — as a source-breaking change documented here and in `MIGRATING.md`.
+  - **iOS: a refused token does not always surface, and the bridge cannot fix that.** When the token exchange fails while **nothing is connected yet** — the ordinary first login — the native `SSOConnectionRepository.connect()` falls back to `connectAsGuest()` and returns normally, so this bridge receives no error and `connectUser` returns `OctopusSuccess` while the user browses anonymously. The refusal *does* reach you when a connection already existed (reconnecting after a previous failure, for instance), because that path rethrows. The same `connect()` also opens with `guard !isConnecting else { return }`, so a concurrent guest connection can make the call return without ever requesting a token — a narrow window, since the caller first waits up to 3 s for that connection to end and throws if it does not. Android has no such fallback and reports every refusal. Consequence: on iOS an `OctopusSuccess` means "the SDK is usable", not "your SSO user is authenticated" — confirm that with the connection state, which does tell the two apart. Both are streams that emit independently of the `Future`, so subscribe rather than sample: `OctopusSDK.isUserConnected` emits `false` under the guest fallback, and `OctopusSDK.connectionState` emits `OctopusConnected(isGuest: true)`. What is actionable is the cause — sign a valid token, and answer the provider promptly.
+  - **A token request that is never answered no longer parks forever.** With the outcome now awaited, a persistent `tokenProvider` that never replies would have left the returned `Future` pending indefinitely. Both bridges bound the wait at 60 s and fall back to an empty token, which Android reports as `ClientUserMissingTokenError`; on iOS the empty token still goes through the backend exchange, so it can come back as a connection-level failure instead — or, on a first connect, not come back as a failure at all (see the guest fallback above). The registered `tokenProvider` **survives a failed connect**, whatever the failure: both native SDKs assign their own reference to it before attempting the connection and clear it only on logout, and they re-invoke it on every later refresh (`refreshEntitlements()`) — so a Dart-side drop would make the next round-trip answer an empty token, permanently. It is released by `disconnectUser()`.
+- **The four embedded widgets now reserve the Android bottom inset by default.** `OctopusHomeScreen`, `OctopusHomeContent`, `OctopusPostDetailsScreen` and `OctopusGroupDetailsScreen` — and `OctopusSDK.embeddedView` beneath them — resolve `bottomSafeAreaInset` from the ambient `MediaQuery` on Android when it is left at its `0` default. Mounted full-screen on edge-to-edge Android (API 35+), the SDK's floating "Write a post" button previously sat behind the system navigation bar unless the host computed and passed the inset itself; only the `showOctopusHomeScreen` / `openNotification` helpers did that (added in 1.12.3). A full-screen mount now clears the navigation bar on all six entry points, with no host configuration.
+  - **`0` means "resolve it from the mount point", not "reserve nothing".** That was already its effective meaning on the wire: the Dart layer drops the key when the resolved value is `0`, so `0` and "not provided" were indistinguishable (the Android bridge additionally gates on `> 0`; the iOS bridge gates on the key being present at all). Nothing changes for a value the host passes above `0`. To reserve nothing, wrap the widget in an ancestor that *consumes* the bottom padding: `MediaQuery.removePadding(context: context, removeBottom: true, child: OctopusHomeScreen(...))`.
+  - **No API change**: no signature, type or default was touched, and hosts already passing an explicit value above `0` keep their exact behaviour. The case that changes is an Android host passing `0` — or any value ≤ 0 — to mean "reserve nothing": it now resolves like the default, and should consume the padding as shown above instead.
+  - **On these four widgets, iOS deliberately does not resolve, and its behaviour is unchanged.** There is nothing to fix there: the embedded view already sits inside the safe area, so the pill was never occluded. And resolving would actively cost height — since the iOS bridge reads this value as a *total* and subtracts the safe area the view occupies (see the entry below), an inferred 34 pt over a 34 pt inset yields `max(max(0, 34 − 34), 0.01)` = 0.01 pt, where an absent key yields the bridge's historical additive 10 pt. Inferring a preference the host never expressed must not override a native default that is already correct. Note this scopes to the widgets: the `showOctopusHomeScreen` / `openNotification` helpers have inferred an inset on **both** platforms since 1.12.3, and this release does not change that.
+  - **Hosts whose ancestors consume the `MediaQuery` padding are unaffected** — a `SafeArea`, an explicit `MediaQuery.removePadding`, or a `Scaffold` `bottomNavigationBar` / `persistentFooterButtons` **without** `extendBody: true`: the value resolves to `0`, the key stays off the wire, and each platform keeps its own native default.
+  - **A `Scaffold` with `extendBody: true` now reserves its bottom bar — which is the intent of the parameter.** Under `extendBody`, `Scaffold` re-injects `max(padding.bottom, bottomWidgetsHeight)` into `padding` for its body, so the resolved value is the bar's height. The embedded view runs *behind* the bar in that shape, so the pill previously sat behind it unless the host passed the height itself. It is still a change: such hosts now reserve the bar height where they reserved nothing before.
+  - **Known Android case that now over-reserves.** Padding the layout is not the same as consuming the padding: a plain `Padding`, a `Column` above a fixed footer, or a `Stack` bottom overlay leaves the ambient `MediaQuery` untouched. A host of that shape — e.g. `Scaffold(body: Column(children: [Expanded(child: OctopusHomeScreen()), myFooter]))` — now reserves the navigation-bar inset *inside* the embedded view on top of its own gap: the SDK's default content padding is replaced by that inset (roughly 24 dp with gesture navigation, 48 dp with 3-button). Pass the total you want, or consume the padding as shown above.
+  - The resolution reads `MediaQuery.padding` — what is *left* to reserve once ancestors consumed their share — because it is also the only field carrying a `bottomNavigationBar`'s height under `extendBody: true` (`viewPadding` is zeroed there). It sits in an **unconditional** `Builder`: a wrapper that came and went between rebuilds would reparent the embedded platform view, which disposes and recreates the native view and restarts the SDK on its main feed.
+  - **Known limitation** (Android): a widget first built while a keyboard is up resolves `0` and keeps it, because the engine folds the bottom inset into `viewInsets` and creation params are read once. This holds for any host, a `Scaffold` body included: `resizeToAvoidBottomInset` zeroes `viewInsets` for the body, but `MediaQueryData.removeViewInsets` only zeroes `viewInsets` and lowers `viewPadding` — it never writes `padding`, so the `padding.bottom` the engine already folded to 0 stays 0. It is not decidable at that moment either: "an ancestor consumed the padding" and "the keyboard folded it away" look identical, so resolving from `viewPadding` instead would break the opt-out above. A host that may mount the SDK with the keyboard already up should pass the inset explicitly. This is a missed improvement rather than a regression — these widgets resolved nothing at all before, so such a mount behaves exactly as it did.
+- **iOS: `bottomSafeAreaInset` no longer double-counts the system safe area.** The parameter is documented as a *total* bottom padding, and that is how Android behaves — its bridge consumes the system-bar insets before mounting the native view, so the host's value is the only bottom padding applied. iOS did not: the bridge forwarded the value untouched to the native `OctopusHomeScreen(bottomSafeAreaInset:)`, which applies it through SwiftUI's `.safeAreaInset(edge: .bottom)` — additively, **on top of** the safe area the embedded view already sat in. The same Dart value therefore reserved roughly twice the intended band on iOS. The iOS bridge now subtracts the safe area the embedded view sits in before handing the value to the native SDK. The native iOS SDK's own additive contract is unchanged; only the Flutter bridge is affected.
+  - **What each platform reserves**, for a requested value `R` and `S` = the system safe area *the embedded view itself sits in* (not the device's — `S` is 0 for the common case of a `Scaffold` body above a bottom bar, and 34 pt on a notched iPhone only when the view runs to the bottom of the screen): Android `R`, iOS `max(R, S)`. The two agree whenever `R >= S` — the intended usage, since `R` is meant to cover the host's bottom chrome, which itself sits above the system inset. Below `S`, iOS still never reserves less than the safe area it already occupies. On **iOS 14** the native SDK ignores the value entirely (its inset modifier requires iOS 15+), so nothing extra is reserved there.
+  - **Fixes a regression shipped in 1.12.3**: `showOctopusHomeScreen` / `openNotification` auto-reserve the launching view's raw bottom safe area, and 1.12.3 claimed iOS was unaffected because of the native 10 pt floor. It was not — the helper sends the device inset (34 pt on a notched iPhone), which overrides that floor and then gets added to the safe area again. Measured on iPhone 16 / iOS 18.6 *before* this fix: 34 pt sent, 34 pt of system inset, both applied. These two helpers now reserve the intended amount on iOS.
+  - **Hosts that never passed the parameter are unaffected.** Normalization applies only to a value the host explicitly sent; with none, the bridge keeps its historical 10 pt *added on top of* the system safe area, so existing layouts do not shift. Note that Dart omits the key when the value is `0`, so `0` and "not provided" are the same thing on the wire.
+  - **Rendering change to be aware of.** iOS hosts that *did* pass a value and worked around the old behaviour by sending only their bar's height (instead of the documented height + safe-area inset) will see the reserved band change from `H + S` to `max(H, S)`. They should now send the total padding they want — the same value they already send on Android.
+  - The normalized value is recomputed whenever the embedded view's geometry changes, instead of being captured once at mount before the view had reached its final position. To make that safe, a host-provided inset is emitted with a 0.01 pt floor: the native SDK gates its inset on `bottomSafeAreaInset > 0`, and crossing that boundary would rebuild the displayed screen and discard its state, including text and image already entered in the create-post editor. The floor keeps the gate on a single branch and renders nothing.
+  - **Verified on iPhone 16 / iOS 18.6** by logging the container's resolved safe area: a full-screen route, a `fullscreenDialog` push and a `showModalBottomSheet` all hold the correct value throughout their slide-up, and a portrait→landscape→portrait round-trip settles correctly (34 pt / 21 pt / 34 pt). One transient remains: on the *first* frame of the landscape→portrait restore, the container still reports its stale landscape geometry (bottom safe area 0) while the window already reports 34 pt, so that single frame over-reserves before the next layout corrects it — roughly 120 ms, mid-rotation. It is left uncorrected on purpose: every "is the geometry settled yet" heuristic tried here risked freezing a wrong value permanently, which is far worse than one frame. iPad multitasking was not exercised.
+  - **Known divergence with a hardware keyboard.** The native SDK compares the reported keyboard height against the same value it uses as a reserved height, so normalizing the value also moves that threshold. The outcome changes for any reported keyboard height in `(R - S, R]` and is identical everywhere else, so a full-height software keyboard is never affected. The reachable case is a hardware keyboard (iPad, or a Bluetooth keyboard on iPhone), which reports only the accessory bar: a host passing e.g. `R = 70` over `S = 20` with 55 pt reported previously kept its band and now drops it, letting host bottom chrome overlap the composer while typing. One scalar cannot satisfy both meanings from the bridge side; a proper fix needs the native SDK to take the total and the threshold separately.
+  - Also fixes a pre-existing memory leak on iOS: the embedded view's login callback was a bound method, forming a container → hosting controller → root view → container retain cycle that leaked the whole SwiftUI tree and the SDK's managers on every mount.
+
+### Example App
+- **The published example app compiles again.** From 1.12.0 to 1.12.3, the packaging step stripped `example/lib/debug/` wholesale, but two files under it are part of the running sample — the Debug tab and the recorder `main.dart` starts at launch. Their imports survived the strip, so the example shipped on pub.dev and on the public repository could not be built at all. The stripped boundary is now `example/lib/debug/internal/`, which holds only the Settings debug-console sheet; the Debug tab and its recorder ship. Nothing changes for the published SDK itself — this was a packaging defect, not a code one.
+- **A key pasted into the Config screen is no longer stored, and no longer auto-starts the app.** The sample persists its config and auto-starts it on the next launch, and it reaches the **production** backend whenever the build injects no `OCTOPUS_API_HOST` (the published SDK exposes no host setter). Pasting a key into `Custom…` therefore used to write it verbatim to plaintext on-device preferences and re-enter a client-facing backend with it on every subsequent launch, without the Config screen — or its production banner — ever being shown again. No API key value is written to storage now (an injected named key was already stored by id only), a config that resolves to no key lands on the Config screen instead of auto-starting, and a key left behind by an older build is stripped from storage on first load. Every other choice — key slot, user id, theme — is still restored, and builds that inject a key via `--dart-define` (including the QA launcher) keep auto-starting exactly as before. Sample-only; the published package is unaffected.
+
+### Documentation
+- **What this package's version number means, written down.** `MAJOR.MINOR` is
+  locked to the `MAJOR.MINOR` of the native SDKs inside it, on both platforms:
+  `^1.13.0` means native 1.13 on Android *and* iOS. `PATCH` is each stream's own
+  counter, so Android 1.13.1 with iOS 1.13.2 under package 1.13.0 is normal —
+  the two badges in `README.md` give the exact pins. The practical consequence
+  for you: a future release may bump this package's **minor** with no change to
+  the Dart API at all, because the natives moved a minor. Nothing changes in
+  1.13.0 itself; this only states the rule the repo already followed.
+
 ## 1.12.3
 
 ### Fixed

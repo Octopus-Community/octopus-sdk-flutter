@@ -1,8 +1,8 @@
 # Octopus Community SDK for Flutter
 
 [![pub package](https://img.shields.io/pub/v/octopus_sdk_flutter.svg)](https://pub.dev/packages/octopus_sdk_flutter)
-[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.12.1-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
-[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.12.6-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
+[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.13.2-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
+[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.13.2-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
 
 Drop a fully moderated, white-label community — feed, posts, comments, reactions,
 profiles, push, and analytics — into your Flutter app. The package wraps the
@@ -14,6 +14,17 @@ platforms.
 > Full guides, theming reference, backend setup, and the bridge cookbook live at
 > **[doc.octopuscommunity.com](https://doc.octopuscommunity.com)**. This README
 > is the 5-minute quick start.
+
+**What the version number means.** This package's `MAJOR.MINOR` always matches the
+`MAJOR.MINOR` of the native SDKs it wraps — the two badges above. `^1.13.0` means
+native 1.13 on *both* platforms. The patch digits move independently: the package
+patches for its own fixes, and each native patches on its own cadence, so
+Android 1.13.1 with iOS 1.13.2 under package 1.13.0 is normal. Read the badges for
+the exact pins.
+
+One consequence to plan for: because the minor tracks the natives, a **breaking
+Dart change can arrive in a minor**. Every one is listed under `### Breaking` in
+`CHANGELOG.md`, with a before/after section in `MIGRATING.md`.
 
 ## Requirements
 
@@ -115,12 +126,44 @@ Use a **token provider** (not a static token) so the SDK can refresh the JWT
 when entitlements change:
 
 ```dart
-await OctopusSDK().connectUserWithTokenProvider(
+final result = await OctopusSDK().connectUser(
   userId: currentUser.id,
   tokenProvider: () async => await myBackend.mintOctopusJwt(),
   nickname: currentUser.displayName,
 );
+
+switch (result) {
+  case OctopusSuccess():
+    // Connected. `connectionState` emits independently.
+    break;
+  case OctopusInvalidArguments<OctopusServerError>(:final errors):
+    // The connection was refused — a banned user, a JWT the backend rejects,
+    // a profile field it will not accept. Show it: this is the case where a
+    // login screen otherwise looks like it did nothing.
+    for (final error in errors.cast<ClientUserError>()) {
+      switch (error) {
+        case ClientUserBannedError():
+          showBanned(error.errorMessage);
+        default:
+          showError(error.errorMessage);
+      }
+    }
+  case OctopusConnectionFailure():
+    showError('Could not reach Octopus.');
+}
 ```
+
+**On the `default` above.** That switch singles out one leaf, so it is
+non-exhaustive and the `default` is required. Enumerate every leaf instead and
+you have to drop it: `ClientUserError` is sealed, so the analyzer proves the
+switch complete and a catch-all becomes a fatal warning.
+
+You do not need one for robustness. The leaves are not symmetric across
+platforms — some are only ever emitted on Android, others only on iOS — but the
+set cannot grow under a running host: a wire error this version does not know
+folds into `ClientUserOtherError`. A new leaf only ever arrives by upgrading
+this package, called out in `CHANGELOG.md` and `MIGRATING.md`. The per-platform
+table lives in the `ClientUserError` API docs.
 
 On sign-out:
 

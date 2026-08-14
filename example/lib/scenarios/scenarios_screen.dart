@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'bridge_to_client_object_scenario.dart';
+import 'community_data_scenario.dart';
 import 'connection_scenario.dart';
 import 'custom_events_scenario.dart';
 import 'events_scenario.dart';
@@ -175,6 +176,13 @@ const List<_ScenarioDescriptor> _scenarios = [
     icon: Icons.flag,
     builder: _forceOctopusABTests,
   ),
+  _ScenarioDescriptor(
+    id: 'communityData',
+    title: 'Community Data (Unified Profile)',
+    subtitle: 'fetchCommunityData / communityDataFlow + clientUserId',
+    icon: Icons.badge,
+    builder: _communityData,
+  ),
 ];
 
 // Top-level builders keep the descriptor list `const`.
@@ -201,6 +209,7 @@ Widget _pushNotifications(BuildContext _) => const PushNotificationsScenario();
 Widget _trackABTests(BuildContext _) => const TrackABTestsScenario();
 Widget _forceOctopusABTests(BuildContext _) =>
     const ForceOctopusABTestsScenario();
+Widget _communityData(BuildContext _) => const CommunityDataScenario();
 
 /// Scenarios tab — a searchable list of scenario cards.
 class ScenariosTab extends StatefulWidget {

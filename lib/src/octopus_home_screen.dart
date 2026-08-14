@@ -91,6 +91,40 @@ class OctopusHomeScreen extends StatefulWidget {
   /// Null if the user tapped on "Edit my profile".
   final Function(String?)? onModifyUser;
 
+  /// Callback invoked when the user taps **any** profile inside the community —
+  /// another member's or their own — so your app can open **its own** profile
+  /// screen for that member ("Unified Profile").
+  ///
+  /// The parameter is the tapped member's `clientUserId`: your app's own id for
+  /// them, never null. Pair it with [OctopusSDK.fetchCommunityData] to enrich
+  /// your screen with that member's Octopus stats.
+  ///
+  /// **Setting this callback changes navigation behaviour**: every profile tap
+  /// routes to you and the SDK stops showing its native profile screens. That
+  /// is why it is opt-in — leave it null (the default) to keep the SDK's own
+  /// profile screens.
+  ///
+  /// Activation is an **AND gate**: wiring this alone is not enough, the
+  /// community must also be configured to expose client user ids. Until both
+  /// hold, the SDK keeps its native screens and this callback is never invoked.
+  /// A member with no client user id — a guest, an Octopus-authentication
+  /// member, or a back-office-created profile — opens the Octopus activity
+  /// screen instead, so you never receive a tap you cannot resolve.
+  ///
+  /// Whether it is set at all is decided **when the view mounts**: Android takes
+  /// the callback as a mount-time parameter of the native composable, so
+  /// *toggling* it on or off has no effect until the view is rebuilt from
+  /// scratch. Swapping one non-null closure for another does apply immediately —
+  /// dispatch reads the current widget's callback on each tap.
+  ///
+  /// **One embedded view at a time.** On iOS the native switch is a setter on
+  /// the shared SDK instance, so it is last-mount-wins: if a second embedded
+  /// view mounts over one that opted in (a pushed route, a modal) and did not
+  /// itself opt in, it turns interception off for both, and vice versa. Keep a
+  /// single embedded view alive, or opt every one of them in the same way.
+  /// Android is per-view and unaffected.
+  final void Function(String clientUserId)? onNavigateToProfile;
+
   /// Callback invoked when the user taps the back button.
   /// Used by [OctopusSDK.showOctopusHomeScreen] to pop the modal route.
   final VoidCallback? onBack;
@@ -111,15 +145,74 @@ class OctopusHomeScreen extends StatefulWidget {
   /// by the notification. Typically provided via [OctopusSDK.openNotification].
   final OctopusNotification? notification;
 
-  /// Extra bottom inset (logical pixels) the native screen reserves at the
+  /// Total bottom padding (logical pixels) the native screen reserves at the
   /// bottom so its floating "Write a post" pill sits above the host app's own
   /// bottom chrome (e.g. a Flutter `BottomNavigationBar`). Pass the host
-  /// bottom-nav height + safe-area bottom; default is `0` (no extra inset).
+  /// bottom-nav height + safe-area bottom.
   ///
-  /// **Platform note.** Passing `0` lets each platform apply its own native
-  /// default: Android falls back to the SDK's default content padding; iOS
-  /// keeps a 10pt floor to clear the system home indicator. Hosts with their
-  /// own bottom chrome should pass an explicit positive value.
+  /// Defaults to `0`, which on **Android** means **"resolve it from where this
+  /// widget is mounted"** — not "reserve nothing". The SDK reserves whatever
+  /// bottom padding the ambient `MediaQuery` still has left: mounted full-screen
+  /// on an edge-to-edge device (API 35+) that resolves to the system
+  /// navigation-bar inset, so the pill stays clear of it with no host
+  /// configuration; mounted under a `SafeArea` or above a bottom nav that already
+  /// consumed the padding, it resolves to `0` and the native default applies
+  /// instead. Under `Scaffold(extendBody: true)` it resolves the bottom bar's
+  /// height, since `Scaffold` re-injects that height into the body's `padding` —
+  /// which is the case this parameter was designed for: the view runs behind the
+  /// bar there.
+  ///
+  /// **iOS does not resolve, and its default is unchanged.** The embedded view
+  /// already sits inside the safe area there, so nothing is occluded — and since
+  /// the iOS bridge reads this value as a total *minus* that safe area, inferring
+  /// one would replace its additive 10 pt with ~0 and lose height for nothing. An
+  /// explicit value above `0` still applies on both platforms, identically.
+  ///
+  /// To reserve **nothing at all**, wrap the widget in an ancestor that consumes
+  /// the bottom padding:
+  ///
+  /// ```dart
+  /// MediaQuery.removePadding(
+  ///   context: context,
+  ///   removeBottom: true,
+  ///   child: OctopusHomeScreen(...),
+  /// )
+  /// ```
+  ///
+  /// An explicit `0` cannot express it, since `0` *is* the "resolve it for me"
+  /// default — and neither can a negative value: anything at or below `0`
+  /// resolves.
+  ///
+  /// On Android, padding the layout is **not** the same as consuming the padding:
+  /// a plain `Padding`, a `Column` above a fixed footer or a `Stack` bottom
+  /// overlay leaves the ambient `MediaQuery` untouched, so the widget still
+  /// resolves the full inset and reserves it a second time inside the native
+  /// view. Those shapes should either pass the total they want or consume the
+  /// padding as shown above.
+  ///
+  /// One more Android case needs an explicit value: a widget first built while a
+  /// keyboard is up resolves `0` and keeps it for its whole life, because the
+  /// engine folds the bottom inset into `viewInsets` and the native view reads the
+  /// value once, at creation. A `Scaffold` body does not escape this. Pass the
+  /// inset yourself if your host can mount the SDK with the keyboard already open.
+  ///
+  /// This is a *total* padding, not an addition on top of the system safe area:
+  /// the Android bridge consumes the system-bar insets before mounting the native
+  /// view, and the iOS bridge subtracts the safe area the embedded view sits in
+  /// before handing the value to the native SDK. So the same value reserves the
+  /// same band on both platforms — as long as it is at least as large as the
+  /// system inset.
+  ///
+  /// **Platform notes.**
+  /// - Below the system inset the two platforms diverge: iOS never reserves less
+  ///   than the safe area it already sits in (the reserved band is effectively
+  ///   `max(value, systemInset)`), while Android reserves exactly `value`.
+  /// - When the **resolved** value is `0` the parameter is left off the wire and
+  ///   each platform applies its own native default: Android falls back to the
+  ///   SDK's default content padding; iOS keeps a 10pt inset on top of the
+  ///   system safe area, which clears the home indicator.
+  /// - On **iOS 14** the native SDK ignores this value entirely (its inset
+  ///   modifier requires iOS 15+), so nothing extra is reserved there.
   final double bottomSafeAreaInset;
 
   /// The initial screen to display when the view mounts.
@@ -258,6 +351,7 @@ class OctopusHomeScreen extends StatefulWidget {
     this.enabled = true,
     this.onNavigateToLogin,
     this.onModifyUser,
+    this.onNavigateToProfile,
     this.onBack,
     this.onNavigateToUrl,
     this.notification,
@@ -326,6 +420,15 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
           if (url != null) {
             widget.onNavigateToUrl?.call(url);
           }
+        } else if (event['event'] == 'navigateToProfile') {
+          // The native side only emits this when the host opted in, and never
+          // with a null id (a member without a client user id opens the Octopus
+          // activity screen instead), but stay defensive: a malformed payload
+          // must not reach the host as a null-cast crash.
+          final clientUserId = event['clientUserId'];
+          if (clientUserId is String && clientUserId.isNotEmpty) {
+            widget.onNavigateToProfile?.call(clientUserId);
+          }
         } else if (event['event'] == 'backRequested') {
           widget.onBack?.call();
         } else if (event['event'] == 'sdkEvent' &&
@@ -367,6 +470,8 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
       titleCentered: widget.titleCentered,
       theme: widget.theme,
       interceptUrls: widget.onNavigateToUrl != null,
+      interceptProfileTaps: widget.onNavigateToProfile != null,
+      hasModifyUserHandler: widget.onModifyUser != null,
       notification: widget.notification,
       bottomSafeAreaInset: widget.bottomSafeAreaInset,
       initialScreen: widget.initialScreen,
@@ -391,7 +496,7 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
     // reparents the PlatformView, which disposes and recreates the native
     // view — the SDK then restarts on its main feed, silently swallowing
     // the sub-navigation the user just performed (the 1.12.0-dev "modal
-    // sub-navigation drop" report, issue #63). So the Stack +
+    // sub-navigation drop" report). So the Stack +
     // Positioned.fill wrapper is applied UNCONDITIONALLY — across
     // `_isAtRootScreen` flips AND across the host toggling
     // `leadingWidget`/`trailingWidget` between null and non-null — and only

@@ -55,6 +55,12 @@ extension LocaleChoiceX on LocaleChoice {
 /// Immutable choices captured on the Config screen before Start.
 class DemoConfig {
   final ApiKeySource apiKeySource;
+
+  /// The key pasted on the Config screen for [ApiKeySource.custom].
+  ///
+  /// Session-scoped on purpose: deliberately NOT persisted (see [toJson]), so
+  /// a relaunch can never re-enter the SDK with a key someone pasted once and
+  /// forgot about.
   final String customApiKey;
 
   /// The named injected key picked on the Config screen, when the build
@@ -124,13 +130,16 @@ class DemoConfig {
   /// from the current build's [injectedApiKeys] on load — that key value is
   /// never persisted (it lives only in the build-time define).
   ///
-  /// NOTE: for [ApiKeySource.custom], `customApiKey` IS persisted verbatim to
-  /// plaintext on-device prefs. That's acceptable here — a sample where the
-  /// consumer knowingly pastes their own key — but do NOT copy this pattern
-  /// into a production integration expecting the stored key to be protected.
+  /// No key VALUE is written here, [customApiKey] included. A pasted key is
+  /// the only way a production-valid key enters the sample, and the sample
+  /// talks to PROD whenever the build injects no `OCTOPUS_API_HOST` (see
+  /// [octopusApiHost]) — so persisting it would let every later launch
+  /// re-enter a client-facing backend with that key, silently, without the
+  /// user ever passing the Config screen or its production banner again. Only
+  /// the SOURCE (`custom`) is kept, so the Config screen can restore every
+  /// other choice and ask for nothing but the key.
   Map<String, dynamic> toJson() => {
     'apiKeySource': apiKeySource.name,
-    'customApiKey': customApiKey,
     'selectedInjectedKeyId': selectedInjectedKey?.id,
     'userId': userId,
     'theme': theme.name,
@@ -161,7 +170,10 @@ class DemoConfig {
         apiKeySource: ApiKeySource.values.byName(
           json['apiKeySource'] as String,
         ),
-        customApiKey: (json['customApiKey'] as String?) ?? '',
+        // Never restored: no key value is persisted (see [toJson]). A blob
+        // written by an older build still carries one — ignored here on
+        // purpose, and stripped from storage by [loadPersistedDemoConfig].
+        customApiKey: '',
         selectedInjectedKey: injected,
         userId: resolvedUserId,
         theme: AppThemeChoice.values.byName(json['theme'] as String),
@@ -171,6 +183,83 @@ class DemoConfig {
       return null;
     }
   }
+}
+
+/// SharedPreferences key for the persisted [DemoConfig] (versioned so a future
+/// schema change can bump it without colliding with stale blobs).
+///
+/// Visible to the tests because what matters about [loadPersistedDemoConfig] is
+/// what it leaves *in* storage, which can only be asserted on the raw blob.
+@visibleForTesting
+const String demoConfigPrefsKey = 'octopus_demo_config_v1';
+
+/// Reads the raw persisted blob, or `null` when storage itself is unavailable.
+///
+/// Separate from the parsing below so the two failures stay distinguishable:
+/// only an unreadable *blob* justifies clearing what is on disk. A prefs
+/// failure read nothing, so there is nothing to judge — clearing there would
+/// throw away a valid config over a transient error.
+Future<String?> _readPersistedConfigBlob() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(demoConfigPrefsKey);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Loads the persisted [DemoConfig] (null if none / corrupt / schema drift).
+///
+/// Also self-heals a blob written by an older build, which stored the pasted
+/// `customApiKey` verbatim: the config is re-persisted through the current
+/// [DemoConfig.toJson], which carries no key value, so the plaintext key stops
+/// sitting in on-device prefs on the first launch after this change. A blob
+/// this build can't parse is dropped instead of left in place — it sends the
+/// app back to the Config screen either way, so keeping it buys nothing and it
+/// may still hold that plaintext key.
+///
+/// A top-level function rather than a method on [AppState]: that strip is the
+/// security-relevant half of the change, and reaching it through [AppState]
+/// would mean standing up the SDK singleton and its channels just to assert on
+/// a prefs entry — so it would have shipped untested.
+@visibleForTesting
+Future<DemoConfig?> loadPersistedDemoConfig() async {
+  final raw = await _readPersistedConfigBlob();
+  if (raw == null || raw.isEmpty) return null;
+  try {
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    final restored = DemoConfig.fromJson(json);
+    if (restored == null) {
+      await _clearPersistedDemoConfig();
+      return null;
+    }
+    if (json.containsKey('customApiKey')) {
+      await _persistDemoConfig(restored);
+    }
+    return restored;
+  } catch (_) {
+    await _clearPersistedDemoConfig();
+    return null;
+  }
+}
+
+/// Persists [config] so the next launch auto-restores it. Best-effort: a
+/// storage failure logs but never blocks the run.
+Future<void> _persistDemoConfig(DemoConfig config) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(demoConfigPrefsKey, jsonEncode(config.toJson()));
+  } catch (e) {
+    demoLog.apiCall('persistConfig failed', {'error': '$e'});
+  }
+}
+
+/// Clears the persisted config (Settings → Reset → first-launch flow).
+Future<void> _clearPersistedDemoConfig() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(demoConfigPrefsKey);
+  } catch (_) {}
 }
 
 /// Shared, reactive app state for the whole sample.
@@ -192,9 +281,15 @@ class AppState extends ChangeNotifier {
   bool _restoringConfig = true;
   bool get restoringConfig => _restoringConfig;
 
-  /// SharedPreferences key for the persisted [DemoConfig] (versioned so a
-  /// future schema change can bump it without colliding with stale blobs).
-  static const String _configPrefsKey = 'octopus_demo_config_v1';
+  /// The persisted config restored at bootstrap when it could NOT be
+  /// auto-started — i.e. it resolves to no API key. That covers the
+  /// [ApiKeySource.custom] case, now that the pasted key is never persisted
+  /// (see [DemoConfig.toJson]), and also a build that ships no key at all
+  /// (a bare `flutter run`, where the demo source resolves to nothing
+  /// either). Seeds the Config screen so the user gets every other choice
+  /// back and only re-enters the key.
+  DemoConfig? _restoredConfig;
+  DemoConfig? get restoredConfig => _restoredConfig;
 
   /// Live snapshot of the API key the SDK is currently initialized against.
   ///
@@ -383,44 +478,21 @@ class AppState extends ChangeNotifier {
     // can deep-link (the main shell, which routes the pending notification,
     // only mounts once a config exists). `start` is null-safe and swallows its
     // own init errors. Reconfigure via Settings → Reset (which clears this).
-    final restored = await _loadPersistedConfig();
+    final restored = await loadPersistedDemoConfig();
     _restoringConfig = false;
-    if (restored != null) {
+    // Only auto-start a config that still resolves to a key. A custom-key
+    // config never does (the pasted key isn't persisted), and auto-starting it
+    // would re-enter the SDK — production by default, see [octopusApiHost] —
+    // on an empty key. Land on the Config screen instead, seeded with the
+    // restored choices. Trimmed, like every other key check in the sample
+    // (`_start` on the Config screen, [octopusApiHost] below): a build that
+    // injects a whitespace-only key resolves to no usable key either.
+    if (restored != null && restored.effectiveApiKey.trim().isNotEmpty) {
       await start(restored);
     } else {
+      _restoredConfig = restored;
       notifyListeners();
     }
-  }
-
-  /// Loads the persisted [DemoConfig] (null if none / corrupt / schema drift).
-  Future<DemoConfig?> _loadPersistedConfig() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_configPrefsKey);
-      if (raw == null || raw.isEmpty) return null;
-      return DemoConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Persists [config] so the next launch auto-restores it. Best-effort: a
-  /// storage failure logs but never blocks the run.
-  Future<void> _persistConfig(DemoConfig config) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_configPrefsKey, jsonEncode(config.toJson()));
-    } catch (e) {
-      demoLog.apiCall('persistConfig failed', {'error': '$e'});
-    }
-  }
-
-  /// Clears the persisted config (Settings → Reset → first-launch flow).
-  Future<void> _clearPersistedConfig() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_configPrefsKey);
-    } catch (_) {}
   }
 
   /// Applies [config] and initialises the SDK (host-managed / SSO auth).
@@ -459,7 +531,7 @@ class AppState extends ChangeNotifier {
       _activeApiKey = config.effectiveApiKey;
       // Remember this config so the next launch auto-restores it (and so a
       // cold-start push can deep-link without a manual reconfigure).
-      unawaited(_persistConfig(config));
+      unawaited(_persistDemoConfig(config));
 
       // Do NOT auto-`connectUser` here. The native SDK already calls
       // `connectAsGuest()` inside `initialize()` (Android `OctopusSDK.kt`
@@ -520,18 +592,24 @@ class AppState extends ChangeNotifier {
   /// Config screen documents this; the SSO-secret path (used in normal QA)
   /// signs the JWT on the fly with whichever id is active.
   ///
-  /// Rethrows so callers can surface the error. The reactive
+  /// Returns the SDK's [OctopusResult] — a refused connection (banned user,
+  /// JWT the backend rejects, …) resolves as a failure rather than throwing,
+  /// so callers must inspect it to surface anything; `describeConnectUserFailure`
+  /// turns it into a message. Rethrows on an actual exception. The reactive
   /// [connectionState] stream — the source of truth for [userConnected] —
   /// emits independently on success.
-  Future<void> connectDemoUser({Set<String> entitlements = const {}}) async {
+  Future<OctopusResult<void, ClientUserError>> connectDemoUser({
+    Set<String> entitlements = const {},
+  }) async {
     _currentEntitlements = Set.unmodifiable(entitlements);
     final userId = effectiveUserId;
+    final OctopusResult<void, ClientUserError> result;
     if (hasInjectedSsoSecret) {
       demoLog.apiCall('connectUser (tokenProvider)', {
         'userId': userId,
         'entitlements': _currentEntitlements.toList()..sort(),
       });
-      await octopus.connectUser(
+      result = await octopus.connectUser(
         userId: userId,
         tokenProvider: () async => ClientUserTokenSigner.signClientUserToken(
           userId: userId,
@@ -548,12 +626,13 @@ class AppState extends ChangeNotifier {
         'userId': userId,
         'token': octopusUserToken.isEmpty ? '<empty>' : '<redacted>',
       });
-      await octopus.connectUser(
+      result = await octopus.connectUser(
         userId: userId,
         tokenProvider: () async => octopusUserToken,
       );
     }
     notifyListeners();
+    return result;
   }
 
   /// Disconnects the current user. Rethrows on failure. [userConnected] is
@@ -606,6 +685,32 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether the host wires `onNavigateToProfile` on the embedded Community
+  /// view — the Unified Profile activation switch.
+  ///
+  /// Off by default so the sample shows the SDK's native profile screens, which
+  /// is what an existing integration sees. Flipping it on makes the host handle
+  /// every profile tap instead. Mirrors the native samples' Config-screen
+  /// "profile wired" toggle.
+  ///
+  /// Activation is an AND gate: this alone does nothing unless the community is
+  /// also configured to expose client user ids.
+  bool _unifiedProfileWired = false;
+  bool get unifiedProfileWired => _unifiedProfileWired;
+
+  /// Wires / unwires the host's profile-tap handling.
+  ///
+  /// The flag is **mount-time** — it rides in the embedded view's creation
+  /// params, which are read once — so the Community tab folds it into its
+  /// [ValueKey] to force a fresh PlatformView. Deliberately does NOT bump
+  /// [navEpoch]: that would also yank the user onto the Community tab, which is
+  /// reserved for a push deep-link.
+  void setUnifiedProfileWired(bool wired) {
+    if (_unifiedProfileWired == wired) return;
+    _unifiedProfileWired = wired;
+    notifyListeners();
+  }
+
   /// Sets the custom [OctopusTheme] applied to the embedded Community view.
   void setActiveOctopusTheme(OctopusTheme? theme, String label) {
     _activeOctopusTheme = theme;
@@ -633,6 +738,9 @@ class AppState extends ChangeNotifier {
   /// not-connected state on disconnect; no need to mirror it here.
   void reset() {
     _config = null;
+    // Reset means first-launch flow: don't re-seed the Config screen from the
+    // config being thrown away.
+    _restoredConfig = null;
     _activeApiKey = null;
     _initialized = false;
     _initError = null;
@@ -641,7 +749,7 @@ class AppState extends ChangeNotifier {
     _localeChoice = LocaleChoice.system;
     _pendingCommunityNotification = null;
     // Forget the saved config so the next launch shows the first-launch flow.
-    unawaited(_clearPersistedConfig());
+    unawaited(_clearPersistedDemoConfig());
     notifyListeners();
   }
 

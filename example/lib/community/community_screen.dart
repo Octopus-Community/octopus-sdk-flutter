@@ -5,6 +5,7 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
+import 'client_profile_page.dart';
 
 /// Community tab — the SDK's own embedded UI ([OctopusHomeScreen]).
 ///
@@ -50,7 +51,11 @@ class CommunityTab extends StatelessWidget {
       // at mount). Today the host returns to Config to flip themes, so
       // this is defensive — but it costs nothing and keeps the contract
       // honest if Settings ever gains a live theme toggle.
-      '|${octopusTheme?.themeMode?.name ?? 'sdkDefault'}',
+      '|${octopusTheme?.themeMode?.name ?? 'sdkDefault'}'
+      // The Unified Profile switch is mount-time (it rides in creationParams),
+      // so flipping it must remount the PlatformView — otherwise the toggle
+      // silently does nothing until the tab happens to rebuild.
+      '|${app.unifiedProfileWired ? 'profileWired' : 'profileNative'}',
     );
 
     // Embedded mode: the SDK renders its own native top bar (the M3
@@ -102,6 +107,26 @@ class CommunityTab extends StatelessWidget {
         );
         return UrlOpeningStrategy.handledByApp;
       },
+      // Unified Profile. Passing this callback is the activation switch: the SDK
+      // then routes EVERY profile tap here — the connected user's own included —
+      // and stops showing its native profile screens. Wired only when the
+      // Settings toggle is on, so the sample demonstrates both behaviours; a
+      // real host would simply always pass it (or never).
+      //
+      // Nothing changes unless the community also exposes client user ids: until
+      // then the SDK keeps its own screens and this is never called.
+      onNavigateToProfile: app.unifiedProfileWired
+          ? (clientUserId) {
+              demoLog.apiCall('onNavigateToProfile', {
+                'clientUserId': clientUserId,
+              });
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ClientProfilePage(clientUserId: clientUserId),
+                ),
+              );
+            }
+          : null,
     );
   }
 }

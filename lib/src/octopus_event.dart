@@ -171,15 +171,17 @@ sealed class Screen {
         CommentDetailScreen(commentId: map['commentId'] as String),
       'createPost' => const CreatePostScreen(),
       'profile' => const ProfileScreen(),
+      'activity' => const ActivityScreen(),
       'otherUserProfile' =>
         OtherUserProfileScreen(profileId: map['profileId'] as String),
+      'otherUserPosts' =>
+        OtherUserPostsScreen(profileId: map['profileId'] as String),
       'editProfile' => const EditProfileScreen(),
       'reportContent' => const ReportContentScreen(),
       'reportProfile' => const ReportProfileScreen(),
       'validateNickname' => const ValidateNicknameScreen(),
       'settingsList' => const SettingsListScreen(),
       'settingsAccount' => const SettingsAccountScreen(),
-      'settingsAbout' => const SettingsAboutScreen(),
       'reportExplanation' => const ReportExplanationScreen(),
       'deleteAccount' => const DeleteAccountScreen(),
       _ => UnknownScreen(type: type, rawData: map),
@@ -240,9 +242,29 @@ class ProfileScreen extends Screen {
   const ProfileScreen();
 }
 
+/// The connected user's community activity screen — their posts (1.13+).
+///
+/// Emitted instead of [ProfileScreen] when the community runs in Unified
+/// Profile mode and the user opens their own activity. **Android only** — the
+/// iOS native SDK has no equivalent screen event.
+class ActivityScreen extends Screen {
+  const ActivityScreen();
+}
+
 class OtherUserProfileScreen extends Screen {
   final String profileId;
   const OtherUserProfileScreen({required this.profileId});
+}
+
+/// Another member's community activity screen — their posts (1.13+).
+///
+/// A posts list, distinct from the profile summary reported by
+/// [OtherUserProfileScreen]; the native SDKs keep them as separate events so
+/// host analytics can tell the two apart. Emitted on both platforms.
+class OtherUserPostsScreen extends Screen {
+  /// The id of the profile whose posts are displayed.
+  final String profileId;
+  const OtherUserPostsScreen({required this.profileId});
 }
 
 class EditProfileScreen extends Screen {
@@ -267,10 +289,6 @@ class SettingsListScreen extends Screen {
 
 class SettingsAccountScreen extends Screen {
   const SettingsAccountScreen();
-}
-
-class SettingsAboutScreen extends Screen {
-  const SettingsAboutScreen();
 }
 
 class ReportExplanationScreen extends Screen {

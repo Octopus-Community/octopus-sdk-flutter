@@ -30,6 +30,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// Active client-object-post observations, keyed by the Dart-supplied
   /// observationId (one per getClientObjectRelatedPostFlow subscription).
   private var clientObjectPostCancellables: [String: AnyCancellable] = [:]
+  private var communityDataCancellables: [String: AnyCancellable] = [:]
   static var shared: OctopusSDKFlutterPlugin?
   static var sharedOctopus: OctopusSDK? { shared?.octopus }
 
@@ -175,6 +176,8 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       cancellables.removeAll()
       clientObjectPostCancellables.values.forEach { $0.cancel() }
       clientObjectPostCancellables.removeAll()
+      communityDataCancellables.values.forEach { $0.cancel() }
+      communityDataCancellables.removeAll()
       emitIsInitialised()
       result(nil)
     case "connectUser":
@@ -225,11 +228,20 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
 
       let clientUser = ClientUser(userId: userId, profile: profile)
 
-      octopus.connectUser(clientUser) { @Sendable in
-        return token
+      // `await`ing selects the `async throws(OctopusConnectUserError)`
+      // overload. Its non-throwing twin has an identical parameter list and
+      // only debug-logs the refusal, so a plain call silently reports success
+      // while the user stays anonymous.
+      Task {
+        do {
+          try await octopus.connectUser(clientUser) { @Sendable in
+            return token
+          }
+          result(["type": "success"])
+        } catch {
+          result(Self.connectUserWire(from: error))
+        }
       }
-
-      result(nil)
     case "connectUserWithTokenProvider":
       // Persistent tokenProvider path — mirrors Android's
       // `OctopusSDK.connectUser(user, tokenProvider: suspend () -> String)`.
@@ -271,31 +283,58 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       // lifetime is the app's, so the weak ref is effectively non-nil here,
       // but we still null-check for hygiene.
       weak var weakSelf = self
-      octopus.connectUser(clientUser) { @Sendable in
-        // Each invocation gets a fresh requestId so concurrent refreshes
-        // can't race (the SDK may invoke this closure multiple times across
-        // the connection's lifetime — initial connect, every refresh).
-        return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-          DispatchQueue.main.async {
-            guard let s = weakSelf else {
-              continuation.resume(returning: "")
-              return
+      // See the `connectUser` case: `await` picks the typed-throws overload,
+      // the non-throwing twin would swallow the refusal.
+      Task {
+        do {
+          try await octopus.connectUser(clientUser) { @Sendable in
+            // Each invocation gets a fresh requestId so concurrent refreshes
+            // can't race (the SDK may invoke this closure multiple times across
+            // the connection's lifetime — initial connect, every refresh).
+            return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+              DispatchQueue.main.async {
+                guard let s = weakSelf else {
+                  continuation.resume(returning: "")
+                  return
+                }
+                s.clientUserTokenRequestCounter += 1
+                let requestId = "clientUserToken_\(s.clientUserTokenRequestCounter)"
+                s.clientUserTokenContinuations[requestId] = continuation
+                s.sendEvent(
+                  "clientUserTokenRequest",
+                  data: ["providerId": providerId, "requestId": requestId]
+                )
+                // Bound the round-trip: a Dart side that never replies would
+                // otherwise leave this continuation parked forever, and with
+                // it the caller's Future. Every path that resumes a
+                // continuation already in the map removes it first, on the main
+                // queue (the disconnect drain with `removeAll()`, the reply and
+                // this timeout with `removeValue(forKey:)`), so it is never
+                // resumed twice — the only other resume is the `weakSelf`-nil
+                // early return above, which never inserted one. It can still be
+                // resumed zero times: a plugin deallocated while a request is
+                // parked drops the continuation, which is not reachable from a
+                // live engine. The empty token handed back on timeout is not a
+                // local refusal on this platform — iOS forwards it to the
+                // backend exchange, see `connectUserWire`.
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.clientUserTokenTimeout) {
+                  guard let s = weakSelf,
+                        let timedOut = s.clientUserTokenContinuations.removeValue(forKey: requestId)
+                  else { return }
+                  timedOut.resume(returning: "")
+                }
+              }
             }
-            s.clientUserTokenRequestCounter += 1
-            let requestId = "clientUserToken_\(s.clientUserTokenRequestCounter)"
-            s.clientUserTokenContinuations[requestId] = continuation
-            s.sendEvent(
-              "clientUserTokenRequest",
-              data: ["providerId": providerId, "requestId": requestId]
-            )
           }
+          result(["type": "success"])
+        } catch {
+          result(Self.connectUserWire(from: error))
         }
       }
-      result(nil)
     case "provideClientUserToken":
       // Resume the parked closure with the freshly-signed JWT (or an empty
-      // string if the Dart side couldn't sign — the native SDK treats an
-      // empty token as a tokenProvider failure).
+      // string if the Dart side couldn't sign — this SDK does not check the
+      // token locally, so an empty one fails at the backend exchange).
       guard let args = call.arguments as? [String: Any],
             let requestId = args["requestId"] as? String
       else {
@@ -548,6 +587,86 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       }
       clientObjectPostCancellables.removeValue(forKey: observationId)?.cancel()
       result(nil)
+    case "fetchCommunityData":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      let args = call.arguments as? [String: Any]
+      let profileId = args?["profileId"] as? String
+      let clientUserId = args?["clientUserId"] as? String
+      guard (profileId == nil) != (clientUserId == nil) else {
+        result(
+          FlutterError(
+            code: "INVALID_ARGS",
+            message: "exactly one of profileId or clientUserId is required",
+            details: nil))
+        return
+      }
+      Task {
+        do {
+          let data: OctopusCommunityData?
+          if let profileId {
+            data = try await octopus.fetchCommunityData(profileId: profileId)
+          } else {
+            data = try await octopus.fetchCommunityData(clientUserId: clientUserId!)
+          }
+          result(data.map { Self.serializeCommunityData($0) })
+        } catch {
+          result(
+            FlutterError(
+              code: "FETCH_FAILED", message: error.localizedDescription, details: nil))
+        }
+      }
+    case "startCommunityDataObservation":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      guard let args = call.arguments as? [String: Any],
+            let observationId = args["observationId"] as? String
+      else {
+        result(FlutterError(code: "INVALID_ARGS", message: "observationId is required", details: nil))
+        return
+      }
+      let profileId = args["profileId"] as? String
+      let clientUserId = args["clientUserId"] as? String
+      guard (profileId == nil) != (clientUserId == nil) else {
+        result(
+          FlutterError(
+            code: "INVALID_ARGS",
+            message: "exactly one of profileId or clientUserId is required",
+            details: nil))
+        return
+      }
+      // The native publishers already deliver on the main queue; `receive(on:)`
+      // is kept for symmetry with the client-object observation above.
+      let publisher =
+        profileId != nil
+        ? octopus.communityDataPublisher(profileId: profileId!)
+        : octopus.communityDataPublisher(clientUserId: clientUserId!)
+      communityDataCancellables[observationId]?.cancel()
+      communityDataCancellables[observationId] = publisher
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] data in
+          self?.sendEvent(
+            "communityDataChanged",
+            data: [
+              "observationId": observationId,
+              "communityData": data.map { Self.serializeCommunityData($0) } as Any,
+            ]
+          )
+        }
+      result(nil)
+    case "stopCommunityDataObservation":
+      guard let args = call.arguments as? [String: Any],
+            let observationId = args["observationId"] as? String
+      else {
+        result(FlutterError(code: "INVALID_ARGS", message: "observationId is required", details: nil))
+        return
+      }
+      communityDataCancellables.removeValue(forKey: observationId)?.cancel()
+      result(nil)
     case "trackCommunityAccess":
       guard let octopus else {
         result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
@@ -733,11 +852,86 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     ]
   }
 
-  /// Encodes a Swift untyped `Error` from `octopus.fetchGroups()` into the
-  /// shared `OctopusResult` failure wire shape. iOS has no typed business
-  /// failure for fetchGroups (Android `<_, Nothing>`), so all errors degrade
-  /// onto a connection-failure kind: `noNetwork` for the recognized network
-  /// error, `userNotAuthenticated` when the underlying call complained about
+  /// How long this bridge waits for Dart to answer a `clientUserTokenRequest`
+  /// before falling back to an empty token.
+  /// Generous on purpose: the host's provider usually calls its own backend.
+  /// Kept in step with Android's `CLIENT_USER_TOKEN_TIMEOUT_MS`.
+  private static let clientUserTokenTimeout: TimeInterval = 60
+
+  /// Encodes an `OctopusConnectUserError` into the shared `OctopusResult`
+  /// failure wire shape, decoded on Dart by `ClientUserError.fromWire`.
+  ///
+  /// The wire `type` values are shared with Android's `encodeClientUserError`;
+  /// `test/octopus_connect_user_error_parity_test.dart` asserts the three
+  /// sides agree. The variants are **not** symmetric: iOS has no
+  /// `missingToken` counterpart — it never inspects the token locally, so an
+  /// empty one is forwarded to the backend exchange and comes back as whatever
+  /// that call answers (`jwtError`, `other`, or `server`, which maps onto the
+  /// connection-level kinds below rather than onto a client-user error at all).
+  /// Android has no `invalidToken` / `communityAccessDenied`.
+  ///
+  /// `noNetwork` and `server` are not user-specific, so they map onto the
+  /// connection-level failure kinds — same as Android, where the native SDK
+  /// returns `OctopusResult.Failure.NoNetwork` / `.StatusError` rather than a
+  /// `ClientUserError`.
+  /// Takes `any Error` rather than the typed error: a `catch` clause with an
+  /// implicit binding erases the thrown type back to `any Error`, and pinning
+  /// it here would make the call sites depend on that inference. Anything that
+  /// is not an `OctopusConnectUserError` still has to reach the caller, as a
+  /// connection-level failure.
+  private static func connectUserWire(from anyError: any Error) -> [String: Any] {
+    func invalidArguments(_ errors: [[String: Any]]) -> [String: Any] {
+      ["type": "failure", "kind": "invalidArguments", "errors": errors]
+    }
+    guard let error = anyError as? OctopusConnectUserError else {
+      // Unreachable at the pinned SDK — both call sites await a
+      // `throws(OctopusConnectUserError)` function. It would only fire if that
+      // typed signature ever loosened, and such an error is by definition NOT
+      // something the host passed in, so it belongs to the connection layer
+      // rather than to `invalidArguments`.
+      return encodeUntypedConnectionFailure(anyError)
+    }
+    switch error {
+    case .userBanned(let message):
+      // Backend-provided wording, meant to be displayed to the user.
+      return invalidArguments([["type": "userBanned", "message": message]])
+    case .profileError(let validationErrors):
+      let errors: [[String: Any]] = validationErrors.map {
+        ["type": "profileError", "message": $0.message]
+      }
+      return invalidArguments(
+        errors.isEmpty
+          ? [["type": "profileError", "message": "Profile update failed"]]
+          : errors
+      )
+    case .jwtError:
+      return invalidArguments([["type": "invalidToken", "message": "Invalid user token"]])
+    case .communityAccessDenied:
+      return invalidArguments([
+        ["type": "communityAccessDenied", "message": "No access to the community"]
+      ])
+    case .noNetwork:
+      return ["type": "failure", "kind": "noNetwork"]
+    case .server(let underlying):
+      return [
+        "type": "failure",
+        "kind": "statusError",
+        "code": -1,
+        "description": "\(underlying)",
+      ]
+    case .other(let underlying):
+      return invalidArguments([
+        ["type": "other", "message": underlying.map { "\($0)" } ?? "Unknown error"]
+      ])
+    }
+  }
+
+  /// Encodes a Swift untyped `Error` into the shared `OctopusResult` failure
+  /// wire shape. Two callers: `octopus.fetchGroups()`, which has no typed
+  /// business failure on iOS (Android `<_, Nothing>`), and `connectUserWire`
+  /// for the error it cannot type. All errors degrade onto a
+  /// connection-failure kind: `noNetwork` for the recognized network error,
+  /// `userNotAuthenticated` when the underlying call complained about
   /// authentication, `statusError` otherwise. Mirrors how
   /// [OctopusResult.failureFromWire] decodes the wire on Dart.
   ///
@@ -745,8 +939,10 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// type (`OctopusCore.ServerCallError` lives in a separate module that the
   /// bridge does not import), so the classification relies on the error's
   /// string description. The recognized substrings match the cases of
-  /// `OctopusCore.ServerCallError` / `ServerError` as of pod 1.12.0 — revisit
-  /// this when the iOS SDK changes its enum names.
+  /// `OctopusCore.ServerCallError` / `ServerError`, re-verified against the
+  /// version pinned in `Package.swift` / the podspec — revisit this whenever
+  /// that pin moves, since a renamed enum case degrades silently to
+  /// `statusError`.
   private static func encodeUntypedConnectionFailure(_ error: Error) -> [String: Any] {
     let message = "\(error)"
     if message.range(of: "noNetwork", options: .caseInsensitive) != nil {
@@ -1170,7 +1366,14 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       .sink { [weak self] profile in
         self?.sendEvent(
           "profileChanged",
-          data: ["profile": profile.map { ["entitlements": Array($0.entitlements)] } as Any]
+          data: [
+            "profile": profile.map {
+              [
+                "entitlements": Array($0.entitlements),
+                "clientUserId": $0.clientUserId as Any,
+              ]
+            } as Any
+          ]
         )
       }
       .store(in: &cancellables)
@@ -1493,6 +1696,18 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     }
   }
 
+  /// Serializes a native `OctopusCommunityData` for the platform channel. Kept
+  /// key-for-key identical to the Android bridge's `serializeCommunityData`.
+  private static func serializeCommunityData(_ data: OctopusCommunityData) -> [String: Any] {
+    return [
+      "profileId": data.profileId,
+      "messageCount": data.messageCount as Any,
+      "gamification": data.gamification.map {
+        ["level": $0.level, "score": $0.score as Any] as [String: Any]
+      } as Any,
+    ]
+  }
+
   private static func serializeOctopusPost(_ post: any OctopusPost) -> [String: Any] {
     return [
       "id": post.id,
@@ -1629,6 +1844,8 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       return ["type": "profile"]
     case .otherUserProfile(let context):
       return ["type": "otherUserProfile", "profileId": context.profileId]
+    case .otherUserPosts(let context):
+      return ["type": "otherUserPosts", "profileId": context.profileId]
     case .editProfile:
       return ["type": "editProfile"]
     case .reportContent:
@@ -1641,8 +1858,6 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       return ["type": "settingsList"]
     case .settingsAccount:
       return ["type": "settingsAccount"]
-    case .settingsAbout:
-      return ["type": "settingsAbout"]
     case .reportExplanation:
       return ["type": "reportExplanation"]
     case .deleteAccount:
@@ -1657,6 +1872,19 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   }
 
   private func profileFieldToString(_ profileField: ConnectionMode.SSOConfiguration.ProfileField?) -> String? {
+    OctopusSDKFlutterPlugin.profileFieldWireValue(profileField)
+  }
+
+  /// The canonical `editUser.fieldToEdit` wire value for a native profile field.
+  ///
+  /// Single source of truth: SSO's `modifyUser` and the Unified Profile activity
+  /// screen's `onNavigateToProfileEdit` both emit `editUser`, so they must agree
+  /// on these exact strings — the Dart side matches on them literally. `nil` for
+  /// "the user asked for the full editor", and for any field this wrapper does
+  /// not know (rather than inventing a value the Dart side would drop).
+  static func profileFieldWireValue(
+    _ profileField: ConnectionMode.SSOConfiguration.ProfileField?
+  ) -> String? {
     switch profileField {
     case .nickname:
       return "NICKNAME"

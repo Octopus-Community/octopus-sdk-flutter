@@ -108,8 +108,8 @@ Future<void> octopusFcmBackgroundHandler(RemoteMessage message) async {
 }
 
 /// Public showcase entrypoint. The QA/debug build uses
-/// `lib/debug/main_debug.dart`, which installs the Debug console then calls
-/// [runOctopusDemo].
+/// `lib/debug/internal/main_debug.dart`, which installs the Debug console then
+/// calls [runOctopusDemo].
 Future<void> main() => runOctopusDemo();
 
 /// Boots the sample app. Shared by the public and debug entrypoints.
@@ -373,7 +373,7 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
         home: _app.restoringConfig
             ? const Scaffold(body: Center(child: CircularProgressIndicator()))
             : (_app.config == null
-                  ? const ConfigScreen()
+                  ? ConfigScreen(initialConfig: _app.restoredConfig)
                   : MainScreen(app: _app)),
       ),
     );

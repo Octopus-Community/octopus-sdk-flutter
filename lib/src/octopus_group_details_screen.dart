@@ -80,14 +80,23 @@ class OctopusGroupDetailsScreen extends StatelessWidget {
   /// contract.
   final UrlOpeningStrategy Function(String)? onNavigateToUrl;
 
+  /// Callback invoked when the user taps any profile inside the community, so
+  /// your app can open its own profile screen for that member ("Unified
+  /// Profile"). See [OctopusHomeScreen.onNavigateToProfile] for the full
+  /// contract — it is opt-in, mount-time, and gated on the community exposing
+  /// client user ids.
+  final void Function(String clientUserId)? onNavigateToProfile;
+
   /// Push notification whose deep-link target the native view should open.
   /// When supplied with a non-empty `linkPath`, the deep link wins and the
   /// group pointed at by [groupId] is **not** mounted — matching
   /// [OctopusHomeScreen]'s precedence rule.
   final OctopusNotification? notification;
 
-  /// Extra bottom inset (logical pixels) the native screen reserves at the
-  /// bottom. See [OctopusHomeScreen.bottomSafeAreaInset] for the contract.
+  /// Total bottom padding (logical pixels) the native screen reserves at the
+  /// bottom. Defaults to `0`, which resolves the padding from where this widget
+  /// is mounted rather than reserving nothing. See
+  /// [OctopusHomeScreen.bottomSafeAreaInset] for the full contract.
   final double bottomSafeAreaInset;
 
   const OctopusGroupDetailsScreen({
@@ -102,6 +111,7 @@ class OctopusGroupDetailsScreen extends StatelessWidget {
     this.onNavigateToLogin,
     this.onModifyUser,
     this.onNavigateToUrl,
+    this.onNavigateToProfile,
     this.notification,
     this.bottomSafeAreaInset = 0,
   });
@@ -118,6 +128,7 @@ class OctopusGroupDetailsScreen extends StatelessWidget {
       onNavigateToLogin: onNavigateToLogin,
       onModifyUser: onModifyUser,
       onNavigateToUrl: onNavigateToUrl,
+      onNavigateToProfile: onNavigateToProfile,
       notification: notification,
       bottomSafeAreaInset: bottomSafeAreaInset,
       initialScreen: OctopusInitialScreen.group(

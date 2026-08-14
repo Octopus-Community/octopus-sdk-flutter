@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_log.dart';
 import '../app_state.dart';
 import '../octopus_demo_config.dart';
+import 'connect_user_result.dart';
 
 /// Profile-edit page backing the embedded UI's `onModifyUser` callback.
 ///
@@ -51,12 +52,24 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         if (nickname != null) 'nickname': nickname,
         if (bio != null) 'bio': bio,
       });
-      await app.octopus.connectUser(
+      final result = await app.octopus.connectUser(
         userId: userId,
         tokenProvider: () async => octopusUserToken,
         nickname: nickname,
         bio: bio,
       );
+      final failure = describeConnectUserFailure(result);
+      if (failure != null) {
+        // A rejected profile (nickname taken, bio too long, …) arrives as a
+        // refusal, not an exception — without this branch the page would pop
+        // as if the save had worked.
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Save failed — $failure')));
+        }
+        return;
+      }
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(

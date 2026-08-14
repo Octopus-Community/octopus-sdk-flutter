@@ -15,7 +15,7 @@ let package = Package(
         // Native Octopus iOS SDK, distributed as a Swift Package. Keep this
         // version in lockstep with the CocoaPods pins in
         // `octopus_sdk_flutter.podspec` (OctopusCommunity / OctopusCommunityUI).
-        .package(url: "https://github.com/Octopus-Community/octopus-sdk-swift.git", exact: "1.12.6")
+        .package(url: "https://github.com/Octopus-Community/octopus-sdk-swift.git", exact: "1.13.2")
     ],
     targets: [
         .target(

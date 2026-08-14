@@ -55,6 +55,7 @@ class OctopusEmbeddedView(
     private val onNavigateToLoginCallbackId: String? = null,
     private val onModifyUserCallbackId: String? = null,
     private val interceptUrls: Boolean = false,
+    private val interceptProfileTaps: Boolean = false,
     private val deepLink: String? = null,
     private val bottomSafeAreaInsetDp: Int = 0,
     private val showNavBar: Boolean = true,
@@ -83,6 +84,18 @@ class OctopusEmbeddedView(
                 // across modal hosting, so there is no NavigationView vs
                 // NavigationStack choice to make. The Dart layer emits the key
                 // for both platforms; Android simply ignores it (no-op).
+                //
+                // `hasModifyUserHandler` is the second such iOS-only key, and is
+                // likewise NOT read here. iOS needs it because the native SDK
+                // hides the activity screen's "Edit my profile" item when its
+                // separate edit callback is nil; Android drives both edit paths
+                // from one native parameter, which the bridge wires
+                // unconditionally. Do NOT "fix" that by gating it on this key:
+                // the native Android SDK requires the callback in SSO mode with
+                // app-managed profile fields, so gating it on the host handler
+                // alone would break those integrations. The divergence (the item
+                // shows on Android for a host with no `onModifyUser`) is recorded
+                // in the CHANGELOG.
                 //
                 // `navBarLeadingAction` IS consumed on Android (wrapped native
                 // SDK 1.12.1+): the native `OctopusHomeScreen` gained a
@@ -119,6 +132,7 @@ class OctopusEmbeddedView(
                     onNavigateToLoginCallbackId = args["onNavigateToLoginCallbackId"] as? String,
                     onModifyUserCallbackId = args["onModifyUserCallbackId"] as? String,
                     interceptUrls = args["interceptUrls"] as? Boolean ?: false,
+                    interceptProfileTaps = args["interceptProfileTaps"] as? Boolean ?: false,
                     deepLink = deepLink,
                     bottomSafeAreaInsetDp = (args["bottomSafeAreaInset"] as? Number)?.toInt() ?: 0,
                     showNavBar = args["showNavBar"] as? Boolean ?: true,
@@ -223,6 +237,22 @@ class OctopusEmbeddedView(
                                     mapOf("url" to url)
                                 )
                                 UrlOpeningStrategy.HandledByApp
+                            } else null,
+                            // Unified Profile activation switch: the NATIVE SDK
+                            // treats a non-null callback as "the host handles
+                            // every profile tap" and stops showing its own
+                            // profile screens. Wiring it unconditionally would
+                            // therefore suppress those screens for every host,
+                            // so it stays null unless the Dart side asked for it.
+                            onNavigateToProfile = if (interceptProfileTaps) { clientUserId ->
+                                Log.d(
+                                    "OctopusEmbeddedView",
+                                    "onNavigateToProfile called - sending event"
+                                )
+                                OctopusSDKFlutterPlugin.sendEvent(
+                                    "navigateToProfile",
+                                    mapOf("clientUserId" to clientUserId)
+                                )
                             } else null,
                             onNavigateToClientObject = { objectId ->
                                 Log.d(

@@ -30,8 +30,8 @@ void main() {
   /// Boots the app and taps through the Config screen so the bottom-nav shell
   /// is mounted. Leaves the harness on the Home tab.
   ///
-  /// Auto-restore note: PR #91 made the sample persist its DemoConfig to
-  /// `shared_preferences` and reload it on launch, so a 2nd `app.main()` in
+  /// Auto-restore note: the sample persists its DemoConfig to
+  /// `shared_preferences` and reloads it on launch, so a 2nd `app.main()` in
   /// the same integration_test session lands directly on the shell — the
   /// Config screen never re-appears. Tap-through only when it's actually
   /// there, otherwise the harness is already on the bottom-nav shell.
@@ -41,9 +41,9 @@ void main() {
 
     final config = find.bySemanticsIdentifier('config-screen');
     if (config.evaluate().isNotEmpty) {
-      // PR #114 added the User ID picker between the API-key picker and
-      // the theme selector, pushing the Start button below the viewport on
-      // CI device sizes. `find.bySemanticsIdentifier` doesn't see widgets
+      // The User ID picker sits between the API-key picker and the theme
+      // selector, pushing the Start button below the viewport on CI device
+      // sizes. `find.bySemanticsIdentifier` doesn't see widgets
       // whose render objects haven't been laid out yet, so scroll the
       // Config ListView until the Start button is on-screen before tapping.
       final start = find.bySemanticsIdentifier('config-start-button');
@@ -177,7 +177,27 @@ void main() {
       // Assert a unique Settings *body* anchor — not the persistent bottom-nav
       // 'Settings' label (which is present on every tab and would make this a
       // tautology). 'Reset configuration' only exists in the Settings body.
-      expect(find.text('Reset configuration'), findsOneWidget);
+      //
+      // It sits near the bottom of a lazy `ListView`, so scroll to it instead of
+      // expecting it in the first viewport: asserting on the initial build makes
+      // this test fail whenever a section is added above, which is a change in
+      // the list's length, not a rendering regression.
+      final resetTile = find.text('Reset configuration');
+      await tester.scrollUntilVisible(
+        resetTile,
+        200,
+        // Anchored on a widget known to be in the Settings list rather than
+        // `byType(Scrollable).first`, so this keeps targeting the right scroller
+        // if the Settings body ever nests one.
+        scrollable: find
+            .ancestor(
+              of: find.bySemanticsIdentifier('qa-toggle-unifiedProfileWired'),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(resetTile, findsOneWidget);
     });
 
     testWidgets('Debug tab renders the live-state console', (tester) async {

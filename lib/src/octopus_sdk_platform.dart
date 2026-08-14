@@ -5,6 +5,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
+import 'client_user_error.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
 import 'octopus_post.dart';
@@ -84,7 +85,7 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     throw UnimplementedError('stop() has not been implemented.');
   }
 
-  Future<void> connectUser(
+  Future<OctopusResult<void, ClientUserError>> connectUser(
       {required String userId,
       required String token,
       String? nickname,
@@ -97,7 +98,7 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   /// over the event channel ([providerId] keys the closure on Dart) every time
   /// it needs a fresh user JWT (initial connect, [refreshEntitlements], …). The
   /// reply path is [provideClientUserToken].
-  Future<void> connectUserWithTokenProvider({
+  Future<OctopusResult<void, ClientUserError>> connectUserWithTokenProvider({
     required String userId,
     required String providerId,
     String? nickname,
@@ -110,9 +111,15 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   }
 
   /// Replies to a native `clientUserTokenRequest` with the freshly-signed JWT.
-  /// An empty string signals "no token available" — the native SDK treats it
-  /// as a tokenProvider failure (mirrors the `provideBridgeToken` null-reply
-  /// contract for create-post bridges).
+  /// An empty string is the bridges' "no token available" signal (mirrors the
+  /// `provideBridgeToken` null-reply contract for create-post bridges). What it
+  /// produces is platform-dependent: Android refuses an empty token locally,
+  /// as `ClientUserMissingTokenError`, while iOS does not inspect it and
+  /// forwards it to the backend token exchange, so the failure comes back from
+  /// that call and can be a connection-level `OctopusStatusError` rather than a
+  /// `ClientUserError` — or not come back at all: on a first connect the native
+  /// iOS SDK falls back to a guest connection, and `connectUser` then reports
+  /// success (see MIGRATING.md).
   Future<void> provideClientUserToken(String requestId, String token) {
     throw UnimplementedError(
       'provideClientUserToken() has not been implemented.',
@@ -186,6 +193,36 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   Future<void> stopClientObjectPostObservation(String observationId) {
     throw UnimplementedError(
       'stopClientObjectPostObservation() has not been implemented.',
+    );
+  }
+
+  /// Fetches a member's community-data snapshot. Exactly one of [profileId] /
+  /// [clientUserId] is non-null. Returns the wire map, or `null` when the member
+  /// is unknown.
+  Future<Map<dynamic, dynamic>?> fetchCommunityData({
+    String? profileId,
+    String? clientUserId,
+  }) {
+    throw UnimplementedError('fetchCommunityData() has not been implemented.');
+  }
+
+  /// Starts a native observation of a member's community data, emitting
+  /// `communityDataChanged` events tagged with [observationId]. Exactly one of
+  /// [profileId] / [clientUserId] is non-null.
+  Future<void> startCommunityDataObservation(
+    String observationId, {
+    String? profileId,
+    String? clientUserId,
+  }) {
+    throw UnimplementedError(
+      'startCommunityDataObservation() has not been implemented.',
+    );
+  }
+
+  /// Stops the community-data observation identified by [observationId].
+  Future<void> stopCommunityDataObservation(String observationId) {
+    throw UnimplementedError(
+      'stopCommunityDataObservation() has not been implemented.',
     );
   }
 

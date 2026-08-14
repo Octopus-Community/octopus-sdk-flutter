@@ -44,7 +44,7 @@ PODS:
   - Flutter (1.0.0)
   - flutter_local_notifications (0.0.1):
     - Flutter
-  - GoogleDataTransport (10.1.0):
+  - GoogleDataTransport (10.1.1):
     - nanopb (~> 3.30910.0)
     - PromisesObjC (~> 2.4)
   - GoogleUtilities/AppDelegateSwizzler (8.1.2):
@@ -91,26 +91,26 @@ PODS:
   - nanopb/encode (3.30910.0)
   - octopus_sdk_flutter (0.0.1):
     - Flutter
-    - OctopusCommunity (= 1.12.6)
-    - OctopusCommunityUI (= 1.12.6)
-  - OctopusCommunity (1.12.6):
-    - OctopusCommunityCore (= 1.12.6)
-    - OctopusCommunityDependencyInjection (= 1.12.6)
-  - OctopusCommunityCore (1.12.6):
+    - OctopusCommunity (= 1.13.2)
+    - OctopusCommunityUI (= 1.13.2)
+  - OctopusCommunity (1.13.2):
+    - OctopusCommunityCore (= 1.13.2)
+    - OctopusCommunityDependencyInjection (= 1.13.2)
+  - OctopusCommunityCore (1.13.2):
     - KeychainAccess
-    - OctopusCommunityDependencyInjection (= 1.12.6)
-    - OctopusCommunityGrpcModels (= 1.12.6)
-    - OctopusCommunityRemoteClient (= 1.12.6)
-  - OctopusCommunityDependencyInjection (1.12.6)
-  - OctopusCommunityGrpcModels (1.12.6):
+    - OctopusCommunityDependencyInjection (= 1.13.2)
+    - OctopusCommunityGrpcModels (= 1.13.2)
+    - OctopusCommunityRemoteClient (= 1.13.2)
+  - OctopusCommunityDependencyInjection (1.13.2)
+  - OctopusCommunityGrpcModels (1.13.2):
     - gRPC-Swift
-    - OctopusCommunityDependencyInjection (= 1.12.6)
+    - OctopusCommunityDependencyInjection (= 1.13.2)
     - SwiftProtobuf
-  - OctopusCommunityRemoteClient (1.12.6):
-    - OctopusCommunityGrpcModels (= 1.12.6)
-  - OctopusCommunityUI (1.12.6):
-    - OctopusCommunity (= 1.12.6)
-    - OctopusCommunityCore (= 1.12.6)
+  - OctopusCommunityRemoteClient (1.13.2):
+    - OctopusCommunityGrpcModels (= 1.13.2)
+  - OctopusCommunityUI (1.13.2):
+    - OctopusCommunity (= 1.13.2)
+    - OctopusCommunityCore (= 1.13.2)
   - PromisesObjC (2.4.1)
   - shared_preferences_foundation (0.0.1):
     - Flutter
@@ -335,20 +335,20 @@ SPEC CHECKSUMS:
   FirebaseMessaging: 3b26e2cee503815e01c3701236b020aa9b576f09
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_local_notifications: 395056b3175ba4f08480a7c5de30cd36d69827e4
-  GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
+  GoogleDataTransport: a24e58982ab3ba2f64d79613e027fe7f57e88539
   GoogleUtilities: 766ace00c6b10d8148408f329d10c4f051931850
   gRPC-Swift: 74adcaaa62ac5e0a018938840328cb1fdfb09e7b
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
   KeychainAccess: c0c4f7f38f6fc7bbe58f5702e25f7bd2f65abf51
   Logging: beeb016c9c80cf77042d62e83495816847ef108b
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
-  octopus_sdk_flutter: b3399d1653739c2b2332e8e17ab84d0a2c277ebc
-  OctopusCommunity: 1869dfca762379db2ef4ae8d5241ce3f6340074e
-  OctopusCommunityCore: 498001aee5ed107161b282e46f8ee7f5a165081f
-  OctopusCommunityDependencyInjection: 1f62120e5c03d7f7c67b2a5275e8cdcd2d0503bc
-  OctopusCommunityGrpcModels: f606d5aad4489599e25b32762db33b4bbcb11b3b
-  OctopusCommunityRemoteClient: b8acb7637c4d7feb613fe8aca808256f5a54a5ac
-  OctopusCommunityUI: 07a8e98d8674a93d45869124d7c275d3d8796072
+  octopus_sdk_flutter: 1db98720cd90c40b3e5debe765b3f140c6d849d4
+  OctopusCommunity: 13e02de6efd883b691b029982ab024c94330348a
+  OctopusCommunityCore: c0e4c5bfd42ed34cbeb71d782dfd548daac7730c
+  OctopusCommunityDependencyInjection: 7d8189fe01cdddd68b0214c8c527adb4f0114f4e
+  OctopusCommunityGrpcModels: 1f7dfd9e1b0d10880fa805fddc0901c1db8b6be0
+  OctopusCommunityRemoteClient: 0af7cdb004c1f1c3cf65f0627bcf7f4253960055
+  OctopusCommunityUI: dfa92251072361b9bdeca2d3e1d0f6d781a017e0
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   SwiftNIO: 829958aab300642625091f82fc2f49cb7cf4ef24

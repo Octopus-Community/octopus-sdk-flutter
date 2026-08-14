@@ -77,8 +77,8 @@ class SheetScenario extends StatelessWidget {
           'deepLink': deepLink,
         });
         final app = AppScope.of(context);
-        // Forward the device's bottom inset (raw View, immune to ancestor
-        // SafeArea zeroing) so the floating "Write a post" pill stays above the
+        // Forward the device's bottom inset (raw View, immune to what the widget
+        // tree consumes) so the floating "Write a post" pill stays above the
         // home indicator. Captured before the await.
         final bottomSafeArea = MediaQueryData.fromView(
           View.of(context),

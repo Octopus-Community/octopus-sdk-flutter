@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_state.dart';
+import '../auth/connect_user_result.dart';
 import '../octopus_demo_config.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
@@ -77,7 +78,12 @@ class ConnectionScenario extends StatelessWidget {
           onRun: (setResult) async {
             final userId = app.effectiveUserId;
             try {
-              await app.connectDemoUser(entitlements: const {});
+              final result = await app.connectDemoUser(entitlements: const {});
+              final failure = describeConnectUserFailure(result);
+              if (failure != null) {
+                setResult(failure, isError: true);
+                return;
+              }
               setResult(
                 'connectUser("$userId") done with no entitlements — '
                 'see Live state.',
@@ -93,9 +99,14 @@ class ConnectionScenario extends StatelessWidget {
           onRun: (setResult) async {
             final userId = app.effectiveUserId;
             try {
-              await app.connectDemoUser(
+              final result = await app.connectDemoUser(
                 entitlements: const {'customer:premium'},
               );
+              final failure = describeConnectUserFailure(result);
+              if (failure != null) {
+                setResult(failure, isError: true);
+                return;
+              }
               setResult(
                 'connectUser("$userId") done with [customer:premium] '
                 '— SDK profile entitlements (below) reflects the BE-resolved '
@@ -112,9 +123,14 @@ class ConnectionScenario extends StatelessWidget {
           onRun: (setResult) async {
             final userId = app.effectiveUserId;
             try {
-              await app.connectDemoUser(
+              final result = await app.connectDemoUser(
                 entitlements: const {'customer:moderator'},
               );
+              final failure = describeConnectUserFailure(result);
+              if (failure != null) {
+                setResult(failure, isError: true);
+                return;
+              }
               setResult(
                 'connectUser("$userId") done with [customer:moderator].',
               );
@@ -129,9 +145,14 @@ class ConnectionScenario extends StatelessWidget {
           onRun: (setResult) async {
             final userId = app.effectiveUserId;
             try {
-              await app.connectDemoUser(
+              final result = await app.connectDemoUser(
                 entitlements: const {'customer:premium', 'customer:moderator'},
               );
+              final failure = describeConnectUserFailure(result);
+              if (failure != null) {
+                setResult(failure, isError: true);
+                return;
+              }
               setResult('connectUser("$userId") done with both entitlements.');
             } catch (e) {
               setResult('connectUser failed: $e', isError: true);

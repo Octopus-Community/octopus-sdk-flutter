@@ -85,6 +85,14 @@ fun OctopusHomeScreen(
     onBack: (() -> Unit)? = null,
     onNavigateToUrl: ((String) -> UrlOpeningStrategy)? = null,
     onNavigateToClientObject: ((String) -> Unit)? = null,
+    /**
+     * Unified Profile: handle every profile tap yourself instead of letting the
+     * SDK show its native profile screens. **Must stay null unless the Dart host
+     * opted in** — the native SDK reads a non-null callback as the activation
+     * switch, so wiring it unconditionally would suppress those screens for
+     * every existing host. The parameter is the tapped member's `clientUserId`.
+     */
+    onNavigateToProfile: ((String) -> Unit)? = null,
     deepLink: String? = null,
     /**
      * Extra bottom padding (in dp) the native floating "Write a post" bar
@@ -222,7 +230,8 @@ fun OctopusHomeScreen(
                         onNavigateToLogin = onNavigateToLogin,
                         onNavigateToProfileEdit = onNavigateToProfileEdit,
                         onNavigateToClientObject = onNavigateToClientObject,
-                        onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus }
+                        onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus },
+                        onNavigateToProfile = onNavigateToProfile
                     )
                 } else {
                     NativeOctopusHomeContent(
@@ -231,7 +240,8 @@ fun OctopusHomeScreen(
                         onNavigateToLogin = onNavigateToLogin,
                         onNavigateToProfileEdit = onNavigateToProfileEdit,
                         onNavigateToClientObject = onNavigateToClientObject,
-                        onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus }
+                        onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus },
+                        onNavigateToProfile = onNavigateToProfile
                     )
                 }
             }
@@ -272,7 +282,8 @@ fun OctopusHomeScreen(
                 onNavigateToLogin = onNavigateToLogin,
                 onNavigateToProfileEdit = onNavigateToProfileEdit,
                 onNavigateToClientObject = onNavigateToClientObject,
-                onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus }
+                onNavigateToUrl = onNavigateToUrl ?: { UrlOpeningStrategy.HandledByOctopus },
+                onNavigateToProfile = onNavigateToProfile
             )
         }
 

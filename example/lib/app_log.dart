@@ -12,9 +12,10 @@ import 'package:flutter/widgets.dart';
 /// directly), [demoLog] stays a [_NoopLogSink]: logging is a no-op so nothing
 /// breaks if a call is made before the recorder is installed.
 ///
-/// The QA / internal entrypoint (`lib/debug/main_debug.dart`) additionally
-/// installs the Settings → "Open debug console" sheet ([debugConsoleEntryBuilder]);
-/// that sheet is the only debug surface that stays internal-only.
+/// The QA / internal entrypoint (`lib/debug/internal/main_debug.dart`)
+/// additionally installs the Settings → "Open debug console" sheet
+/// ([debugConsoleEntryBuilder]); that sheet is the only debug surface that
+/// stays internal-only.
 abstract class DemoLogSink {
   /// Records an SDK API call made by the sample (method name + payload).
   void apiCall(String method, [Map<String, Object?> args = const {}]);
@@ -34,8 +35,9 @@ DemoLogSink demoLog = const _NoopLogSink();
 
 /// Builds the Settings "Debug console" entry widget (the `debug-open-button`).
 ///
-/// `null` unless the QA / internal entrypoint (`lib/debug/main_debug.dart`)
-/// installs a builder that returns the open-button wired to the console sheet.
+/// `null` unless the QA / internal entrypoint
+/// (`lib/debug/internal/main_debug.dart`) installs a builder that returns the
+/// open-button wired to the console sheet.
 /// The public bootstrap leaves it `null` — the Debug tab is the public debug
 /// surface; this Settings sheet is the internal-only one.
 WidgetBuilder? debugConsoleEntryBuilder;

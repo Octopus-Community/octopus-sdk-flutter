@@ -83,12 +83,13 @@ class _SyncFollowGroupsScenarioState extends State<SyncFollowGroupsScenario> {
     try {
       demoLog.apiCall('fetchGroups (auto-refresh on entry)');
       // Fire-and-forget. The returned OctopusResult (success or
-      // OctopusFailure) is discarded — this is a best-effort entry
-      // refresh; the presets call fetchGroups again as needed and
-      // surface real errors themselves. The catch only handles platform
-      // throws (PlatformException, missing-plugin) so initState never
-      // breaks the frame.
-      await app.octopus.fetchGroups();
+      // OctopusFailure) is discarded into `_` to make the intent explicit —
+      // fetchGroups is not `@useResult`, so nothing forces this; it is a
+      // best-effort entry refresh, and the presets call fetchGroups again as
+      // needed and surface real errors themselves. The catch only handles
+      // platform throws (PlatformException, missing-plugin) so initState
+      // never breaks the frame.
+      final _ = await app.octopus.fetchGroups();
     } catch (_) {}
   }
 

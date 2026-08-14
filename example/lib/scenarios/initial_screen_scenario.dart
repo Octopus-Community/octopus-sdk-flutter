@@ -797,10 +797,14 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 'arrow to return.',
               );
               // Deliberately NO bottomSafeAreaInset argument: this exercises the
-              // helper's auto-default (the exact path a host app uses). Passing
-              // `bottomSafeAreaInset: 0` here reproduces the pre-fix overlap;
-              // the auto-default is what keeps the floating button above the
-              // Android system nav bar. iOS is unaffected (native 10pt floor).
+              // helper's auto-default (the exact path a host app uses), which is
+              // what keeps the floating button above the Android system nav bar.
+              // On Android, passing `bottomSafeAreaInset: 0` here reproduces the
+              // pre-fix overlap. On iOS it does not: 0 falls back to the bridge
+              // default, which sits on top of the system safe area, so the button
+              // stays clear either way. iOS is NOT unaffected by the auto-default
+              // though — it used to double-count it (the device inset applied on
+              // top of the safe area again); the iOS bridge now normalizes it.
               //
               // Callbacks resolve their Navigator from the scenario's own
               // `context` (not a route context): unlike the sibling presets,

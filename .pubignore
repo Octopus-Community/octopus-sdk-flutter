@@ -30,7 +30,13 @@ SESSION_STATE.md
 
 # Internal-only surfaces — keep the consumable package to the showcase, not the
 # QA tooling or the tests.
-example/lib/debug/
+#
+# Scoped to `debug/internal/`, NOT to `debug/`: the recorder (`debug_log.dart`)
+# and the Debug tab (`debug_tab.dart`) are public surfaces of the showcase —
+# `lib/main.dart` and the Events Log scenario import them, so excluding them
+# ships an example that cannot compile. Only the Settings debug-console sheet
+# and the QA entrypoint are internal.
+example/lib/debug/internal/
 test/
 
 # Internal dev / release scripts — none of these belong in the consumed

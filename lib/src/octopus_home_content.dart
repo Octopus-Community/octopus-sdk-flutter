@@ -75,6 +75,15 @@ class OctopusHomeContent extends StatefulWidget {
   /// Null if the user tapped on "Edit my profile".
   final Function(String?)? onModifyUser;
 
+  /// Callback invoked when the user taps **any** profile inside the community,
+  /// so your app can open its own profile screen for that member ("Unified
+  /// Profile"). The parameter is the tapped member's `clientUserId`.
+  ///
+  /// Opt-in and mount-time — see
+  /// [OctopusHomeScreen.onNavigateToProfile] for the full contract, including
+  /// the AND gate with the community's expose-client-user-ids setting.
+  final void Function(String clientUserId)? onNavigateToProfile;
+
   /// Callback function called when a URL is tapped inside the Octopus
   /// Community UI.
   ///
@@ -92,14 +101,10 @@ class OctopusHomeContent extends StatefulWidget {
   /// by the notification. Typically provided via [OctopusSDK.openNotification].
   final OctopusNotification? notification;
 
-  /// Extra bottom inset (logical pixels) the native screen reserves at the
-  /// bottom so its floating "Write a post" pill sits above the host app's own
-  /// bottom chrome (e.g. a Flutter `BottomNavigationBar`).
-  ///
-  /// Default `0` — relies on the embedded PlatformView already living above
-  /// the host bottom chrome (the standard Material `Scaffold` body case).
-  /// Increase only when the host renders something below the SDK view that
-  /// the SDK should not overlap.
+  /// Total bottom padding (logical pixels) the native screen reserves at the
+  /// bottom. Defaults to `0`, which resolves the padding from where this widget
+  /// is mounted rather than reserving nothing. See
+  /// [OctopusHomeScreen.bottomSafeAreaInset] for the full contract.
   final double bottomSafeAreaInset;
 
   /// The initial screen to display when the view mounts.
@@ -117,6 +122,7 @@ class OctopusHomeContent extends StatefulWidget {
     this.enabled = true,
     this.onNavigateToLogin,
     this.onModifyUser,
+    this.onNavigateToProfile,
     this.onNavigateToUrl,
     this.notification,
     this.bottomSafeAreaInset = 0,
@@ -146,6 +152,11 @@ class _OctopusHomeContentState extends State<OctopusHomeContent> {
           if (url != null) {
             widget.onNavigateToUrl?.call(url);
           }
+        } else if (event['event'] == 'navigateToProfile') {
+          final clientUserId = event['clientUserId'];
+          if (clientUserId is String && clientUserId.isNotEmpty) {
+            widget.onNavigateToProfile?.call(clientUserId);
+          }
         }
       },
       onError: (error) {
@@ -170,6 +181,8 @@ class _OctopusHomeContentState extends State<OctopusHomeContent> {
       theme: widget.theme,
       navBarPrimaryColor: widget.navBarPrimaryColor,
       interceptUrls: widget.onNavigateToUrl != null,
+      interceptProfileTaps: widget.onNavigateToProfile != null,
+      hasModifyUserHandler: widget.onModifyUser != null,
       notification: widget.notification,
       bottomSafeAreaInset: widget.bottomSafeAreaInset,
       showNavBar: false,

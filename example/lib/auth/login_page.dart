@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import 'connect_user_result.dart';
 
 /// Login page backing the embedded UI's `onNavigateToLogin` callback (SSO mode).
 ///
@@ -24,7 +25,12 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     try {
-      await AppScope.of(context).connectDemoUser();
+      final result = await AppScope.of(context).connectDemoUser();
+      final failure = describeConnectUserFailure(result);
+      if (failure != null) {
+        setState(() => _error = failure);
+        return;
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       setState(() => _error = 'Connection error: $e');

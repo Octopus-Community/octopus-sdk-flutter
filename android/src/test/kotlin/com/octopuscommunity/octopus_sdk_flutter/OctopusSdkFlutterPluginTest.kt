@@ -6,11 +6,14 @@ import kotlin.test.Test
 import org.mockito.Mockito
 
 /*
- * This demonstrates a simple unit test of the Kotlin portion of this plugin's implementation.
+ * Unit test of the Kotlin portion of this plugin's implementation. It runs from the plugin's
+ * own module — there is no `example/android/gradlew`, and building the example app does not
+ * run these tests:
  *
- * Once you have built the plugin's example app, you can run these tests from the command
- * line by running `./gradlew testDebugUnitTest` in the `example/android/` directory, or
- * you can run them directly from IDEs that support JUnit such as Android Studio.
+ *   ROOT="$(git rev-parse --show-toplevel)" && cd "$ROOT/android" \
+ *     && ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" ./gradlew testDebugUnitTest
+ *
+ * Or directly from an IDE that supports JUnit, such as Android Studio.
  */
 
 internal class OctopusSDKFlutterPluginTest {

@@ -20,8 +20,14 @@ import '../octopus_demo_config.dart';
 /// returns it — the secret never belongs in the client binary.
 ///
 /// Returns an empty string when [octopusSsoClientUserTokenSecret] is empty
-/// (keyless / public build) — the SDK then treats it as a tokenProvider
-/// failure and surfaces a typed error.
+/// (keyless / public build). The SSO user is then not connected, but that is
+/// not reported identically on both platforms: Android refuses an empty token
+/// locally and reports `ClientUserMissingTokenError`, whereas iOS forwards it
+/// to the backend token exchange, so what comes back depends on that call — a
+/// connection-level failure rather than a typed `ClientUserError`, or no
+/// failure at all when nothing was connected yet, since the native SDK then
+/// falls back to a guest connection and `connectUser` returns
+/// `OctopusSuccess`. See MIGRATING.md for that fallback.
 class ClientUserTokenSigner {
   /// Signs a user JWT carrying [userId] + [entitlements], or returns an empty
   /// string if no SSO secret was injected at build time.

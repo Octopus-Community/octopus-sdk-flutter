@@ -18,26 +18,28 @@ import 'user_id_registry.dart';
 /// the list is empty, and the screen falls back to the original Demo / Custom
 /// segmented selector (the generic `OCTOPUS_API_KEY` define).
 class ConfigScreen extends StatefulWidget {
-  const ConfigScreen({super.key});
+  /// Choices restored from the persisted config when bootstrap could not
+  /// auto-start it (see [AppState.restoredConfig]) — everything except the
+  /// API key, which is never persisted. `null` on a true first launch and
+  /// after Settings → Reset.
+  final DemoConfig? initialConfig;
+
+  const ConfigScreen({super.key, this.initialConfig});
 
   @override
   State<ConfigScreen> createState() => _ConfigScreenState();
 }
 
 class _ConfigScreenState extends State<ConfigScreen> {
-  ApiKeySource _apiKeySource = ApiKeySource.demo;
+  late ApiKeySource _apiKeySource;
 
-  /// Selected named key — defaults to the slot matching the generic
-  /// `OCTOPUS_API_KEY` (the launcher's primary key), so the picker starts on
-  /// the key the sample would have used anyway; first slot otherwise.
-  InjectedApiKey? _selectedKey = injectedApiKeys.isEmpty
-      ? null
-      : injectedApiKeys.firstWhere(
-          (k) => k.key == octopusApiKey,
-          orElse: () => injectedApiKeys.first,
-        );
+  /// Selected named key — restored from [ConfigScreen.initialConfig] when
+  /// there is one, else the slot matching the generic `OCTOPUS_API_KEY` (the
+  /// launcher's primary key), so the picker starts on the key the sample
+  /// would have used anyway; first slot otherwise.
+  late InjectedApiKey? _selectedKey;
 
-  AppThemeChoice _theme = AppThemeChoice.system;
+  late AppThemeChoice _theme;
   // The server is fixed at build time (--dart-define=OCTOPUS_API_HOST), so this
   // is final: the Config picker only displays it, it can't be changed. Default
   // to the server the native SDK is actually built against (prod for the
@@ -47,18 +49,41 @@ class _ConfigScreenState extends State<ConfigScreen> {
       : ServerEnv.custom;
   final _customKeyController = TextEditingController();
 
-  /// Free-text User ID controller — seeded with the build-time
-  /// [octopusUserId] (or the first picker slot, which is always the seed).
-  /// The quick-pick chips below the field overwrite this controller's text
-  /// rather than maintaining a separate selection model — one source of
-  /// truth, simpler UX.
-  late final TextEditingController _userIdController = TextEditingController(
-    text: pickerUserIds.isNotEmpty ? pickerUserIds.first : octopusUserId,
-  );
+  /// Free-text User ID controller — seeded with the restored user id when
+  /// there is one, else the build-time [octopusUserId] (or the first picker
+  /// slot, which is always the seed). The quick-pick chips below the field
+  /// overwrite this controller's text rather than maintaining a separate
+  /// selection model — one source of truth, simpler UX.
+  late final TextEditingController _userIdController;
 
   bool _starting = false;
 
   bool get _hasNamedKeys => injectedApiKeys.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    // Everything the persisted config still carries is restored here; the API
+    // key is not, by design (see [DemoConfig.toJson]), so the user re-enters
+    // that one field and nothing else. `_serverEnv` stays build-derived — it
+    // must keep reporting the host the SDK is actually routed to.
+    final restored = widget.initialConfig;
+    _apiKeySource = restored?.apiKeySource ?? ApiKeySource.demo;
+    _selectedKey =
+        restored?.selectedInjectedKey ??
+        (injectedApiKeys.isEmpty
+            ? null
+            : injectedApiKeys.firstWhere(
+                (k) => k.key == octopusApiKey,
+                orElse: () => injectedApiKeys.first,
+              ));
+    _theme = restored?.theme ?? AppThemeChoice.system;
+    _userIdController = TextEditingController(
+      text:
+          restored?.userId ??
+          (pickerUserIds.isNotEmpty ? pickerUserIds.first : octopusUserId),
+    );
+  }
 
   @override
   void dispose() {
@@ -237,12 +262,32 @@ class _ConfigScreenState extends State<ConfigScreen> {
         _apiKeySource == ApiKeySource.demo &&
         !_hasNamedKeys &&
         !hasInjectedApiKey;
+    // The common landing state now that a pasted key is never persisted: the
+    // user comes back to a restored `custom` config with an empty field.
+    // Starting from there would initialise the SDK with no key at all, so the
+    // button waits for the paste instead of dropping them on Home with an
+    // init error.
+    final customKeyMissing =
+        _apiKeySource == ApiKeySource.custom &&
+        _customKeyController.text.trim().isEmpty;
     return Semantics(
       identifier: 'config-screen',
       child: Scaffold(
         appBar: AppBar(title: const Text('Configuration')),
         body: ListView(
-          padding: const EdgeInsets.all(16),
+          // ConfigScreen is mounted as `home` in main.dart, outside the
+          // SafeArea that MainScreen applies — so nothing else keeps the last
+          // child clear of the Android navigation bar, and the Start button
+          // ends up half under it once the list is scrolled to the bottom.
+          // `viewPadding` rather than `padding`: the latter collapses
+          // to 0 while the keyboard is up (custom-key field), which would make
+          // the reserved space blink away mid-edit.
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            16 + MediaQuery.viewPaddingOf(context).bottom,
+          ),
           children: [
             Text(
               'Configure the SDK, then Start.',
@@ -257,11 +302,23 @@ class _ConfigScreenState extends State<ConfigScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _customKeyController,
+                // Drives `customKeyMissing` (Start button + hint below) as
+                // the user types.
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: 'Custom API key',
                   border: OutlineInputBorder(),
                 ),
               ),
+              if (customKeyMissing) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Paste an API key to start. It is kept for this session '
+                  'only — never written to device storage, so it has to be '
+                  're-entered on the next launch.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ],
             if (demoKeyMissing) ...[
               const SizedBox(height: 8),
@@ -313,7 +370,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: _starting ? null : _start,
+                    onPressed: (_starting || customKeyMissing) ? null : _start,
                     child: Text(_starting ? 'Starting…' : 'Start'),
                   ),
                 ),

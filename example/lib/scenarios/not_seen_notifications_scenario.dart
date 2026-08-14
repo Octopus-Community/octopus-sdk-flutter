@@ -57,10 +57,14 @@ class _NotSeenNotificationsScenarioState
     final app = AppScope.of(context);
     final navigator = Navigator.of(context);
     // Capture the device's bottom gesture-area inset against the launching
-    // View before the push (immune to an ancestor SafeArea / bottom-nav
-    // removePadding, which zero `viewPadding.bottom`), and forward it so the
-    // SDK's floating "Write a post" button clears the Android system nav bar
-    // on edge-to-edge devices. Mirrors `fullscreen_scenario.dart`.
+    // View before the push. `MediaQueryData.fromView` bypasses the inherited
+    // MediaQuery: in a host tree, a `SafeArea` — or a `Scaffold` with a
+    // `bottomNavigationBar` — would run `MediaQueryData.removePadding`, which
+    // zeroes `padding.bottom` AND subtracts it from `viewPadding.bottom`, so the
+    // inherited value is not a reliable source for the physical inset.
+    // Forwarded so the SDK's floating "Write a post" button clears the Android
+    // system nav bar on edge-to-edge devices. Mirrors
+    // `fullscreen_scenario.dart`.
     final bottomSafeArea = MediaQueryData.fromView(
       View.of(context),
     ).viewPadding.bottom;

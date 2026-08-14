@@ -14,10 +14,13 @@ import 'octopus_post_cta.dart';
 ///
 /// ## Validation
 ///
-/// The constructor validates the payload structurally and throws an
+/// [text] and [image] are both optional: a payload carrying only a [topicId]
+/// and/or a [cta] opens the editor on the preselected group with empty,
+/// user-editable fields.
+///
+/// The constructor validates whatever *is* provided and throws an
 /// [OctopusPrefilledPostValidationError] on failure. Empty [text], empty
-/// [image] bytes, and blank [topicId] are normalised to `null` first, then at
-/// least one of the normalised [text] / [image] must remain non-null. When
+/// [image] bytes, and blank [topicId] are normalised to `null` first. When
 /// [text] is present its length must be within [textMinLength]..[textMaxLength];
 /// when [cta] is present its `label` and `url` string must be non-blank.
 ///
@@ -73,8 +76,9 @@ class OctopusPrefilledPost {
 
   /// Creates a prefilled-post payload, validating it eagerly.
   ///
-  /// Throws an [OctopusPrefilledPostValidationError] when the payload is empty,
-  /// [text] is out of bounds, or [cta] is malformed — see the class docs.
+  /// Throws an [OctopusPrefilledPostValidationError] when [text] is out of
+  /// bounds or [cta] is malformed — see the class docs. An empty payload does
+  /// **not** throw: [text] and [image] are both optional.
   factory OctopusPrefilledPost({
     String? text,
     Uint8List? image,
@@ -86,9 +90,9 @@ class OctopusPrefilledPost {
     final normalizedTopicId =
         (topicId == null || topicId.trim().isEmpty) ? null : topicId;
 
-    if (normalizedText == null && normalizedImage == null) {
-      throw OctopusPrefilledPostContentEmptyError();
-    }
+    // No content-empty check: text and image are both optional (native 1.13).
+    // A topicId-/CTA-only payload opens the editor on the preselected group with
+    // empty, user-editable fields; the editor re-validates at publish time.
     if (normalizedText != null) {
       if (normalizedText.length < textMinLength) {
         throw OctopusPrefilledPostTextTooShortError(textMinLength);
@@ -176,8 +180,11 @@ sealed class OctopusPrefilledPostValidationError extends ArgumentError {
   OctopusPrefilledPostValidationError(super.message);
 }
 
-/// Both `text` and `image` were `null` (after normalising empty values). At
-/// least one is required.
+/// Retained for backward compatibility, and **never thrown**: `text` and
+/// `image` are both optional, so an empty payload no longer fails. Kept only so
+/// existing `switch` statements over
+/// [OctopusPrefilledPostValidationError] stay exhaustive — mirrors the native
+/// SDKs, which kept their `ContentEmpty` case for the same reason.
 final class OctopusPrefilledPostContentEmptyError
     extends OctopusPrefilledPostValidationError {
   OctopusPrefilledPostContentEmptyError()

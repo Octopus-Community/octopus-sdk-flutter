@@ -80,6 +80,26 @@ class SettingsTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        _SectionTitle('Unified Profile'),
+        Card(
+          child: SwitchListTile(
+            secondary: const Icon(Icons.badge),
+            value: app.unifiedProfileWired,
+            onChanged: app.setUnifiedProfileWired,
+            title: Semantics(
+              identifier: 'qa-toggle-unifiedProfileWired',
+              child: const Text('Handle profile taps in the host'),
+            ),
+            subtitle: const Text(
+              'Wires onNavigateToProfile on the Community tab: every profile '
+              'tap opens the host\'s own profile page instead of the SDK\'s. '
+              'Off = the SDK\'s native profile screens (what an existing '
+              'integration sees). Also needs the community to expose client '
+              'user ids.',
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
         _SectionTitle('Server'),
         Card(
           child: ListTile(

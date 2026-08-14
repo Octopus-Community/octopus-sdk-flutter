@@ -24,10 +24,16 @@ struct OctopusHomeScreenWithCallback: View {
   let navBarLeadingAction: OctopusNavBarLeadingAction?
   let notificationUserInfo: [AnyHashable: Any]?
   let onNavigateToLogin: () -> Void
-  /// Extra bottom inset (points) the host wants reserved beyond the system
-  /// safe area, so the native "Write a post" floats above the Flutter shell's
-  /// own bottom chrome (e.g. a BottomNavigationBar). The previous hardcoded
-  /// 10 pt was kept as the default to avoid changing existing layouts.
+  /// Extra bottom inset (points) to reserve *beyond* the system safe area this
+  /// view already sits in — the additive contract of the native
+  /// `OctopusHomeScreen(bottomSafeAreaInset:)`.
+  ///
+  /// This is NOT the value the Dart host passed: the Dart-facing
+  /// `bottomSafeAreaInset` is a *total* bottom padding (the Android bridge
+  /// consumes the system insets, so there the whole value applies). The
+  /// container normalizes it — see `SafeHostingContainerView.normalizedBottomInset`
+  /// — before handing it here, so the same Dart value renders identically on
+  /// both platforms.
   let bottomSafeAreaInset: CGFloat
 
   var body: some View {
@@ -45,6 +51,39 @@ struct OctopusHomeScreenWithCallback: View {
       onNavigateToLogin()
     }
   }
+}
+
+/// Observable box holding the normalized bottom inset handed to the embedded
+/// SwiftUI tree.
+///
+/// The value changes after mount (first layout resolves the container's safe
+/// area, rotation and iPad multitasking change it later), and it must reach
+/// SwiftUI *without* rebuilding the `UIHostingController` — replacing its
+/// `rootView` would drop the identity of the `AnyView` it wraps and reset the
+/// SDK's `@StateObject` managers mid-session.
+private final class BottomInsetStore: ObservableObject {
+  @Published var value: CGFloat = 0
+}
+
+/// Thin `@ObservedObject` shell that re-renders its content when the normalized
+/// bottom inset changes.
+///
+/// Keeping the observation here (rather than inside `OctopusHomeScreenWithCallback`)
+/// means the embedded SDK view keeps its position in the view tree, so its own
+/// `@StateObject` managers survive an inset update: only its
+/// `bottomSafeAreaInset` parameter changes.
+///
+/// The screens rendered *below* it are only safe because the emitted value never
+/// reaches 0: the native `insetableMainNavigationView` gates on
+/// `bottomSafeAreaInset > 0`, and crossing that boundary would swap a
+/// `_ConditionalContent` branch and discard the displayed screen's state. See
+/// `SafeHostingContainerView.gatePinningInset` — that floor is what allows the
+/// value to be tracked live rather than frozen.
+private struct NormalizedBottomInsetHost<Content: View>: View {
+  @ObservedObject var store: BottomInsetStore
+  let content: (CGFloat) -> Content
+
+  var body: some View { content(store.value) }
 }
 
 /// Decodes the Dart `OctopusInitialScreen.toMap()` wire shape into the iOS
@@ -141,6 +180,57 @@ private final class SafeHostingContainerView: UIView {
   private var hostingController: UIHostingController<AnyView>?
   private let args: Any?
 
+  /// Total bottom padding (points) the Dart host **explicitly** asked for.
+  ///
+  /// `nil` when the host passed no value: the historical additive default then
+  /// applies untouched and no normalization happens at all, so hosts that never
+  /// used the parameter keep byte-identical layout.
+  private var requestedBottomSafeAreaInset: CGFloat?
+
+  /// Floor applied to every host-provided inset so the value stays strictly
+  /// positive for the view's whole lifetime.
+  ///
+  /// The native SDK gates its inset on a `@ViewBuilder` condition
+  /// (`insetableMainNavigationView`: `if bottomSafeAreaInset > 0`). Crossing that
+  /// boundary swaps a `_ConditionalContent` case, and SwiftUI treats the result as
+  /// a different child: it discards the `@State` beneath it, which here is the
+  /// displayed screen — feed scroll position, and the text and image already
+  /// entered in the create-post editor.
+  ///
+  /// Normalization legitimately reaches exactly 0 whenever the system inset
+  /// already covers what the host asked for, which is the common case. Pinning
+  /// the gate on instead of freezing the value is what makes live tracking safe,
+  /// and live tracking is necessary: the container's own geometry can lag the
+  /// window's. Measured on iPhone 16 / iOS 18.6, the first frame of a
+  /// landscape→portrait restore still reports the stale landscape bounds and a
+  /// bottom safe area of 0 while the window already reports 34 pt. A value
+  /// frozen by any "the layout looks settled now" test could be frozen exactly
+  /// there — permanently — and no size-based test tells that frame apart from a
+  /// settled one.
+  ///
+  /// 0.01 pt renders nothing.
+  ///
+  /// **Known divergence.** Normalization does move the native keyboard
+  /// threshold. The native SDK compares `keyboardHeight` against the same
+  /// `bottomSafeAreaInset` it uses as a height, so changing the value from `R`
+  /// to `R - S` changes that comparison too. The outcome differs for any reported
+  /// `keyboardHeight` in `(R - S, R]`, and is identical everywhere else — so a
+  /// full-height software keyboard is never affected (it dwarfs both values). The
+  /// reachable case is a **hardware keyboard** (iPad or a Bluetooth keyboard on
+  /// iPhone), which reports only the accessory bar rather than a full keyboard:
+  /// with `R = 70` and `S = 20`, a reported 55 pt means `55 <= 70` used to keep
+  /// the band while `55 <= 50` now drops it, so host bottom chrome can overlap
+  /// the composer while typing.
+  ///
+  /// This cannot be fixed from the bridge: one scalar drives both the reserved
+  /// height and the threshold, and no single value satisfies both meanings.
+  /// Resolving it properly needs the native SDK to take the total and the
+  /// threshold separately — out of scope here, since the native additive
+  /// contract is public API owned upstream.
+  private static let gatePinningInset: CGFloat = 0.01
+
+  private let bottomInsetStore = BottomInsetStore()
+
   init(args: Any?) {
     self.args = args
     super.init(frame: .zero)
@@ -160,6 +250,60 @@ private final class SafeHostingContainerView: UIView {
     initializeSwiftUIView()
   }
 
+  /// The container's safe area is not resolved when `didMoveToWindow()` fires, and
+  /// it keeps changing afterwards — presentation animations move the view, and so
+  /// do rotation, iPad multitasking and a host that re-lays the platform view out.
+  /// Re-normalize on both signals; `gatePinningInset` is what keeps that safe.
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    updateNormalizedBottomInset()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    updateNormalizedBottomInset()
+  }
+
+  /// Converts the Dart-facing *total* bottom padding into the *additive* inset
+  /// the native SDK expects.
+  ///
+  /// `OctopusHomeScreen(bottomSafeAreaInset:)` applies its value through
+  /// SwiftUI's `.safeAreaInset(edge: .bottom)`, which stacks **on top of** the
+  /// safe area the view already has. The Android bridge instead consumes the
+  /// system insets before mounting (`consumeWindowInsets(WindowInsets.systemBars)`),
+  /// so there the host's value is the only bottom padding.
+  ///
+  /// Subtracting the safe area this container actually sits in makes the two
+  /// bridges agree: `bottomSafeAreaInset: 56` reserves 56 pt of bottom padding
+  /// on both platforms. When the system already reserves at least as much as the
+  /// host asked for, the result is `0` and no extra inset is added — the system
+  /// inset alone already satisfies the request.
+  ///
+  /// `systemInset` is the safe area of the view the SDK is embedded in — the
+  /// *container's*, not the window's: a host that already lays the platform view
+  /// out above the home indicator has `0` here and correctly receives the full
+  /// requested value.
+  private func normalizedBottomInset(for requested: CGFloat, systemInset: CGFloat) -> CGFloat {
+    max(0, requested - systemInset)
+  }
+
+  /// Recomputes the inset from the container's current geometry.
+  ///
+  /// Idempotent, and no-op for hosts that sent no explicit value. There is no
+  /// feedback path back into `safeAreaInsets`: the hosting controller's view is a
+  /// child pinned to this container's edges, and `.safeAreaInset(edge: .bottom)`
+  /// only affects the safe area *inside* the SwiftUI subtree, so writing the
+  /// store cannot change the input that produced it.
+  private func updateNormalizedBottomInset() {
+    guard let requested = requestedBottomSafeAreaInset else { return }
+    let normalized = max(
+      normalizedBottomInset(for: requested, systemInset: safeAreaInsets.bottom),
+      Self.gatePinningInset
+    )
+    guard bottomInsetStore.value != normalized else { return }
+    bottomInsetStore.value = normalized
+  }
+
   private func initializeSwiftUIView() {
     guard let octopus = OctopusSDKFlutterPlugin.sharedOctopus else {
       addErrorLabel()
@@ -171,6 +315,8 @@ private final class SafeHostingContainerView: UIView {
     var navBarPrimaryColor = false
     var themeMode: String? = nil
     var interceptUrls = false
+    var interceptProfileTaps = false
+    var hasModifyUserHandler = false
     var notificationUserInfo: [AnyHashable: Any]? = nil
     var initialScreen: OctopusInitialScreen = .mainFeed
     var titleCentered = false
@@ -185,9 +331,15 @@ private final class SafeHostingContainerView: UIView {
     var navigationMode: OctopusNavigationMode = .navigationStack
     var navBarLeadingAction: OctopusNavBarLeadingAction? = nil
     var hasCustomLogo = false
-    // Preserve the pre-existing default (10 pt) when the host doesn't pass
-    // an explicit bottomSafeAreaInset, so existing layouts don't shift.
-    var bottomSafeAreaInset: CGFloat = 10
+    // The host's explicit bottomSafeAreaInset, when it sent one. Absent → the
+    // historical additive default (10 pt on top of whatever safe area the view
+    // sits in) is kept verbatim and no normalization is applied, so hosts that
+    // never used the parameter see no layout change at all.
+    //
+    // Note that Dart omits the key entirely when the value is 0 (see
+    // `OctopusSDK.embeddedView`), so "explicitly 0" never reaches here — on the
+    // wire it is indistinguishable from "not provided".
+    var explicitBottomSafeAreaInset: CGFloat?
 
     if let dict = args as? [String: Any] {
       let main = (dict["primaryMain"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
@@ -248,7 +400,7 @@ private final class SafeHostingContainerView: UIView {
         navBarLeadingAction = .back(onTap: leadingActionOnTap)
       }
       if let inset = dict["bottomSafeAreaInset"] as? NSNumber {
-        bottomSafeAreaInset = CGFloat(inset.doubleValue)
+        explicitBottomSafeAreaInset = CGFloat(inset.doubleValue)
       }
       // `showNavBar: false` selects the no-chrome variant on Android
       // (`OctopusHomeContent`). The iOS pod 1.12.0 does not expose a
@@ -277,6 +429,8 @@ private final class SafeHostingContainerView: UIView {
 
       themeMode = dict["themeMode"] as? String
       interceptUrls = (dict["interceptUrls"] as? Bool) ?? false
+      interceptProfileTaps = (dict["interceptProfileTaps"] as? Bool) ?? false
+      hasModifyUserHandler = (dict["hasModifyUserHandler"] as? Bool) ?? false
 
       // Push-notification deep navigation (iOS 1.11+).
       //
@@ -347,6 +501,49 @@ private final class SafeHostingContainerView: UIView {
       octopus.set(onNavigateToURLCallback: nil)
     }
 
+    // Unified Profile activation switch. The native SDK treats a non-nil
+    // callback as "the host handles every profile tap" and stops showing its own
+    // profile screens, so it is set ONLY when the Dart host opted in — and
+    // explicitly cleared otherwise, because this is a runtime setter on the
+    // shared SDK instance: a previous mount that opted in would otherwise keep
+    // suppressing the native screens for every later view.
+    //
+    // Android takes the equivalent as a mount-time composable parameter; the
+    // Dart-facing contract is mount-time on both platforms, which is why the
+    // flag rides in the view's creation params rather than a method call.
+    if interceptProfileTaps {
+      octopus.set(onNavigateToProfileCallback: { clientUserId in
+        OctopusEventEmitter.shared?.sendEvent(
+          "navigateToProfile",
+          data: ["clientUserId": clientUserId]
+        )
+      })
+      // The activity screen's "Edit my profile" item is gated on this SECOND,
+      // deliberately separate callback: the native iOS SDK keeps SSO's
+      // `modifyUser` (already wired, and used by its own profile screen) apart
+      // from this Unified-Profile-only hook, and hides the menu item when it is
+      // nil so it never dead-ends. Routed to the same `editUser` event as
+      // `modifyUser`, so the host's existing `onModifyUser` handles both.
+      //
+      // Honour that nil-checkability instead of defeating it: wire it only when
+      // the host actually has a handler, otherwise the item would render and its
+      // tap would land in a null Dart callback. (Android wires its equivalent
+      // unconditionally — one native parameter serves both edit paths there — so
+      // an Android host without `onModifyUser` can still see a dead-end item.)
+      if hasModifyUserHandler {
+        octopus.set(onNavigateToProfileEditCallback: { fieldToEdit in
+          OctopusEventEmitter.shared?.emitEditUser(
+            fieldToEdit: OctopusSDKFlutterPlugin.profileFieldWireValue(fieldToEdit)
+          )
+        })
+      } else {
+        octopus.set(onNavigateToProfileEditCallback: nil)
+      }
+    } else {
+      octopus.set(onNavigateToProfileCallback: nil)
+      octopus.set(onNavigateToProfileEditCallback: nil)
+    }
+
     // Build the canonical OctopusMainFeedTitle. A configured theme logo takes
     // **precedence over a text title** — otherwise the custom theme's logo
     // would never show whenever a `navBarTitle` is also set (e.g. the sample's
@@ -368,32 +565,67 @@ private final class SafeHostingContainerView: UIView {
       return OctopusMainFeedTitle(content: .logo, placement: titlePlacement)
     }()
 
+    if let requested = explicitBottomSafeAreaInset {
+      requestedBottomSafeAreaInset = requested
+      // First estimate only. The container's own inset is often unresolved here
+      // (this runs from `didMoveToWindow()`), while the window's is already
+      // correct and equals the container's whenever the platform view reaches the
+      // bottom of the screen — the common case, so this avoids a visible jump on
+      // the first frame. `layoutSubviews` then tracks the real geometry.
+      bottomInsetStore.value = max(
+        normalizedBottomInset(
+          for: requested,
+          systemInset: window?.safeAreaInsets.bottom ?? 0
+        ),
+        Self.gatePinningInset
+      )
+    } else {
+      // No explicit value → keep the historical additive default untouched.
+      // `requestedBottomSafeAreaInset` stays nil, so the latch never runs and this
+      // value is constant for the view's lifetime, exactly as before.
+      bottomInsetStore.value = 10
+    }
+
+    // Hoisted out of the view builders below so they capture nothing: referencing
+    // the method inside them would capture `self`, and those closures are retained
+    // by the hosting controller that this view itself owns. The callback only
+    // forwards to a singleton, so there is no instance state to reach — same
+    // pattern as `leadingActionOnTap` above.
+    let onNavigateToLogin: () -> Void = {
+      print("iOS: triggerOnNavigateToLoginCallback called")
+      OctopusEventEmitter.shared?.emitNavigateToLogin()
+    }
+
     let root: AnyView
     if let theme {
-      root = AnyView(OctopusHomeScreenWithCallback(
-        octopus: octopus,
-        mainFeedNavBarTitle: mainFeedTitle,
-        mainFeedColoredNavBar: navBarPrimaryColor,
-        initialScreen: initialScreen,
-        navigationMode: navigationMode,
-        navBarLeadingAction: navBarLeadingAction,
-        notificationUserInfo: notificationUserInfo,
-        onNavigateToLogin: triggerOnNavigateToLoginCallback,
-        bottomSafeAreaInset: bottomSafeAreaInset
-      ).environment(\.octopusTheme, theme)
+      root = AnyView(NormalizedBottomInsetHost(store: bottomInsetStore) { inset in
+        OctopusHomeScreenWithCallback(
+          octopus: octopus,
+          mainFeedNavBarTitle: mainFeedTitle,
+          mainFeedColoredNavBar: navBarPrimaryColor,
+          initialScreen: initialScreen,
+          navigationMode: navigationMode,
+          navBarLeadingAction: navBarLeadingAction,
+          notificationUserInfo: notificationUserInfo,
+          onNavigateToLogin: onNavigateToLogin,
+          bottomSafeAreaInset: inset
+        )
+      }.environment(\.octopusTheme, theme)
       .preferredColorScheme(themeMode == "dark" ? .dark : themeMode == "light" ? .light : nil))
     } else {
-      root = AnyView(OctopusHomeScreenWithCallback(
-        octopus: octopus,
-        mainFeedNavBarTitle: mainFeedTitle,
-        mainFeedColoredNavBar: navBarPrimaryColor,
-        initialScreen: initialScreen,
-        navigationMode: navigationMode,
-        navBarLeadingAction: navBarLeadingAction,
-        notificationUserInfo: notificationUserInfo,
-        onNavigateToLogin: triggerOnNavigateToLoginCallback,
-        bottomSafeAreaInset: bottomSafeAreaInset
-      ).preferredColorScheme(themeMode == "dark" ? .dark : themeMode == "light" ? .light : nil))
+      root = AnyView(NormalizedBottomInsetHost(store: bottomInsetStore) { inset in
+        OctopusHomeScreenWithCallback(
+          octopus: octopus,
+          mainFeedNavBarTitle: mainFeedTitle,
+          mainFeedColoredNavBar: navBarPrimaryColor,
+          initialScreen: initialScreen,
+          navigationMode: navigationMode,
+          navBarLeadingAction: navBarLeadingAction,
+          notificationUserInfo: notificationUserInfo,
+          onNavigateToLogin: onNavigateToLogin,
+          bottomSafeAreaInset: inset
+        )
+      }.preferredColorScheme(themeMode == "dark" ? .dark : themeMode == "light" ? .light : nil))
     }
     let controller = UIHostingController(rootView: root)
     let parentViewController = self.findViewController()
@@ -433,10 +665,6 @@ private final class SafeHostingContainerView: UIView {
     addSubview(label)
   }
 
-  private func triggerOnNavigateToLoginCallback() {
-    print("iOS: triggerOnNavigateToLoginCallback called")
-    OctopusEventEmitter.shared?.emitNavigateToLogin()
-  }
 }
 
 // Helper extension to find the parent UIViewController

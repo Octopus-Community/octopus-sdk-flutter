@@ -58,8 +58,8 @@ android {
 
     dependencies {
         // Octopus SDK
-        implementation("com.octopuscommunity:octopus-sdk:1.12.1")
-        implementation("com.octopuscommunity:octopus-sdk-ui:1.12.1")
+        implementation("com.octopuscommunity:octopus-sdk:1.13.2")
+        implementation("com.octopuscommunity:octopus-sdk-ui:1.13.2")
 
         // AndroidX Core
         implementation("androidx.core:core-ktx:1.16.0")
@@ -104,5 +104,74 @@ android {
                showStandardStreams = true
             }
         }
+    }
+}
+
+// --- Standalone compilation of the plugin ---
+//
+// When the plugin is built through an app (`flutter build apk` in `example/`), Flutter's own
+// Gradle plugin injects the `io.flutter:flutter_embedding_*` artifact and its Maven repo into
+// this project, so `io.flutter.*` resolves. Built on its own — the standalone `./gradlew`
+// invocation, in its anchored form in CLAUDE.md → Build Commands; a bare `cd android` from a
+// cwd inside `example/` lands in the example app instead — nothing injects it: every
+// `io.flutter.*` reference used to fail with "Unresolved reference" (223 compiler errors per
+// variant), on any branch including `main`, which made the standalone task
+// useless as a gate. The block below does what Flutter's Gradle plugin does — but only when
+// this project is the root of the build, i.e. the standalone invocation — so the app build
+// path stays exactly as Flutter set it up.
+//
+// It must sit after `apply plugin: "com.android.library"` so the `compileOnly` configuration
+// exists. Everything here fails closed: a missing Flutter SDK or engine stamp aborts the
+// build with an actionable message instead of falling back to the 223-error state.
+if (project == rootProject) {
+    def flutterRoot = {
+        def properties = new Properties()
+        def localProperties = file("local.properties")
+        if (localProperties.exists()) {
+            localProperties.withInputStream { properties.load(it) }
+        }
+        def root = properties.getProperty("flutter.sdk") ?: System.getenv("FLUTTER_ROOT")
+        if (root == null) {
+            // `flutter` on PATH is a symlink into the SDK's bin/ on most installs.
+            def lookup = ["/bin/sh", "-c", "command -v flutter"].execute()
+            def path = lookup.text.trim()
+            lookup.waitFor()
+            if (lookup.exitValue() == 0 && !path.isEmpty()) {
+                root = new File(path).canonicalFile.parentFile.parentFile.absolutePath
+            }
+        }
+        if (root == null) {
+            throw new GradleException(
+                "Cannot locate the Flutter SDK. Set `flutter.sdk` in android/local.properties, " +
+                "export FLUTTER_ROOT, or put `flutter` on PATH.")
+        }
+        return root
+    }()
+
+    // Engine version comes from the same SDK the example app builds with, so the standalone
+    // compile can never drift from it. NOT a faithful copy of Flutter's Gradle plugin: that
+    // one resolves the variant-matched `_debug`/`_profile`/`_release` artifact, this pins
+    // `_debug` for every variant. Safe because the dependency is compileOnly and the three
+    // share an API surface — but do not cite this block as what an app build does.
+    def engineStamp = file("$flutterRoot/bin/internal/engine.version")
+    if (!engineStamp.exists()) {
+        throw new GradleException(
+            "No engine stamp at $engineStamp — `$flutterRoot` does not look like a Flutter SDK " +
+            "(or its layout changed). Fix the Flutter SDK path, or build the example app instead " +
+            "— anchored, because you are standing in android/ and there is no example/ here: " +
+            "ROOT=\"\$(git rev-parse --show-toplevel)\" && cd \"\$ROOT/example\" && flutter build apk --debug")
+    }
+
+    repositories {
+        maven { url = "https://storage.googleapis.com/download.flutter.io" }
+    }
+
+    def flutterEmbedding = "io.flutter:flutter_embedding_debug:1.0.0-${engineStamp.text.trim()}"
+
+    dependencies {
+        // compileOnly: an app build brings its own embedding, this must never ship in the AAR.
+        compileOnly(flutterEmbedding)
+        // The JVM unit tests mock MethodChannel.Result, so they need it at runtime too.
+        testImplementation(flutterEmbedding)
     }
 }

@@ -14,8 +14,9 @@ void main() {
           entitlements: const {'customer:premium'},
         );
         // String.fromEnvironment defaults to empty in test runners → signer
-        // short-circuits → mirrors the keyless-build behavior the native SDK
-        // treats as a tokenProvider failure.
+        // short-circuits → mirrors the keyless build, where the empty token
+        // makes the connection fail (locally on Android, at the backend token
+        // exchange on iOS — see the signer's dartdoc).
         expect(token, isEmpty);
       },
     );

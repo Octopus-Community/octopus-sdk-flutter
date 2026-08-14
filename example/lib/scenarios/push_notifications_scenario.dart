@@ -46,7 +46,7 @@ class _PushNotificationsScenarioState extends State<PushNotificationsScenario> {
             // resolved), not the event-driven `isInitialised`: the latter can
             // stay false after an Android cold start when a secondary FCM
             // FlutterEngine overwrites the static event emitter and drops the
-            // `isInitialisedChanged` burst (Flutter-private finding #19).
+            // `isInitialisedChanged` burst.
             if (!app.initialized) {
               setResult(
                 'SDK not initialised yet — start it from the Config screen '

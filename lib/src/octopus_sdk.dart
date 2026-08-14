@@ -5,12 +5,15 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:meta/meta.dart' show useResult;
 
 import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
+import 'client_user_error.dart';
 import 'create_post_screen_info.dart';
 import 'group_follow_unfollow_error.dart';
+import 'octopus_community_data.dart';
 import 'octopus_connection_state.dart';
 import 'octopus_event.dart';
 import 'octopus_group.dart';
@@ -35,6 +38,8 @@ import 'url_opening_strategy.dart';
 export 'api_server.dart';
 export 'client_post.dart';
 export 'client_post_error.dart';
+export 'client_user_error.dart';
+export 'octopus_community_data.dart';
 export 'create_post_screen_info.dart';
 export 'group_follow_unfollow_error.dart';
 export 'octopus_connection_state.dart';
@@ -135,6 +140,7 @@ int _clientUserTokenProviderCounter = 0;
 // listeners on the same clientObjectId observe independently (the native side
 // keys its collection job by this id, never by the clientObjectId).
 int _clientObjectObservationCounter = 0;
+int _communityDataObservationCounter = 0;
 
 class OctopusSDK {
   static void _initializeEventChannel() {
@@ -219,13 +225,21 @@ class OctopusSDK {
   /// provider registered when connecting with a tokenProvider (see
   /// [connectUser]) under the request's
   /// `providerId`, awaits the freshly-signed JWT, and replies via
-  /// [OctopusSDKPlatform.provideClientUserToken]. An empty token reply tells
-  /// the native SDK "no token available — fail the refresh" (mirrors the
-  /// bridge-token null-reply contract; see `_handleBridgeTokenRequest`).
+  /// [OctopusSDKPlatform.provideClientUserToken]. An empty token reply is the
+  /// bridges' "no token available" signal (mirrors the bridge-token null-reply
+  /// contract; see `_handleBridgeTokenRequest`).
   ///
   /// A missing provider (e.g. the user disconnected mid-refresh) and a
-  /// throwing provider both reply with an empty token — the native SDK then
-  /// surfaces the failure through its own typed error.
+  /// throwing provider both reply with an empty token. What the host then sees
+  /// differs by platform: Android refuses it locally as
+  /// [ClientUserMissingTokenError], while iOS forwards it to the backend token
+  /// exchange, so the failure comes back from that call and can be a
+  /// connection-level `OctopusStatusError` rather than a [ClientUserError] —
+  /// or not come back as a failure at all: on a first connect the native iOS
+  /// SDK falls back to a guest connection and [connectUser] reports success
+  /// (see its iOS caveat).
+  /// [OctopusSDKPlatform.provideClientUserToken] is the canonical statement of
+  /// this; keep the two in step.
   static void _handleClientUserTokenRequest(Map<String, dynamic> map) {
     final providerId = map['providerId'];
     final requestId = map['requestId'];
@@ -242,8 +256,10 @@ class OctopusSDK {
         }
       }
       try {
-        await OctopusSDKPlatform.instance
-            .provideClientUserToken(requestId, token);
+        await OctopusSDKPlatform.instance.provideClientUserToken(
+          requestId,
+          token,
+        );
       } catch (e) {
         debugPrint('OctopusSDK: provideClientUserToken failed: $e');
       }
@@ -519,6 +535,29 @@ class OctopusSDK {
   ///   `OctopusMainFeedTitle.Placement.center` on the main feed.
   /// [theme] - Custom theme for the interface
   /// [interceptUrls] - If true, urls opened inside the community are surfaced through the event stream
+  /// [interceptProfileTaps] - If true, taps on **any** profile inside the
+  ///   community (another member's or the connected user's own) are surfaced as
+  ///   a `navigateToProfile` event carrying the tapped member's `clientUserId`,
+  ///   and the SDK stops showing its native profile screens — the "Unified
+  ///   Profile" activation switch. Routed to
+  ///   [OctopusHomeScreen.onNavigateToProfile]; hosts pass a callback there
+  ///   rather than setting this flag by hand.
+  ///
+  ///   **Activation is an AND gate**: nothing changes unless the community is
+  ///   also configured to expose client user ids. A member with no client user
+  ///   id (a guest, or a back-office-created profile) opens the Octopus activity
+  ///   screen instead, so the event never carries a null id.
+  ///
+  ///   Leave it `false` (the default) to keep the SDK's native profile screens —
+  ///   existing behaviour, unchanged.
+  /// [hasModifyUserHandler] - Whether the host wired a profile-edit handler
+  ///   ([OctopusHomeScreen.onModifyUser]). **iOS-only**, and only meaningful
+  ///   together with [interceptProfileTaps]: the Unified Profile activity screen
+  ///   shows its "Edit my profile" item only when the native
+  ///   `onNavigateToProfileEditCallback` is wired, so passing `false` keeps that
+  ///   item hidden rather than letting it dead-end in a host that has no handler.
+  ///   Android wires its equivalent unconditionally (one native parameter serves
+  ///   both edit paths there), so the flag is ignored on Android.
   /// [notification] - Push notification whose deep-link target the native view should open
   /// [showNavBar] - If `false`, the native SDK navigation chrome (top app bar)
   ///   is hidden so the host app can render its own title. Mirrors
@@ -566,6 +605,11 @@ class OctopusSDK {
   /// `showDragHandle: true` on `showModalBottomSheet`, an explicit close
   /// button, the back chevron via [showBackButton], or a layout where the
   /// parent's gesture area doesn't overlap the SDK.
+  ///
+  /// **Bottom padding** — `bottomSafeAreaInset` is the *total* bottom padding
+  /// reserved inside the embedded view, resolved from this widget's mount point
+  /// when left at its `0` default. See
+  /// [OctopusHomeScreen.bottomSafeAreaInset] for the contract.
   static Widget embeddedView({
     String? navBarTitle,
     bool navBarPrimaryColor = false,
@@ -573,6 +617,8 @@ class OctopusSDK {
     bool titleCentered = false,
     OctopusTheme? theme,
     bool interceptUrls = false,
+    bool interceptProfileTaps = false,
+    bool hasModifyUserHandler = false,
     OctopusNotification? notification,
     double bottomSafeAreaInset = 0,
     bool showNavBar = true,
@@ -593,7 +639,14 @@ class OctopusSDK {
       // `false` when the key is absent, matching `showNavBar`'s wire pattern.
       if (titleCentered) 'titleCentered': true,
       'interceptUrls': interceptUrls,
-      if (bottomSafeAreaInset > 0) 'bottomSafeAreaInset': bottomSafeAreaInset,
+      // Emit only the non-default (true): absence must read as "the host wired
+      // nothing", which is what keeps the SDK's native profile screens. This is
+      // the Unified Profile activation switch — see [interceptProfileTaps].
+      if (interceptProfileTaps) 'interceptProfileTaps': true,
+      if (hasModifyUserHandler) 'hasModifyUserHandler': true,
+      // `bottomSafeAreaInset` is deliberately absent here: it depends on the
+      // mount point's ambient padding, so it is resolved and added inside the
+      // `Builder` below.
       if (!showNavBar) 'showNavBar': false,
       // `navigationMode` is consumed by the iOS bridge only (Android ignores
       // it). It is always emitted so the bridge sees the host's explicit choice:
@@ -640,24 +693,138 @@ class OctopusSDK {
       Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
     };
 
-    return defaultTargetPlatform == TargetPlatform.iOS
-        ? UiKitView(
-            viewType: viewType,
-            creationParams: creationParams,
-            creationParamsCodec: const StandardMessageCodec(),
-            gestureRecognizers: gestureRecognizers,
-            hitTestBehavior: PlatformViewHitTestBehavior.opaque,
-          )
-        : defaultTargetPlatform == TargetPlatform.android
-            ? AndroidView(
+    // `bottomSafeAreaInset` is resolved HERE, at the mount point, and nowhere
+    // else: every public entry path (the four embedded widgets, and the two
+    // top-level helpers through them) funnels into this method, so a single
+    // resolution covers them all.
+    //
+    // Three states, and the `> 0` gate below is load-bearing:
+    //  - a value > 0 reaches the wire exactly as the host asked;
+    //  - the default `0` means "resolve from the mount point" — whatever the
+    //    ambient `MediaQuery` still has left to reserve. That is what keeps the
+    //    native floating "Write a post" pill clear of the Android system
+    //    navigation bar on edge-to-edge devices (API 35+) when a host mounts
+    //    one of these widgets full-screen without passing anything;
+    //    (under `Scaffold(extendBody: true)` that is the bottom bar's height,
+    //    which `Scaffold` re-injects into the body's `padding` — the very case
+    //    this parameter exists for, since the view runs behind the bar there);
+    //  - a *resolved* 0 — an ancestor `SafeArea` / bottom nav already consumed
+    //    the padding, or the device has no bottom inset — drops the key, which
+    //    is what tells the iOS bridge "the host expressed no preference", so it
+    //    keeps its historical additive 10 pt default instead of collapsing to
+    //    the 0.01 pt gate floor and shifting every existing iOS layout. See
+    //    `SafeHostingContainerView.requestedBottomSafeAreaInset`.
+    //
+    // The resolution is ANDROID-ONLY, and that asymmetry is deliberate. The bug
+    // it fixes only exists there: the Android bridge consumes the system-bar
+    // insets before mounting the native view, so nothing reserves the bottom and
+    // the pill sits behind the navigation bar. On iOS the embedded view already
+    // sits inside the safe area, so there is nothing to fix — and resolving
+    // anyway would actively hurt. Since 1.13.0 the iOS bridge reads the value as a
+    // *total* and subtracts the safe area the view occupies: a resolved 34 over a
+    // 34 pt inset gives `max(max(0, 34 - 34), 0.01)` = 0.01 pt, while an absent
+    // key gives the bridge's historical additive 10 pt. iOS would gain nothing
+    // and lose 10 pt above the home indicator, on the *default* full-screen
+    // mount. Inferring a preference the host never expressed must not override a
+    // native default that is already correct — which is exactly what the
+    // key-absent state exists to protect.
+    //
+    // A host that wants to reserve nothing at all wraps the widget in
+    // `MediaQuery.removePadding(context: context, removeBottom: true)`; that is
+    // the documented opt-out, and it is how the two top-level helpers honour
+    // their own "pass `0` to opt back into the previous edge-to-edge look"
+    // contract. Note that it takes an ancestor which *consumes* the MediaQuery
+    // padding to opt out — a plain `Padding`, a `Column` above a fixed footer or
+    // a `Stack` overlay pads the layout without consuming anything, so those
+    // shapes still resolve the full inset. See `_ambientBottomInset`.
+    //
+    // The `Builder` is UNCONDITIONAL. A wrapper that comes and goes between
+    // rebuilds reparents the PlatformView, which disposes and recreates the
+    // native view — the SDK then restarts on its main feed (see the tree-shape
+    // warning in `OctopusHomeScreen.build`). Reading the ambient
+    // `MediaQuery` also means a padding change (keyboard, rotation) rebuilds
+    // this Builder: `creationParams` is consumed once at creation time, so such
+    // a rebuild reconfigures nothing and never recreates the native view.
+    return Builder(
+      builder: (context) {
+        final resolvedBottomInset = bottomSafeAreaInset > 0
+            ? bottomSafeAreaInset
+            : defaultTargetPlatform == TargetPlatform.android
+                ? _ambientBottomInset(context)
+                : 0.0;
+        final params = resolvedBottomInset > 0
+            ? <String, dynamic>{
+                ...creationParams,
+                'bottomSafeAreaInset': resolvedBottomInset,
+              }
+            : creationParams;
+        return defaultTargetPlatform == TargetPlatform.iOS
+            ? UiKitView(
                 viewType: viewType,
-                creationParams: creationParams,
+                creationParams: params,
                 creationParamsCodec: const StandardMessageCodec(),
                 gestureRecognizers: gestureRecognizers,
                 hitTestBehavior: PlatformViewHitTestBehavior.opaque,
               )
-            : const SizedBox.shrink();
+            : defaultTargetPlatform == TargetPlatform.android
+                ? AndroidView(
+                    viewType: viewType,
+                    creationParams: params,
+                    creationParamsCodec: const StandardMessageCodec(),
+                    gestureRecognizers: gestureRecognizers,
+                    hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+                  )
+                : const SizedBox.shrink();
+      },
+    );
   }
+
+  /// The bottom padding still left to reserve at [context], used to resolve
+  /// `bottomSafeAreaInset` **on Android** when the host left it at `0` or below.
+  ///
+  /// iOS deliberately does not resolve: its embedded view already sits inside the
+  /// safe area, and since 1.13.0 its bridge treats the value as a total and
+  /// subtracts that safe area — so an inferred value would replace the bridge's
+  /// additive 10 pt default with ~0 and lose height for nothing. See the state
+  /// table in [embeddedView].
+  ///
+  /// Reads `padding.bottom`, which reports what is LEFT once ancestors consumed
+  /// their share. That is what makes a widget mounted inside a `SafeArea` — or
+  /// under an explicit `MediaQuery.removePadding` — resolve to 0 instead of
+  /// double-reserving. It is also the only field carrying a `Scaffold`
+  /// `bottomNavigationBar`'s height under `extendBody: true`: the bar height is
+  /// re-injected into `padding` there while `viewPadding.bottom` is zeroed, so
+  /// reading `viewPadding` would silently drop a host bottom bar.
+  ///
+  /// **Known limitation.** While a keyboard is up the engine folds the bottom
+  /// inset into `viewInsets` and reports `padding.bottom == 0`. Creation params
+  /// are consumed once, at creation, so a widget first built in that state keeps
+  /// `0` for its whole life. This applies to **every** host, a `Scaffold` body
+  /// included: `resizeToAvoidBottomInset` zeroes `viewInsets` for the body, but
+  /// `MediaQueryData.removeViewInsets` only zeroes `viewInsets` and lowers
+  /// `viewPadding` — it never writes `padding` at all, so the `padding.bottom`
+  /// the engine already folded to 0 stays 0. Verified by measurement on a plain
+  /// `Scaffold` body, an `extendBody: true` body, and `resizeToAvoidBottomInset:
+  /// false`; all report 0 at the mount point.
+  ///
+  /// It is not fixable from here: at that moment "an ancestor consumed the
+  /// padding" and "the keyboard folded it away" are indistinguishable — both
+  /// report `padding.bottom == 0` over an ambient `viewPadding` that still holds
+  /// the device inset — so falling back to `viewPadding` would break the
+  /// documented opt-out and make a `SafeArea` host double-reserve permanently,
+  /// which is strictly worse than the narrow case it would fix. A host that may
+  /// mount the SDK with the keyboard already up should pass the inset explicitly.
+  /// Note this is a missed improvement rather than a regression: these widgets
+  /// resolved nothing at all before, so such a mount behaves as it always did.
+  ///
+  /// `maybePaddingOf` keeps this from throwing, but the `?? 0` is unreachable in
+  /// practice: a mounted tree always has a `MediaQuery`, since Flutter's `View`
+  /// widget derives one from the `FlutterView` even when the host inserted none.
+  /// The opt-out wrap in [showOctopusHomeScreen] leans on that same guarantee —
+  /// `MediaQuery.removePadding` resolves through `MediaQuery.of` and would throw
+  /// without one.
+  static double _ambientBottomInset(BuildContext context) =>
+      MediaQuery.maybePaddingOf(context)?.bottom ?? 0;
 
   /// Returns the notification + initial-screen portion of the platform-view
   /// creation params. Exposed for testability — production code should call
@@ -720,8 +887,11 @@ class OctopusSDK {
   /// the host's current entitlement set). This mirrors the single native
   /// `OctopusSDK.connectUser(user, tokenProvider:)` contract on Android and
   /// iOS, and is what lets [refreshEntitlements] succeed. The provider is
-  /// unregistered automatically by [disconnectUser]; connecting again replaces
-  /// the previous provider (last-write-wins).
+  /// unregistered automatically by [disconnectUser]. Connecting again makes the
+  /// new provider the one the native SDK uses (it holds a single callback), but
+  /// the Dart side keeps every prior registration reachable until
+  /// [disconnectUser] clears them, so a native refresh still targeting an
+  /// earlier registration gets answered instead of receiving an empty token.
   ///
   /// [userId] - Unique identifier for the user.
   /// [tokenProvider] - Async callback returning a freshly-signed JWT (get it
@@ -735,7 +905,58 @@ class OctopusSDK {
   ///   migrate, wrap your token in a provider: `tokenProvider: () async => t`.
   ///
   /// Exactly one of [tokenProvider] or [token] must be provided.
-  Future<void> connectUser({
+  ///
+  /// ## Result
+  ///
+  /// Returns an [OctopusResult]: **the connection can be refused** (banned
+  /// user, JWT the backend rejects, missing token) and a refusal is not an
+  /// exception — inspect the result rather than assuming success, or the user
+  /// stays anonymous while your app believes them connected.
+  ///
+  /// ```dart
+  /// final result = await octopus.connectUser(userId: id, tokenProvider: p);
+  /// switch (result) {
+  ///   case OctopusSuccess():
+  ///     // connected
+  ///     break;
+  ///   case OctopusInvalidArguments(errors: final errors):
+  ///     for (final e in errors) {
+  ///       switch (e) {
+  ///         case ClientUserBannedError():
+  ///           showBanned(e.errorMessage); // backend wording, displayable
+  ///         default:
+  ///           showGenericError(e.errorMessage);
+  ///       }
+  ///     }
+  ///   case OctopusNoNetwork():
+  ///     showOffline();
+  ///   default:
+  ///     showGenericError('$result');
+  /// }
+  /// ```
+  ///
+  /// The [ClientUserError] variants are **not symmetric across platforms** —
+  /// see the table on [ClientUserError] for who emits what.
+  ///
+  /// The inner `switch` above singles out one leaf, so it is non-exhaustive and
+  /// the `default` is required. Enumerate every leaf instead — after narrowing
+  /// with `errors.cast<ClientUserError>()` — and you must drop it: the
+  /// hierarchy is sealed, so a catch-all over a complete switch is a fatal
+  /// analyzer warning. [ClientUserError] carries the rule and the reason you do
+  /// not need a catch-all for robustness.
+  ///
+  /// **iOS caveat — an [OctopusSuccess] does not prove the SSO user is
+  /// connected.** When the token exchange fails while nothing is connected yet
+  /// (the ordinary first login), the native SDK falls back to a **guest**
+  /// connection and returns normally, so this bridge has no refusal to report.
+  /// The refusal does arrive when a connection already existed. Android has no
+  /// such fallback. This cannot be fixed from the bridge, but the two states are
+  /// observable — through streams, which emit independently of this `Future`:
+  /// [isUserConnected] emits `false` under the guest fallback, and
+  /// [connectionState] emits [OctopusConnected] with `isGuest: true`. Subscribe
+  /// rather than sampling right after this call returns — see MIGRATING.md.
+  @useResult
+  Future<OctopusResult<void, ClientUserError>> connectUser({
     required String userId,
     Future<String> Function()? tokenProvider,
     String? nickname,
@@ -782,11 +1003,15 @@ class OctopusSDK {
   /// Deprecated: call [connectUser] with its `tokenProvider` parameter instead
   /// — same behavior, one canonical entry point that matches the native
   /// `OctopusSDK.connectUser(user, tokenProvider:)` shape.
+  ///
+  /// Returns the same [OctopusResult] as [connectUser]; see that method for
+  /// how to handle a refusal.
   @Deprecated(
     'Use connectUser(tokenProvider:) instead. '
     'Will be removed in a future major version.',
   )
-  Future<void> connectUserWithTokenProvider({
+  @useResult
+  Future<OctopusResult<void, ClientUserError>> connectUserWithTokenProvider({
     required String userId,
     required Future<String> Function() tokenProvider,
     String? nickname,
@@ -807,7 +1032,7 @@ class OctopusSDK {
   /// provider under a unique `providerId` (so the native side can round-trip
   /// back to Dart on every refresh) and connects via the platform. Rolls the
   /// registration back if the platform call throws.
-  Future<void> _connectUserWithTokenProvider({
+  Future<OctopusResult<void, ClientUserError>> _connectUserWithTokenProvider({
     required String userId,
     required Future<String> Function() tokenProvider,
     String? nickname,
@@ -820,13 +1045,26 @@ class OctopusSDK {
         'clientUserTokenProvider_${_clientUserTokenProviderCounter}_$userId';
     _clientUserTokenProviders[providerId] = tokenProvider;
     try {
-      await OctopusSDKPlatform.instance.connectUserWithTokenProvider(
+      final result =
+          await OctopusSDKPlatform.instance.connectUserWithTokenProvider(
         userId: userId,
         providerId: providerId,
         nickname: nickname,
         bio: bio,
         picture: picture,
       );
+      // The provider is deliberately kept registered whatever the outcome —
+      // it is dropped only by disconnectUser(), or below if the platform call
+      // itself throws. Both native SDKs assign their own tokenProvider
+      // reference *before* attempting the connection, never clear it on
+      // failure, and re-invoke it on every later refresh, so a Dart-side drop
+      // here would desynchronize the two: the next native round-trip would
+      // answer an empty token, permanently. A refusal is not a reason to
+      // unregister either — several are raised with the user already
+      // connected (Android returns `checkProfileUpdates` *after* saving the
+      // session, so a rejected nickname surfaces as a profile error on a live
+      // connection) and iOS folds transient failures into the same branch.
+      return result;
     } catch (_) {
       _clientUserTokenProviders.remove(providerId);
       rethrow;
@@ -1061,8 +1299,9 @@ class OctopusSDK {
   /// This does **not** throw on a handled SDK failure — pattern-match or use the
   /// helpers ([OctopusResultExtensions.onSuccess], `getOrElse`, …).
   ///
-  /// **Breaking change in 1.12.0**: previously returned `Future<void>`. Callers
-  /// that only need fire-and-forget behaviour can ignore the result.
+  /// **Breaking change in 1.12.0**: previously returned `Future<void>`.
+  /// Ignoring the result is not flagged by the analyzer, so a failure here is
+  /// silent unless you read it.
   Future<OctopusResult<void, OverrideCommunityAccessError>>
       overrideCommunityAccess(bool hasAccess) {
     return OctopusSDKPlatform.instance.overrideCommunityAccess(hasAccess);
@@ -1256,12 +1495,17 @@ class OctopusSDK {
   /// [clientObjectId] from two places is safe. Cancel the subscription to stop
   /// the native observation.
   ///
-  /// A subscription does **not** survive [stop] or a community switch
-  /// ([switchCommunity] / [switchCommunityOctopusAuth]): the native observation
-  /// is torn down and is not automatically re-bound. Re-subscribe after
-  /// re-initializing. If the native side cannot start the observation (e.g. it
-  /// is called before [initialize]), the stream forwards the error to its
-  /// listener rather than hanging.
+  /// [stop] tears the native observation down: the subscription stays open but
+  /// silent, so re-subscribe after re-initializing.
+  ///
+  /// A community switch ([switchCommunity] / [switchCommunityOctopusAuth]) is
+  /// **not** handled for you. The subscription stays open, but the native
+  /// observation behind it belongs to the previous community, so it simply
+  /// stops emitting. Cancel and re-subscribe after the switch.
+  ///
+  /// If the native side cannot start the observation (e.g. it is called before
+  /// [initialize]), the stream forwards the error to its listener rather than
+  /// hanging.
   static Stream<OctopusPost?> getClientObjectRelatedPostFlow(
     String clientObjectId,
   ) {
@@ -1316,6 +1560,165 @@ class OctopusSDK {
         await sub?.cancel();
         sub = null;
         await platform.stopClientObjectPostObservation(observationId);
+      },
+    );
+    return controller.stream;
+  }
+
+  /// Fetches a read-only snapshot of a member's public Octopus community
+  /// activity — the "Unified Profile" data surface, so your app can show Octopus
+  /// stats on **its own** profile screen instead of sending the user to the
+  /// SDK's native profile screen.
+  ///
+  /// Identify the member by **exactly one** of:
+  /// - [clientUserId] — your app's own id for them. Requires the community to be
+  ///   configured to expose client user ids; use this when your profile screen
+  ///   only knows your own user ids.
+  /// - [profileId] — their Octopus profile id, e.g. one reported by
+  ///   [OtherUserProfileScreen] or [OtherUserPostsScreen].
+  ///
+  /// Passing both, or neither, throws an [ArgumentError] in every build.
+  ///
+  /// Returns `null` when the member is unknown — an unresolvable
+  /// [clientUserId], or a [profileId] with no such profile. Refreshes from the
+  /// server, so it can fail: the returned future completes with an error on a
+  /// network/server failure, or when the community does not expose client user
+  /// ids and you passed a [clientUserId].
+  ///
+  /// ```dart
+  /// final data = await OctopusSDK().fetchCommunityData(
+  ///   clientUserId: myUser.id,
+  /// );
+  /// final level = data?.gamification?.level;
+  /// ```
+  ///
+  /// See [communityDataFlow] to observe the same data reactively.
+  Future<OctopusCommunityData?> fetchCommunityData({
+    String? profileId,
+    String? clientUserId,
+  }) async {
+    _requireExactlyOneMemberId(profileId, clientUserId, 'fetchCommunityData');
+    final wire = await OctopusSDKPlatform.instance.fetchCommunityData(
+      profileId: profileId,
+      clientUserId: clientUserId,
+    );
+    return wire == null ? null : OctopusCommunityData.fromWire(wire);
+  }
+
+  /// Observes a member's public Octopus community activity — the reactive
+  /// counterpart of [fetchCommunityData].
+  ///
+  /// Identify the member by **exactly one** of [clientUserId] (your app's own
+  /// id — requires the community to be configured to expose client user ids) or
+  /// [profileId] (their Octopus profile id); passing both, or neither, throws an
+  /// [ArgumentError] in every build (thrown synchronously, when the stream is
+  /// built, not on listen).
+  ///
+  /// Emits the member's current data and then again on every refresh (e.g. after
+  /// a [fetchCommunityData] call for the same member). Emits `null` when the
+  /// member is unknown, including when a [clientUserId] cannot be resolved —
+  /// resolution failures surface as `null` rather than as a stream error, so a
+  /// UI binding never breaks.
+  ///
+  /// The returned stream is **single-subscription**. Every *call* to
+  /// [communityDataFlow] drives its own native observation, so to watch the
+  /// same member from two places call it twice — handing one stream to two
+  /// listeners throws `Bad state: Stream has already been listened to`.
+  /// Cancelling the subscription stops that native observation, and the stream
+  /// cannot be listened to again afterwards.
+  ///
+  /// [stop] tears the native observation down: the subscription stays open but
+  /// silent. After re-initializing, cancel it and call [communityDataFlow]
+  /// again for a fresh stream.
+  ///
+  /// A community switch ([switchCommunity] / [switchCommunityOctopusAuth]) is
+  /// **not** handled for you. The subscription stays open, but the native
+  /// observation behind it belongs to the previous community, so it simply
+  /// stops emitting. Cancel it and call [communityDataFlow] again after the
+  /// switch.
+  ///
+  /// If the native side cannot start the observation (e.g. it is called before
+  /// [initialize]), the stream forwards the error to its listener rather than
+  /// hanging.
+  static Stream<OctopusCommunityData?> communityDataFlow({
+    String? profileId,
+    String? clientUserId,
+  }) {
+    _requireExactlyOneMemberId(profileId, clientUserId, 'communityDataFlow');
+    _initializeEventChannel();
+    return buildCommunityDataStream(
+      eventStream,
+      'communityData_${_communityDataObservationCounter++}',
+      OctopusSDKPlatform.instance,
+      profileId: profileId,
+      clientUserId: clientUserId,
+    );
+  }
+
+  /// Throws an [ArgumentError] unless exactly one of [profileId] /
+  /// [clientUserId] is provided. Mirrors [connectUser]'s exactly-one contract:
+  /// a real throw in every build, not a debug-only assert.
+  static void _requireExactlyOneMemberId(
+    String? profileId,
+    String? clientUserId,
+    String methodName,
+  ) {
+    if ((profileId == null) == (clientUserId == null)) {
+      throw ArgumentError(
+        '$methodName requires exactly one of profileId or clientUserId '
+        '(got ${profileId == null ? 'neither' : 'both'}).',
+      );
+    }
+  }
+
+  /// Builds the [communityDataFlow] stream: on listen, subscribes to [source]
+  /// for `communityDataChanged` events tagged with [observationId] and asks
+  /// [platform] to start the native observation (subscribe-then-start, so the
+  /// replayed current value isn't missed); on cancel, tears both down.
+  /// Exposed for testing; production code should use [communityDataFlow].
+  @visibleForTesting
+  static Stream<OctopusCommunityData?> buildCommunityDataStream(
+    Stream<Map<String, dynamic>> source,
+    String observationId,
+    OctopusSDKPlatform platform, {
+    String? profileId,
+    String? clientUserId,
+  }) {
+    late final StreamController<OctopusCommunityData?> controller;
+    StreamSubscription<Map<String, dynamic>>? sub;
+    controller = StreamController<OctopusCommunityData?>(
+      onListen: () {
+        sub = source
+            .where(
+          (event) =>
+              event['event'] == 'communityDataChanged' &&
+              event['observationId'] == observationId,
+        )
+            .listen((event) {
+          final raw = event['communityData'];
+          controller.add(
+            raw is Map ? OctopusCommunityData.fromWire(raw) : null,
+          );
+        });
+        // Fire-and-forget, but surface a start failure (e.g. called before
+        // initialize) to the listener instead of leaving a silently-dead
+        // stream + an unhandled async error.
+        unawaited(
+          platform
+              .startCommunityDataObservation(
+            observationId,
+            profileId: profileId,
+            clientUserId: clientUserId,
+          )
+              .catchError((Object e, StackTrace st) {
+            if (!controller.isClosed) controller.addError(e, st);
+          }),
+        );
+      },
+      onCancel: () async {
+        await sub?.cancel();
+        sub = null;
+        await platform.stopCommunityDataObservation(observationId);
       },
     );
     return controller.stream;
@@ -1504,9 +1907,11 @@ class OctopusSDK {
   /// `Scaffold` + `SafeArea(bottom: false)` — the same shape demonstrated
   /// inline by the sample (`example/lib/scenarios/fullscreen_scenario.dart`).
   /// Use the helper for the one-liner, or copy the inline pattern when you
-  /// need to customize the route beyond the exposed parameters (e.g. the
-  /// bottom safe-area inset, a `fullscreenDialog` modal presentation — see
-  /// `example/lib/scenarios/modal_scenario.dart` — or a custom transition).
+  /// need to customize the route beyond the exposed parameters (e.g. a host
+  /// bottom bar drawn over the embedded view, a `fullscreenDialog` modal
+  /// presentation — see `example/lib/scenarios/modal_scenario.dart` — or a
+  /// custom transition). The bottom safe-area inset is *not* one of those
+  /// cases: it is exposed as [bottomSafeAreaInset] below.
   ///
   /// **History note (1.12.0 development).** This helper was briefly
   /// `@Deprecated` after a report that modal-style hosting silently dropped
@@ -1542,6 +1947,7 @@ class OctopusSDK {
     required VoidCallback onNavigateToLogin,
     Function(String?)? onModifyUser,
     UrlOpeningStrategy Function(String)? onNavigateToUrl,
+    void Function(String clientUserId)? onNavigateToProfile,
     Widget? closeWidget,
     OctopusNotification? notification,
     double? bottomSafeAreaInset,
@@ -1552,30 +1958,71 @@ class OctopusSDK {
     // post" button would otherwise sit behind the system navigation bar.
     // Reserve that inset by default. Read the raw View (not `MediaQuery.of`)
     // so an ancestor `SafeArea` that already consumed `padding.bottom` can't
-    // zero it out. iOS is unaffected (native 10pt floor). Callers can override:
-    // pass `0` to opt back into the edge-to-edge look, or a larger value to
-    // clear their own bottom chrome.
+    // zero it out. Callers can override: pass `0` to opt back into the
+    // edge-to-edge look, or a larger value to clear their own bottom chrome.
+    //
+    // This value is a *total* bottom padding: the Android bridge consumes the
+    // system insets before mounting, and the iOS bridge subtracts the safe area
+    // the embedded view sits in before handing it to the native SDK
+    // (`SafeHostingContainerView.updateNormalizedBottomInset`). Reserved
+    // band per platform, for a requested value R and a system inset S:
+    // Android `R`, iOS `max(R, S)` — identical whenever `R >= S`, which is the
+    // case here since R *is* the device inset. iOS never reserves less than the
+    // safe area it already sits in, and on iOS 14 the native SDK ignores the
+    // value entirely (its inset modifier needs iOS 15+).
+    // (Before that normalization landed, iOS added this value *on top of* its
+    // own safe area and rendered roughly twice the intended band.)
     final effectiveBottomInset = bottomSafeAreaInset ??
         MediaQueryData.fromView(View.of(context)).viewPadding.bottom;
+    // A `0` here — passed explicitly ("pass `0` to opt back into the previous
+    // edge-to-edge look", a contract shipped in 1.12.3) or resolved on a device
+    // with no bottom inset — must reach the native side as "no preference".
+    // `embeddedView` resolves a `0` from the ambient padding, and this route's
+    // `SafeArea(bottom: false)` deliberately leaves that padding intact, so the
+    // resolution would otherwise re-add the very inset the caller waived: strip
+    // it here instead. The flag derives from a call argument, not from state, so
+    // it is fixed for the whole life of the route — this wrapper never appears
+    // or disappears between rebuilds, and the PlatformView is never reparented
+    // (the failure mode described in `OctopusHomeScreen.build`).
+    final optOutOfBottomInset = effectiveBottomInset == 0;
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (routeContext) => Scaffold(
-          body: SafeArea(
-            bottom: false,
-            child: OctopusHomeScreen(
-              theme: theme,
-              navBarTitle: navBarTitle,
-              navBarPrimaryColor: navBarPrimaryColor,
-              showBackButton: true,
-              bottomSafeAreaInset: effectiveBottomInset,
-              onBack: () => Navigator.of(routeContext).pop(),
-              onNavigateToLogin: onNavigateToLogin,
-              onModifyUser: onModifyUser,
-              onNavigateToUrl: onNavigateToUrl,
-              notification: notification,
+        builder: (routeContext) {
+          Widget content = Scaffold(
+            body: SafeArea(
+              bottom: false,
+              child: OctopusHomeScreen(
+                theme: theme,
+                navBarTitle: navBarTitle,
+                navBarPrimaryColor: navBarPrimaryColor,
+                showBackButton: true,
+                bottomSafeAreaInset: effectiveBottomInset,
+                onBack: () => Navigator.of(routeContext).pop(),
+                onNavigateToLogin: onNavigateToLogin,
+                onModifyUser: onModifyUser,
+                onNavigateToProfile: onNavigateToProfile,
+                onNavigateToUrl: onNavigateToUrl,
+                notification: notification,
+              ),
             ),
-          ),
-        ),
+          );
+          if (optOutOfBottomInset) {
+            // Wrapped ABOVE the `Scaffold` and paired with the route's own
+            // context. `removePadding` rebuilds the data from the context it is
+            // handed, so what matters is that the two match — not the depth.
+            // Keeping `context: routeContext` while moving the wrapper BELOW the
+            // `SafeArea` would re-inject the top inset that `SafeArea` had just
+            // consumed, double-padding the widget's own top overlays. (Pairing a
+            // lower wrapper with a local context would be correct as well: it is
+            // the mismatch that breaks, not the position.)
+            content = MediaQuery.removePadding(
+              context: routeContext,
+              removeBottom: true,
+              child: content,
+            );
+          }
+          return content;
+        },
       ),
     );
   }
@@ -1614,6 +2061,7 @@ class OctopusSDK {
     required VoidCallback onNavigateToLogin,
     Function(String?)? onModifyUser,
     UrlOpeningStrategy Function(String)? onNavigateToUrl,
+    void Function(String clientUserId)? onNavigateToProfile,
     double? bottomSafeAreaInset,
   }) {
     return showOctopusHomeScreen(
@@ -1624,6 +2072,7 @@ class OctopusSDK {
       onNavigateToLogin: onNavigateToLogin,
       onModifyUser: onModifyUser,
       onNavigateToUrl: onNavigateToUrl,
+      onNavigateToProfile: onNavigateToProfile,
       notification: notification,
       bottomSafeAreaInset: bottomSafeAreaInset,
     );

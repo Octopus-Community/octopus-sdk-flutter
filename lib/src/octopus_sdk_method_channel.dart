@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
+import 'client_user_error.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
 import 'octopus_post.dart';
@@ -89,36 +90,59 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }
 
   @override
-  Future<void> connectUser(
+  Future<OctopusResult<void, ClientUserError>> connectUser(
       {required String userId,
       required String token,
       String? nickname,
       String? bio,
       String? picture}) async {
-    await methodChannel.invokeMethod('connectUser', {
+    final raw =
+        await methodChannel.invokeMethod<Map<dynamic, dynamic>>('connectUser', {
       'userId': userId,
       'token': token,
       'nickname': nickname,
       'bio': bio,
       'picture': picture
     });
+    return _decodeConnectUserResult(raw);
   }
 
   @override
-  Future<void> connectUserWithTokenProvider({
+  Future<OctopusResult<void, ClientUserError>> connectUserWithTokenProvider({
     required String userId,
     required String providerId,
     String? nickname,
     String? bio,
     String? picture,
   }) async {
-    await methodChannel.invokeMethod('connectUserWithTokenProvider', {
+    final raw = await methodChannel
+        .invokeMethod<Map<dynamic, dynamic>>('connectUserWithTokenProvider', {
       'userId': userId,
       'providerId': providerId,
       'nickname': nickname,
       'bio': bio,
       'picture': picture,
     });
+    return _decodeConnectUserResult(raw);
+  }
+
+  OctopusResult<void, ClientUserError> _decodeConnectUserResult(
+    Map<dynamic, dynamic>? raw,
+  ) {
+    final wire = raw ??
+        const <String, dynamic>{
+          'type': 'failure',
+          'kind': 'statusError',
+          'code': -1,
+          'description': 'No response from the platform',
+        };
+    if (wire['type'] == 'success') {
+      return OctopusSuccess<void, ClientUserError>(null);
+    }
+    return OctopusResult.failureFromWire<ClientUserError>(
+      wire,
+      ClientUserError.fromWire,
+    );
   }
 
   @override
@@ -270,6 +294,38 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   @override
   Future<void> stopClientObjectPostObservation(String observationId) async {
     await methodChannel.invokeMethod('stopClientObjectPostObservation', {
+      'observationId': observationId,
+    });
+  }
+
+  @override
+  Future<Map<dynamic, dynamic>?> fetchCommunityData({
+    String? profileId,
+    String? clientUserId,
+  }) async {
+    return await methodChannel
+        .invokeMethod<Map<dynamic, dynamic>>('fetchCommunityData', {
+      'profileId': profileId,
+      'clientUserId': clientUserId,
+    });
+  }
+
+  @override
+  Future<void> startCommunityDataObservation(
+    String observationId, {
+    String? profileId,
+    String? clientUserId,
+  }) async {
+    await methodChannel.invokeMethod('startCommunityDataObservation', {
+      'observationId': observationId,
+      'profileId': profileId,
+      'clientUserId': clientUserId,
+    });
+  }
+
+  @override
+  Future<void> stopCommunityDataObservation(String observationId) async {
+    await methodChannel.invokeMethod('stopCommunityDataObservation', {
       'observationId': observationId,
     });
   }

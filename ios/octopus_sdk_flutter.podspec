@@ -21,8 +21,16 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   s.platform = :ios, '14.0'
   s.static_framework = true
   # Add Octopus Community SDK dependencies (CocoaPods names)
-  s.dependency 'OctopusCommunity', '1.12.6'
-  s.dependency 'OctopusCommunityUI', '1.12.6'
+  #
+  # Before bumping: `SafeHostingContainerView.gatePinningInset` (0.01 pt) depends
+  # on the native `insetableMainNavigationView` gating its inset on
+  # `bottomSafeAreaInset > 0`. If that condition ever becomes `>= 1`, the floor
+  # silently stops pinning the gate, and any geometry change that moves the value
+  # across the new threshold rebuilds the embedded screen and discards its state
+  # (a half-typed post included). Re-check the condition in
+  # `OctopusUI/Utils/View+InsetableMainNavigationView.swift` when changing these.
+  s.dependency 'OctopusCommunity', '1.13.2'
+  s.dependency 'OctopusCommunityUI', '1.13.2'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

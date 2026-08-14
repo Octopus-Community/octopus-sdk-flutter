@@ -21,10 +21,10 @@ abstract interface class OctopusServerError {
 ///   [OctopusStatusError]);
 /// - [OctopusInvalidArguments] — a list of typed [E] errors.
 ///
-/// Pattern-match exhaustively. Note the explicit
-/// `OctopusInvalidArguments<OctopusServerError>` type argument — it is required
-/// for exhaustiveness because [OctopusInvalidArguments] is invariant in its
-/// error type:
+/// Pattern-match exhaustively. Two rules, both on the typed-error arm: write its
+/// type argument as `OctopusInvalidArguments<OctopusServerError>` whatever [E]
+/// is, and narrow [OctopusInvalidArguments.errors] with `whereType<…>()` (or
+/// [OctopusInvalidArguments.filterErrors]) before reaching a leaf's members.
 /// ```dart
 /// switch (result) {
 ///   case OctopusSuccess(:final data): ...;
@@ -33,6 +33,16 @@ abstract interface class OctopusServerError {
 /// }
 /// ```
 /// or use the helpers ([onSuccess], [onFailure], [getOrElse], [mapSuccess], …).
+///
+/// Why the wide type argument: the analyzer builds the sealed subtype space from
+/// each subtype's declared **bound**, so the arm it wants is always
+/// `OctopusInvalidArguments<OctopusServerError>`. Naming the narrower leaf
+/// (`OctopusInvalidArguments<ClientPostError>` on a
+/// `OctopusResult<OctopusPost, ClientPostError>`, say) leaves the switch
+/// `non_exhaustive_switch_statement`. The wide arm still matches a narrow
+/// instance at run time — Dart class generics are covariant — but it binds
+/// [OctopusInvalidArguments.errors] as `List<OctopusServerError>`, which is
+/// where the second rule comes from.
 @immutable
 sealed class OctopusResult<D, E extends OctopusServerError> {
   const OctopusResult();

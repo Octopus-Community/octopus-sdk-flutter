@@ -39,6 +39,17 @@ builds that swap in a demo/dev native SDK suppress the banner with
 `--dart-define=OCTOPUS_API_HOST=<non-prod host>`. **Do not publish test content
 against a client community.**
 
+Because of that default, a key pasted into the Config screen's `Custom…` field
+is kept for the session only — it is never written to on-device storage. The
+sample restores every other choice (key slot, user id, theme) on the next
+launch, but a config that no longer resolves to a key is not auto-started: it
+lands back on the Config screen so the key is re-entered deliberately, in front
+of the banner. On the `Custom…` source, Start stays disabled until a key is
+pasted. A build shipping no key at all lands on that screen too, and on the
+`Demo` source Start stays enabled there so a keyless clone can still explore
+the app — Home then reports the initialization error described above. Builds that inject a key via
+`--dart-define` are unaffected and still auto-start.
+
 ## Scenarios
 
 The scenario set matches the cross-platform scenario catalog (the same `id`s and
@@ -68,11 +79,17 @@ example/lib/
 ├── community/                 # Embedded OctopusHomeScreen
 ├── settings/                  # Settings tab
 ├── auth/                      # Login + profile-edit pages
+├── debug/                     # Debug tab + the SDK event / API-call recorder
 └── widgets/                   # Shared scenario scaffold + cards
 ```
 
-> Internal builds add a Debug console (live SDK event + API-call log) run via a
-> dedicated entrypoint; it is stripped from the published package.
+> The **Debug** tab is part of the app you are running: `main.dart` starts the
+> recorder at launch, so it captures every SDK event and every API call the
+> sample makes from the first frame. Nothing needs to be enabled.
+>
+> One debug surface does *not* ship — a console sheet reachable from Settings,
+> installed by a separate internal entrypoint. It lives in `debug/internal/`,
+> which is the only part of `debug/` stripped from the published package.
 
 ## Push notifications
 

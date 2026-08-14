@@ -48,7 +48,7 @@ import '../widgets/scenario_scaffold.dart';
 ///   `UiKitView`, so previously the modal had no native dismissal affordance
 ///   on iOS, and the Android wrapper could only show a back arrow. Unlike a
 ///   `trailingWidget` overlay, the native button never reparents the embedded
-///   `PlatformView` (no #63-style sub-navigation drop) and the SDK hides it
+///   `PlatformView` (no reparenting-induced sub-navigation drop) and the SDK hides it
 ///   automatically on deeper screens, where its own back chevron takes over.
 ///
 /// An explicit `navBarLeadingAction` takes precedence over [showBackButton] on
@@ -62,8 +62,10 @@ import '../widgets/scenario_scaffold.dart';
 /// (`SafeArea(bottom: false)`), so the host forwards the device's bottom
 /// gesture-area inset via `bottomSafeAreaInset` — the SDK's floating
 /// "Write a post" pill then clears the gesture pill (Android edge-to-edge,
-/// API 35+) / home indicator (iOS). `viewPadding` reports the physical
-/// inset regardless of upstream SafeArea consumption.
+/// API 35+) / home indicator (iOS). The *raw View's* `viewPadding` reports
+/// the physical inset regardless of upstream SafeArea consumption — the
+/// inherited `MediaQuery`'s does not (`MediaQueryData.removePadding` subtracts
+/// `padding.bottom` from it).
 ///
 /// **Login + profile-edit routing.** Both callbacks resolve `Navigator.of`
 /// against the pushed route's `BuildContext`. Because the host wraps the
@@ -96,7 +98,7 @@ class ModalScenario extends StatelessWidget {
         // BuildContext across an async gap.
         final navigator = Navigator.of(context);
         // Forward the device's bottom gesture-area inset (raw View, immune to
-        // ancestor SafeArea zeroing) so the SDK's floating "Write a post" pill
+        // what the widget tree consumes) so the SDK's floating "Write a post" pill
         // clears the gesture pill / home indicator. Captured before the await.
         final bottomSafeArea = MediaQueryData.fromView(
           View.of(context),
