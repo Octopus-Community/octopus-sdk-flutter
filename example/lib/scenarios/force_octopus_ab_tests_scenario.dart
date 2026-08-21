@@ -58,14 +58,14 @@ class ForceOctopusABTestsScenario extends StatelessWidget {
           'overrideCommunityAccess to force the cohort attribution for the '
           'current user (granted or denied). The change is permanent and '
           'reflected in the hasAccessToCommunity stream below.',
-      resultTestId: 'force-octopus-ab-tests-result',
+      resultTestId: 'forceOctopusABTests-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [('hasAccessToCommunity', app.hasAccess?.toString() ?? '—')],
       ),
       presets: [
         ScenarioPreset(
-          testId: 'qa-preset-force-octopus-ab-tests-1',
+          testId: 'qa-preset-forceOctopusABTests-1',
           label: 'Preset 1 · Force cohort · grant community access',
           onRun: (setResult) async {
             try {
@@ -84,7 +84,7 @@ class ForceOctopusABTestsScenario extends StatelessWidget {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-force-octopus-ab-tests-2',
+          testId: 'qa-preset-forceOctopusABTests-2',
           label: 'Preset 2 · Force cohort · deny community access',
           onRun: (setResult) async {
             try {
@@ -103,7 +103,7 @@ class ForceOctopusABTestsScenario extends StatelessWidget {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-force-octopus-ab-tests-3',
+          testId: 'qa-preset-forceOctopusABTests-3',
           label: 'Preset 3 · Re-apply current SDK value',
           onRun: (setResult) async {
             try {

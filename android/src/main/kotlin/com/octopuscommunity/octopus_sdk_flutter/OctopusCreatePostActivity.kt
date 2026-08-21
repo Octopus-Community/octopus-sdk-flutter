@@ -81,6 +81,10 @@ class OctopusCreatePostActivity : ComponentActivity() {
         val primaryLow = intent.getColorExtra(EXTRA_PRIMARY_LOW)
         val primaryHigh = intent.getColorExtra(EXTRA_PRIMARY_HIGH)
         val onPrimary = intent.getColorExtra(EXTRA_ON_PRIMARY)
+        val background = intent.getColorExtra(EXTRA_BACKGROUND)
+        val link = intent.getColorExtra(EXTRA_LINK)
+        val fontFamily = intent.getStringExtra(EXTRA_FONT_FAMILY)
+        val fontWeight = intent.getIntExtraOrNull(EXTRA_FONT_WEIGHT)
         val logoBase64 = intent.getStringExtra(EXTRA_LOGO)
 
         setContent {
@@ -91,6 +95,10 @@ class OctopusCreatePostActivity : ComponentActivity() {
                     primaryLowContrast = primaryLow,
                     primaryHighContrast = primaryHigh,
                     onPrimary = onPrimary,
+                    background = background,
+                    link = link,
+                    fontFamily = fontFamily,
+                    fontWeight = fontWeight,
                     logoBase64 = logoBase64,
                     navBarTitle = null,
                     navBarPrimaryColor = false,
@@ -276,6 +284,10 @@ class OctopusCreatePostActivity : ComponentActivity() {
         private const val EXTRA_PRIMARY_LOW = "octopus.primaryLow"
         private const val EXTRA_PRIMARY_HIGH = "octopus.primaryHigh"
         private const val EXTRA_ON_PRIMARY = "octopus.onPrimary"
+        private const val EXTRA_BACKGROUND = "octopus.background"
+        private const val EXTRA_LINK = "octopus.link"
+        private const val EXTRA_FONT_FAMILY = "octopus.fontFamily"
+        private const val EXTRA_FONT_WEIGHT = "octopus.fontWeight"
         private const val EXTRA_LOGO = "octopus.logo"
         private const val EXTRA_FONT_TITLE1 = "octopus.fontTitle1"
         private const val EXTRA_FONT_TITLE2 = "octopus.fontTitle2"
@@ -323,6 +335,10 @@ class OctopusCreatePostActivity : ComponentActivity() {
             (args["primaryLowContrast"] as? Number)?.let { intent.putExtra(EXTRA_PRIMARY_LOW, it.toLong()) }
             (args["primaryHighContrast"] as? Number)?.let { intent.putExtra(EXTRA_PRIMARY_HIGH, it.toLong()) }
             (args["onPrimary"] as? Number)?.let { intent.putExtra(EXTRA_ON_PRIMARY, it.toLong()) }
+            (args["background"] as? Number)?.let { intent.putExtra(EXTRA_BACKGROUND, it.toLong()) }
+            (args["link"] as? Number)?.let { intent.putExtra(EXTRA_LINK, it.toLong()) }
+            (args["fontFamily"] as? String)?.let { intent.putExtra(EXTRA_FONT_FAMILY, it) }
+            (args["fontWeight"] as? Number)?.let { intent.putExtra(EXTRA_FONT_WEIGHT, it.toInt()) }
             (args["logoBase64"] as? String)?.let { intent.putExtra(EXTRA_LOGO, it) }
             (args["fontSizeTitle1"] as? Int)?.let { intent.putExtra(EXTRA_FONT_TITLE1, it) }
             (args["fontSizeTitle2"] as? Int)?.let { intent.putExtra(EXTRA_FONT_TITLE2, it) }
@@ -330,6 +346,9 @@ class OctopusCreatePostActivity : ComponentActivity() {
             (args["fontSizeBody2"] as? Int)?.let { intent.putExtra(EXTRA_FONT_BODY2, it) }
             (args["fontSizeCaption1"] as? Int)?.let { intent.putExtra(EXTRA_FONT_CAPTION1, it) }
             (args["fontSizeCaption2"] as? Int)?.let { intent.putExtra(EXTRA_FONT_CAPTION2, it) }
+            // `fontSizeNavBarItem` is deliberately NOT forwarded: the native
+            // Android `OctopusTypography` has no nav-bar-item slot to map it
+            // onto. See the Factory comment in `OctopusEmbeddedView.kt`.
 
             return intent
         }

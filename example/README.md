@@ -13,6 +13,26 @@ live result panel, so the effect of every SDK call is observable on screen.
 
 ## Running
 
+### Android prerequisite — `google-services.json`
+
+The sample wires Firebase Messaging for push, so the Google Services Gradle
+plugin is applied and **every** Android build fails without a
+`google-services.json`, push or no push:
+
+```
+Execution failed for task ':app:processDebugGoogleServices'.
+> File google-services.json is missing.
+```
+
+The file is per-project and gitignored, so it cannot ship here. Download yours
+from the Firebase Console (Project settings → Your apps → Android app) and drop
+it at `example/android/app/google-services.json` — the same step
+[`android/sample-notifications/README.md`](android/sample-notifications/README.md)
+describes for the notification scenarios. iOS needs no equivalent: it uses the
+native APNs bridge, not Firebase.
+
+### Credentials
+
 The sample reads its credentials from `--dart-define` at build time
 (see `lib/octopus_demo_config.dart`) — **no key is ever committed to this repo**.
 
@@ -52,18 +72,37 @@ the app — Home then reports the initialization error described above. Builds t
 
 ## Scenarios
 
-The scenario set matches the cross-platform scenario catalog (the same `id`s and
-element identifiers are used on Android / iOS / React Native):
+One row per entry of the `_scenarios` descriptor list in
+[`lib/scenarios/scenarios_screen.dart`](lib/scenarios/scenarios_screen.dart), in the
+order the list renders them — that list is the source of truth, so a new scenario is
+added there and this table is re-derived from it, never extended by hand. It holds the
+catalog scenarios whose `platforms` include `flutter`. The `id` is the catalog scenario
+id and drives the card's accessibility identifier `scenarios-<id>-card`, which is how
+an automated run reaches a scenario.
 
-| Scenario | SDK surface |
-|---|---|
-| Connection | `connectUser` / `disconnectUser` |
-| Sync Followed Groups | `syncFollowGroups` (batch follow / unfollow) |
-| Notifications | `updateNotSeenNotificationsCount` + `notSeenNotificationsCount` |
-| Community Access | `overrideCommunityAccess` / `trackCommunityAccess` + `hasAccessToCommunity` |
-| Custom Events | `trackCustomEvent` |
-| Locale | `overrideDefaultLocale` |
-| Theme | custom `OctopusTheme` on the embedded UI |
+| Scenario | Card `id` | SDK surface |
+|---|---|---|
+| Connection | `connection` | `connectUser` / `disconnectUser`; `connectionState` + `profile` streams (reads `OctopusProfile.entitlements`) |
+| Sync Followed Groups | `syncFollowGroups` | `syncFollowGroups`, `fetchGroups`, `groups` stream |
+| Custom Events | `customEvents` | `trackCustomEvent` |
+| Locale | `locale` | `overrideDefaultLocale` |
+| Theme | `theme` | custom `OctopusTheme` on the embedded UI |
+| Bridge → Client Object | `bridge` | `fetchOrCreateClientObjectRelatedPost`, `setNavigateToClientObjectCallback`, `setReaction`, `groups` stream |
+| Initial Screen | `initialScreen` | `OctopusHomeScreen(initialScreen:)` with `OctopusInitialScreen.post` / `.group` / `.createPost`, `showOctopusHomeScreen`, `showOctopusCreatePostScreen`, standalone `OctopusPostDetailsScreen` |
+| Switch Community | `lifecycle` | `switchCommunity` |
+| Refresh Entitlements | `refreshEntitlements` | `refreshEntitlements` + `profile` stream |
+| Group Access Denied | `groupAccessDenied` | `setGroupAccessDeniedCallback` |
+| Reactions | `reactions` | `setReaction(reaction, postId)` (react / change reaction / unreact); surfaces the concrete `OctopusConnectionFailure` subtype on failure |
+| Create Post (Bridge Share) | `createPost` | `showOctopusCreatePostScreen` + `CreatePostScreenInfo` / `OctopusPrefilledPost` / `OctopusPostCTA`; reads the `groups` stream; `bridgeShareTokenProvider` for image posts in a picture-restricted community |
+| Modal | `modal` | `OctopusHomeScreen` on a `fullscreenDialog` route — `navigationMode`, `navBarLeadingAction`, `getOctopusNotification` |
+| Fullscreen | `fullscreen` | `OctopusHomeScreen` on a pushed route (what `showOctopusHomeScreen` does), `getOctopusNotification` |
+| Sheet | `sheet` | `OctopusHomeScreen` in a modal bottom sheet — `navigationMode`, `navBarLeadingAction`, `getOctopusNotification` |
+| Events Log | `events` | `events` stream (`OctopusEvent`) |
+| Not-Seen Notifications | `notSeenNotifications` | `notSeenNotificationsCount` stream + `updateNotSeenNotificationsCount` |
+| Push Notifications | `pushNotifications` | `isOctopusNotification` / `getOctopusNotification` / `openNotification` |
+| Track A/B Tests | `trackABTests` | `trackCommunityAccess` |
+| Force Octopus A/B Tests | `forceOctopusABTests` | `overrideCommunityAccess` + `hasAccessToCommunity` stream |
+| Community Data (Unified Profile) | `communityData` | `fetchCommunityData` / `communityDataFlow`, `OctopusProfile.clientUserId` |
 
 ## Structure
 

@@ -58,7 +58,7 @@ class SwitchCommunityScenario extends StatelessWidget {
                 '(--dart-define=OCTOPUS_NAMED_API_KEYS is empty), so there is '
                 'nothing to switch to. The build-time --dart-define injection '
                 'launcher fills the named-key set from your secrets.',
-      resultTestId: 'switch-community-result',
+      resultTestId: 'lifecycle-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
@@ -70,7 +70,12 @@ class SwitchCommunityScenario extends StatelessWidget {
       presets: [
         for (var i = 0; i < injectedApiKeys.length; i++)
           ScenarioPreset(
-            testId: 'qa-preset-switch-community-${injectedApiKeys[i].id}',
+            // Interpolated on purpose: the preset set is the named-key set,
+            // which is a build-time input. The catalog prefix is now correct,
+            // but the QA coverage gate matches WHOLE string literals, so these
+            // ids stay invisible to it and this scenario cannot be declared
+            // covered on the strength of this spelling alone.
+            testId: 'qa-preset-lifecycle-${injectedApiKeys[i].id}',
             label: 'Preset ${i + 1} · ${injectedApiKeys[i].label}',
             onRun: (setResult) async {
               final target = injectedApiKeys[i];

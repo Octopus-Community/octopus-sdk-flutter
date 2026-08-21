@@ -80,7 +80,7 @@ class _GroupAccessDeniedScenarioState extends State<GroupAccessDeniedScenario> {
           'callback is registered automatically when this screen opens and is '
           'released in dispose; the presets below let QA re-arm or unregister '
           'it explicitly.',
-      resultTestId: 'group-access-denied-result',
+      resultTestId: 'groupAccessDenied-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
@@ -91,7 +91,7 @@ class _GroupAccessDeniedScenarioState extends State<GroupAccessDeniedScenario> {
       ),
       presets: [
         ScenarioPreset(
-          testId: 'qa-preset-group-access-denied-1',
+          testId: 'qa-preset-groupAccessDenied-1',
           label: 'Preset 1 · Register callback',
           onRun: (setResult) async {
             try {
@@ -114,7 +114,7 @@ class _GroupAccessDeniedScenarioState extends State<GroupAccessDeniedScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-group-access-denied-2',
+          testId: 'qa-preset-groupAccessDenied-2',
           label: 'Preset 2 · Unregister callback',
           onRun: (setResult) async {
             try {

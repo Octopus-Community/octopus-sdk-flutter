@@ -12,8 +12,11 @@ import '../widgets/scenario_scaffold.dart';
 /// — useful for QA when [octopusDemoPostId] is unset (public builds).
 const String _fallbackFakePostId = 'flutter-demo-fake-post-id';
 
-/// setReaction scenario — exercise every [OctopusReactionKind] (heart, joy,
-/// mouthOpen, clap, cry, rage) plus `null` (unreact) against a real post id.
+/// Reactions scenario — set, change and remove a reaction on a post.
+///
+/// Presets 1-3 walk the capability end to end: react, change the reaction to
+/// another kind, then unreact. Presets 4-7 cover the remaining
+/// [OctopusReactionKind] values so every kind is exercised at least once.
 ///
 /// When [octopusDemoPostId] is configured (`OCTOPUS_DEMO_POST_ID` injected at
 /// build time, see `octopus_demo_config.dart`), every preset hits a **real**
@@ -25,14 +28,14 @@ const String _fallbackFakePostId = 'flutter-demo-fake-post-id';
 /// the orthogonal [OctopusConnectionFailure] branch (no network / not
 /// authenticated) and surface its concrete subtype so the automated UI tests see
 /// exactly what came back.
-class SetReactionScenario extends StatefulWidget {
-  const SetReactionScenario({super.key});
+class ReactionsScenario extends StatefulWidget {
+  const ReactionsScenario({super.key});
 
   @override
-  State<SetReactionScenario> createState() => _SetReactionScenarioState();
+  State<ReactionsScenario> createState() => _ReactionsScenarioState();
 }
 
-class _SetReactionScenarioState extends State<SetReactionScenario> {
+class _ReactionsScenarioState extends State<ReactionsScenario> {
   /// The post id actually hit by every preset: the real demo post id when
   /// [octopusDemoPostId] is configured, otherwise the fake fallback.
   static final String _postId = hasDemoPostId
@@ -123,14 +126,15 @@ class _SetReactionScenarioState extends State<SetReactionScenario> {
   @override
   Widget build(BuildContext context) {
     return ScenarioScaffold(
-      title: 'setReaction',
+      title: 'Reactions',
       description:
-          'Calls OctopusSDK().setReaction(reaction, postId) once per preset, '
-          'cycling through every OctopusReactionKind plus `null` (unreact). '
+          'Calls OctopusSDK().setReaction(reaction, postId) once per preset. '
+          'Presets 1-3 react, change the reaction, then unreact; presets 4-7 '
+          'cover the remaining reaction kinds. '
           '${hasDemoPostId ? 'Hits the real OCTOPUS_DEMO_POST_ID — reactions land on the backend.' : 'No OCTOPUS_DEMO_POST_ID configured — falls back to a fake post id and surfaces SetReactionPostNotFoundError (still proves the typed-error channel).'} '
           'When the user is not connected / offline, surfaces the concrete '
           'OctopusConnectionFailure subtype (e.g. OctopusUserNotAuthenticated).',
-      resultTestId: 'set-reaction-result',
+      resultTestId: 'reactions-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
@@ -140,46 +144,49 @@ class _SetReactionScenarioState extends State<SetReactionScenario> {
         ],
       ),
       presets: [
+        // Presets 1-3 are the capability triad — react, change, unreact — and
+        // keep the ids the QA catalog assigns to those three meanings. 4-7 add
+        // the remaining kinds.
         ScenarioPreset(
-          testId: 'qa-preset-set-reaction-1',
+          testId: 'qa-preset-reactions-1',
           label: 'Preset 1 · React heart ❤️',
           onRun: (setResult) =>
               _run(setResult, _heartLabel, OctopusReactionKind.heart),
         ),
         ScenarioPreset(
-          testId: 'qa-preset-set-reaction-2',
-          label: 'Preset 2 · React joy 😂',
+          testId: 'qa-preset-reactions-2',
+          label: 'Preset 2 · Change reaction to joy 😂',
           onRun: (setResult) =>
               _run(setResult, _joyLabel, OctopusReactionKind.joy),
         ),
         ScenarioPreset(
-          testId: 'qa-preset-set-reaction-3',
-          label: 'Preset 3 · React mouthOpen 😮',
+          testId: 'qa-preset-reactions-3',
+          label: 'Preset 3 · Unreact (null)',
+          onRun: (setResult) => _run(setResult, _unreactLabel, null),
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-reactions-4',
+          label: 'Preset 4 · React mouthOpen 😮',
           onRun: (setResult) =>
               _run(setResult, _mouthOpenLabel, OctopusReactionKind.mouthOpen),
         ),
         ScenarioPreset(
-          testId: 'qa-preset-set-reaction-4',
-          label: 'Preset 4 · React clap 👏',
+          testId: 'qa-preset-reactions-5',
+          label: 'Preset 5 · React clap 👏',
           onRun: (setResult) =>
               _run(setResult, _clapLabel, OctopusReactionKind.clap),
         ),
         ScenarioPreset(
-          testId: 'qa-preset-set-reaction-5',
-          label: 'Preset 5 · React cry 😢',
+          testId: 'qa-preset-reactions-6',
+          label: 'Preset 6 · React cry 😢',
           onRun: (setResult) =>
               _run(setResult, _cryLabel, OctopusReactionKind.cry),
         ),
         ScenarioPreset(
-          testId: 'qa-preset-set-reaction-6',
-          label: 'Preset 6 · React rage 😡',
+          testId: 'qa-preset-reactions-7',
+          label: 'Preset 7 · React rage 😡',
           onRun: (setResult) =>
               _run(setResult, _rageLabel, OctopusReactionKind.rage),
-        ),
-        ScenarioPreset(
-          testId: 'qa-preset-set-reaction-7',
-          label: 'Preset 7 · Unreact (null)',
-          onRun: (setResult) => _run(setResult, _unreactLabel, null),
         ),
       ],
     );

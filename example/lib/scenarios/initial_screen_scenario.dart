@@ -14,8 +14,9 @@ import '../octopus_demo_config.dart';
 import '../widgets/scenario_scaffold.dart';
 
 /// Initial-screen scenario — `OctopusInitialScreen` variants
-/// (`mainFeed` / `post` / `group` / `createPost`) plus the standalone
-/// `OctopusPostDetailsScreen` shorthand.
+/// (`mainFeed` / `post` / `group` / `activity` / `profile` / `createPost`) plus
+/// the standalone `OctopusPostDetailsScreen` / `OctopusProfileScreen`
+/// shorthands.
 ///
 /// The scenario now ships a host-driven **input form** above the presets so
 /// QA can plug a *real* post id / group id / prefill text / CTA — instead of
@@ -40,6 +41,16 @@ import '../widgets/scenario_scaffold.dart';
 ///   (auto inset) — the only preset exercising the client-facing helper whose
 ///   default auto-reserves the Android nav-bar inset (unlike presets 1-5,
 ///   which mount the widget directly and forward the inset themselves).
+/// - Presets 8 & 9 open one member's posts
+///   ([OctopusInitialScreen.activity]) by the two id kinds the wire
+///   discriminates — the host app's own `clientUserId` and the member's Octopus
+///   `profileId`. Preset 9 resolves a `profileId` with `fetchCommunityData`
+///   when the field is empty, so it runs in one tap.
+/// - Presets 10 & 11 open the standalone [OctopusProfileScreen] with and
+///   without an id: another member's read-only profile, and the connected
+///   user's own editable one. The Community tab reaches the same pair from the
+///   place a Unified Profile host actually needs them — the host profile page
+///   pushed by `onNavigateToProfile`.
 ///
 /// Each preset pushes a new [MaterialPageRoute] hosting the requested
 /// embedded view directly — without an outer host [AppBar] (only a top
@@ -89,6 +100,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   late final TextEditingController _prefillTextCtrl;
   late final TextEditingController _ctaLabelCtrl;
   late final TextEditingController _ctaUrlCtrl;
+  late final TextEditingController _memberClientUserIdCtrl;
+  late final TextEditingController _memberProfileIdCtrl;
 
   /// Group id explicitly selected from the live `app.groups` dropdown (preset 3
   /// + the optional createPost `topicId` field). `null` means "none selected".
@@ -112,6 +125,11 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
     _prefillTextCtrl = TextEditingController(text: _defaultPrefillText);
     _ctaLabelCtrl = TextEditingController();
     _ctaUrlCtrl = TextEditingController();
+    // Left empty on purpose: the member presets fall back to the connected
+    // user's own ids (see [_effectiveMemberClientUserId]), which are not known
+    // yet at initState time and change on every login / community switch.
+    _memberClientUserIdCtrl = TextEditingController();
+    _memberProfileIdCtrl = TextEditingController();
   }
 
   @override
@@ -120,7 +138,24 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
     _prefillTextCtrl.dispose();
     _ctaLabelCtrl.dispose();
     _ctaUrlCtrl.dispose();
+    _memberClientUserIdCtrl.dispose();
+    _memberProfileIdCtrl.dispose();
     super.dispose();
+  }
+
+  /// The client user id the member presets (8, 9, 10) act on: QA's typed value,
+  /// else the connected user's own — the id the SDK reports when it exposes
+  /// client user ids, else the host-side login id. Empty only for a guest with
+  /// no stored login, in which case the presets report that instead of opening a
+  /// screen with an id that could never resolve.
+  ///
+  /// Same "effective value" idiom as [_effectiveGroupId]: prefilling a real id
+  /// discovered at runtime is what lets the presets run out of the box, while
+  /// still letting QA plug another member's id.
+  String _effectiveMemberClientUserId(AppState app) {
+    final typed = _memberClientUserIdCtrl.text.trim();
+    if (typed.isNotEmpty) return typed;
+    return (app.profile?.clientUserId ?? app.effectiveUserId).trim();
   }
 
   Future<void> _openRoute(
@@ -203,6 +238,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
     final theme = Theme.of(context);
     final groups = app.groups;
     final effectiveSelected = _effectiveGroupId(groups);
+    final connectedFallback = (app.profile?.clientUserId ?? app.effectiveUserId)
+        .trim();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -322,6 +359,41 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            const SizedBox(height: 16),
+            Text('Member (presets 8-10)', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _memberClientUserIdCtrl,
+              decoration: InputDecoration(
+                labelText: 'Member clientUserId',
+                helperText:
+                    'Your app\'s own id for the member. Empty falls back to the '
+                    'connected user\'s own id'
+                    '${connectedFallback.isEmpty ? ' (none known — connect first)' : ' ("$connectedFallback")'}'
+                    '. Resolved through the client-user-id lookup, so it needs '
+                    'a community that exposes client user ids.',
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (_) {
+                if (!mounted) return;
+                setState(() {});
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _memberProfileIdCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Member Octopus profileId (preset 9)',
+                helperText:
+                    'Empty is fine: preset 9 resolves one with '
+                    'fetchCommunityData(clientUserId:) and writes it back here.',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) {
+                if (!mounted) return;
+                setState(() {});
+              },
+            ),
           ],
         ),
       ),
@@ -336,17 +408,18 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
       description:
           'Mount the embedded community on a specific initial screen — main '
           'feed, a single post (bridge mode), a single group (bridge mode), '
-          'the post editor, the standalone OctopusPostDetailsScreen widget, or '
+          'the post editor, one member\'s posts or profile, the standalone '
+          'OctopusPostDetailsScreen / OctopusProfileScreen widgets, or '
           'via the top-level showOctopusHomeScreen helper (auto bottom inset). '
           'Use the input form below to plug a real post id / group / prefill '
           'so QA exercises live content (not just not-found stubs). Each '
           'preset pushes a new route hosting the SDK directly; the SDK '
           "renders its own back arrow which pops the route.",
-      resultTestId: 'initial-screen-result',
+      resultTestId: 'initialScreen-result',
       liveState: _buildInputForm(context, app),
       presets: [
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-1',
+          testId: 'qa-preset-initialScreen-1',
           label: 'Preset 1 · Open main feed',
           onRun: (setResult) async {
             try {
@@ -383,7 +456,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-2',
+          testId: 'qa-preset-initialScreen-2',
           label: 'Preset 2 · Open post (bridge mode)',
           onRun: (setResult) async {
             final postId = _postIdCtrl.text.trim();
@@ -434,7 +507,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-3',
+          testId: 'qa-preset-initialScreen-3',
           label: 'Preset 3 · Open group (bridge mode)',
           onRun: (setResult) async {
             final groupId = _effectiveGroupId(app.groups);
@@ -487,7 +560,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-4',
+          testId: 'qa-preset-initialScreen-4',
           label: 'Preset 4 · Open createPost (prefilled)',
           onRun: (setResult) async {
             final text = _prefillTextCtrl.text;
@@ -627,7 +700,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-5',
+          testId: 'qa-preset-initialScreen-5',
           label: 'Preset 5 · Open standalone OctopusPostDetailsScreen',
           onRun: (setResult) async {
             final postId = _postIdCtrl.text.trim();
@@ -683,7 +756,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-6',
+          testId: 'qa-preset-initialScreen-6',
           label: 'Preset 6 · Standalone editor + signed image share',
           onRun: (setResult) async {
             final text = _prefillTextCtrl.text;
@@ -762,7 +835,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                   prefilledPost: prefill,
                   // signBridgeFingerprint is synchronous (String?); wrap it to
                   // match the Future<String?> provider contract, mirroring the
-                  // bridge-to-client-object scenario's _hostBridgeTokenProvider.
+                  // bridge scenario's _hostBridgeTokenProvider.
                   bridgeShareTokenProvider: (fingerprint) async =>
                       BridgeTokenSigner.signBridgeFingerprint(fingerprint),
                 ),
@@ -777,7 +850,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-7',
+          testId: 'qa-preset-initialScreen-7',
           label:
               'Preset 7 · Open via showOctopusHomeScreen helper (auto inset)',
           onRun: (setResult) async {
@@ -831,6 +904,246 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 'Failed to open via showOctopusHomeScreen helper: $e',
                 isError: true,
               );
+            }
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-initial-screen-8',
+          label: 'Preset 8 · Open member activity (by clientUserId)',
+          onRun: (setResult) async {
+            final clientUserId = _effectiveMemberClientUserId(app);
+            if (clientUserId.isEmpty) {
+              setResult(
+                'No member clientUserId — fill the "Member clientUserId" field '
+                'above, or connect a user so the presets can fall back to their '
+                'own id.',
+                isError: true,
+              );
+              return;
+            }
+            try {
+              demoLog.apiCall('OctopusHomeScreen', {
+                'initialScreen': 'activity',
+                'clientUserId': clientUserId,
+              });
+              setResult(
+                'Opening OctopusHomeScreen with '
+                'OctopusInitialScreen.activity('
+                'ActivityScreenInfo.clientUserId("$clientUserId")) — the '
+                'posts-only screen titled "{author}\'s Posts", no profile '
+                'header and no tabs. Pointing it at the connected user\'s own '
+                'id instead opens the two-tab activity screen on both '
+                'platforms. An id that does not resolve (unknown mapping, or a '
+                'community that does not expose client user ids) shows the '
+                'empty state — it never falls back to another member.',
+              );
+              await _openRoute(
+                context,
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusHomeScreen(
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      showBackButton: true,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
+                      initialScreen: OctopusInitialScreen.activity(
+                        ActivityScreenInfo.clientUserId(clientUserId),
+                      ),
+                    ),
+              );
+              if (!mounted) return;
+              setResult('Returned to scenario.');
+            } catch (e) {
+              setResult(
+                'Failed to open member activity by clientUserId: $e',
+                isError: true,
+              );
+            }
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-initial-screen-9',
+          label: 'Preset 9 · Open member activity (by profileId)',
+          onRun: (setResult) async {
+            // Resolve an Octopus profile id when QA has not pasted one: this is
+            // the round-trip a host does when all it holds is its own id
+            // (fetchCommunityData → profileId), and it keeps the preset
+            // one-tap. The resolved id is written back into the field so the
+            // next run skips the lookup and QA can see what was used.
+            var profileId = _memberProfileIdCtrl.text.trim();
+            if (profileId.isEmpty) {
+              final clientUserId = _effectiveMemberClientUserId(app);
+              if (clientUserId.isEmpty) {
+                setResult(
+                  'No profileId typed and no clientUserId to resolve one from '
+                  '— fill either field above, or connect a user.',
+                  isError: true,
+                );
+                return;
+              }
+              try {
+                demoLog.apiCall('fetchCommunityData', {
+                  'clientUserId': clientUserId,
+                });
+                final data = await app.octopus.fetchCommunityData(
+                  clientUserId: clientUserId,
+                );
+                if (!mounted) return;
+                if (data == null) {
+                  setResult(
+                    'No Octopus profile for clientUserId "$clientUserId", so '
+                    'there is no profileId to open. Either the member has never '
+                    'used the community, or the community does not expose '
+                    'client user ids — paste an Octopus profileId instead.',
+                    isError: true,
+                  );
+                  return;
+                }
+                profileId = data.profileId;
+                _memberProfileIdCtrl.text = profileId;
+              } catch (e) {
+                setResult(
+                  'Failed to resolve a profileId from clientUserId '
+                  '"$clientUserId": $e',
+                  isError: true,
+                );
+                return;
+              }
+            }
+            // The resolve branch above awaits, so check the captured context
+            // itself (not `mounted`) before pushing the route — this closure
+            // holds the build context, which is what `_openRoute` uses.
+            if (!context.mounted) return;
+            try {
+              demoLog.apiCall('OctopusHomeScreen', {
+                'initialScreen': 'activity',
+                'profileId': profileId,
+              });
+              setResult(
+                'Opening OctopusHomeScreen with '
+                'OctopusInitialScreen.activity('
+                'ActivityScreenInfo.profileId("$profileId")) — same screen as '
+                'preset 8, reached with the Octopus id instead: no '
+                'client-user-id lookup and no exposeClientUserId requirement.',
+              );
+              await _openRoute(
+                context,
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusHomeScreen(
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      showBackButton: true,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
+                      initialScreen: OctopusInitialScreen.activity(
+                        ActivityScreenInfo.profileId(profileId),
+                      ),
+                    ),
+              );
+              if (!mounted) return;
+              setResult('Returned to scenario.');
+            } catch (e) {
+              setResult(
+                'Failed to open member activity by profileId: $e',
+                isError: true,
+              );
+            }
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-initial-screen-10',
+          label: 'Preset 10 · Open member profile (OctopusProfileScreen)',
+          onRun: (setResult) async {
+            final clientUserId = _effectiveMemberClientUserId(app);
+            if (clientUserId.isEmpty) {
+              setResult(
+                'No member clientUserId — fill the "Member clientUserId" field '
+                'above, or connect a user.',
+                isError: true,
+              );
+              return;
+            }
+            try {
+              demoLog.apiCall('OctopusProfileScreen', {
+                'clientUserId': clientUserId,
+              });
+              setResult(
+                'Opening the standalone OctopusProfileScreen widget with '
+                'clientUserId "$clientUserId" — the read-only profile of that '
+                'member. This is what a Unified Profile host pushes from its '
+                'own profile page once onNavigateToProfile made the SDK stop '
+                'showing profiles itself (the Community tab does exactly that: '
+                'turn the Settings toggle on, tap a member, then use the '
+                'buttons at the bottom of the host page).',
+              );
+              await _openRoute(
+                context,
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusProfileScreen(
+                      clientUserId: clientUserId,
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                    ),
+              );
+              if (!mounted) return;
+              setResult('Returned to scenario.');
+            } catch (e) {
+              setResult('Failed to open member profile: $e', isError: true);
+            }
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-initial-screen-11',
+          label: 'Preset 11 · Open my own profile (no id)',
+          onRun: (setResult) async {
+            try {
+              demoLog.apiCall('OctopusProfileScreen', {'clientUserId': 'null'});
+              setResult(
+                'Opening OctopusProfileScreen() with no clientUserId — the '
+                'connected user\'s OWN profile, with its edit affordances '
+                '(onModifyUser fires the host edit page). With no connected '
+                'user the SDK shows its unavailable state and onNavigateToLogin '
+                'is the way out.',
+              );
+              await _openRoute(
+                context,
+                builder: (routeContext, bottomSafeAreaInset) =>
+                    OctopusProfileScreen(
+                      theme: app.effectiveOctopusTheme(),
+                      bottomSafeAreaInset: bottomSafeAreaInset,
+                      onBack: () => Navigator.of(routeContext).pop(),
+                      onNavigateToLogin: () => Navigator.of(routeContext).push(
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                      ),
+                      onModifyUser: (field) => Navigator.of(routeContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileEditPage(fieldToEdit: field),
+                        ),
+                      ),
+                    ),
+              );
+              if (!mounted) return;
+              setResult('Returned to scenario.');
+            } catch (e) {
+              setResult('Failed to open my own profile: $e', isError: true);
             }
           },
         ),

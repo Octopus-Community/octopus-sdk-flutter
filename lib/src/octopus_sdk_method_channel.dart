@@ -7,6 +7,7 @@ import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
+import 'content_options.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
 import 'octopus_post.dart';
@@ -16,7 +17,9 @@ import 'override_community_access_error.dart';
 import 'refresh_entitlements_error.dart';
 import 'set_reaction_error.dart';
 import 'profile_field.dart';
+import 'profile_fields_lock.dart';
 import 'sync_follow_group.dart';
+import 'terms_acceptance_mode.dart';
 import 'octopus_sdk_platform.dart';
 
 /// An implementation of [OctopusSDKPlatform] that uses method channels.
@@ -342,6 +345,29 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
     await methodChannel.invokeMethod('overrideDefaultLocale', {
       'languageCode': locale?.languageCode,
       'countryCode': locale?.countryCode,
+    });
+  }
+
+  @override
+  Future<void> debugOverrideProfileFieldsLock(ProfileFieldsLock? lock) async {
+    await methodChannel.invokeMethod('debugOverrideProfileFieldsLock', {
+      'lock': lock?.toMap(),
+    });
+  }
+
+  @override
+  Future<void> debugOverrideContentOptions(ContentOptions? options) async {
+    await methodChannel.invokeMethod('debugOverrideContentOptions', {
+      'options': options?.toMap(),
+    });
+  }
+
+  @override
+  Future<void> debugOverrideTermsAcceptanceMode(
+    TermsAcceptanceMode? mode,
+  ) async {
+    await methodChannel.invokeMethod('debugOverrideTermsAcceptanceMode', {
+      'mode': mode?.toNativeValue(),
     });
   }
 

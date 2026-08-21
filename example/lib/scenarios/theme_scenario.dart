@@ -15,8 +15,10 @@ class ThemeScenario extends StatelessWidget {
     return ScenarioScaffold(
       title: 'Theme',
       description:
-          'Switch the embedded Community UI between the SDK default theme and a '
-          'custom OctopusTheme (brand colors + bundled logo). Open the Community '
+          'Switch the embedded Community UI between the SDK default theme, a '
+          'custom OctopusTheme (brand colors + bundled logo), that same theme '
+          'extended with the background / link / nav-bar-item keys, and those '
+          'surface keys alone with no primary colors at all. Open the Community '
           'tab to see it applied.',
       resultTestId: 'theme-result',
       liveState: KeyValueCard(
@@ -46,6 +48,43 @@ class ThemeScenario extends StatelessWidget {
             setResult(
               'Embedded view → custom brand theme. '
               'Open the Community tab to see it.',
+            );
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-theme-3',
+          label: 'Preset 3 · Surface keys (background + link + nav-bar item)',
+          onRun: (setResult) async {
+            app.setActiveOctopusTheme(
+              surfaceOctopusTheme(app.logoBase64),
+              'Custom (surface keys)',
+            );
+            setResult(
+              'Embedded view → brand theme + background, link and '
+              'fontSizeNavBarItem. Open the Community tab: the community '
+              'surface turns deep purple and post links turn amber on both '
+              'platforms. fontSizeNavBarItem is iOS only — the native Android '
+              'typography has no nav-bar-item slot, so nav-bar items keep '
+              'their size there.',
+            );
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-theme-4',
+          label: 'Preset 4 · Surface keys only (no primary colors)',
+          onRun: (setResult) async {
+            app.setActiveOctopusTheme(
+              surfaceOnlyOctopusTheme(),
+              'Custom (surface keys only)',
+            );
+            setResult(
+              'Embedded view → background + link only, nothing else set. '
+              'Open the Community tab: the surface turns deep purple and links '
+              'amber, and every unset slot must still look like the SDK '
+              'default — buttons and other primary-colored elements keep the '
+              'default near-black primary that adapts to light/dark. A blue '
+              'primary here is a bug: it means an unset color was substituted '
+              'instead of forwarded as unset.',
             );
           },
         ),

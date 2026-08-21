@@ -6,6 +6,7 @@ import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
+import 'content_options.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
 import 'octopus_post.dart';
@@ -15,7 +16,9 @@ import 'override_community_access_error.dart';
 import 'refresh_entitlements_error.dart';
 import 'set_reaction_error.dart';
 import 'profile_field.dart';
+import 'profile_fields_lock.dart';
 import 'sync_follow_group.dart';
+import 'terms_acceptance_mode.dart';
 import 'octopus_sdk_method_channel.dart';
 
 abstract class OctopusSDKPlatform extends PlatformInterface {
@@ -235,6 +238,24 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   Future<void> overrideDefaultLocale(Locale? locale) {
     throw UnimplementedError(
       'overrideDefaultLocale() has not been implemented.',
+    );
+  }
+
+  Future<void> debugOverrideProfileFieldsLock(ProfileFieldsLock? lock) {
+    throw UnimplementedError(
+      'debugOverrideProfileFieldsLock() has not been implemented.',
+    );
+  }
+
+  Future<void> debugOverrideContentOptions(ContentOptions? options) {
+    throw UnimplementedError(
+      'debugOverrideContentOptions() has not been implemented.',
+    );
+  }
+
+  Future<void> debugOverrideTermsAcceptanceMode(TermsAcceptanceMode? mode) {
+    throw UnimplementedError(
+      'debugOverrideTermsAcceptanceMode() has not been implemented.',
     );
   }
 

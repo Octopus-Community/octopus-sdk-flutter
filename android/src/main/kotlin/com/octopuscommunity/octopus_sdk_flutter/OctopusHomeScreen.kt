@@ -66,6 +66,16 @@ fun OctopusHomeScreen(
     primaryLowContrast: Color? = null,
     primaryHighContrast: Color? = null,
     onPrimary: Color? = null,
+    /**
+     * Community background color. `null` keeps the native default resolved from
+     * [themeMode]. Also drives the top app bar container color when
+     * [navBarPrimaryColor] is `false` — see [OctopusFlutterTheme].
+     */
+    background: Color? = null,
+    /** Color of links inside posts and comments. `null` keeps the SDK default. */
+    link: Color? = null,
+    fontFamily: String? = null,
+    fontWeight: Int? = null,
     logoBase64: String? = null,
     navBarTitle: String? = null,
     navBarPrimaryColor: Boolean = false,
@@ -131,6 +141,10 @@ fun OctopusHomeScreen(
         primaryLowContrast = primaryLowContrast,
         primaryHighContrast = primaryHighContrast,
         onPrimary = onPrimary,
+        background = background,
+        link = link,
+        fontFamily = fontFamily,
+        fontWeight = fontWeight,
         logoBase64 = logoBase64,
         navBarTitle = navBarTitle,
         navBarPrimaryColor = navBarPrimaryColor,
@@ -154,13 +168,15 @@ fun OctopusHomeScreen(
             defaultBottom
         }
 
-        // For bridge-mode initial screens (post / group / createPost), this is
-        // the matching SDK destination the user lands directly on — they
-        // cannot navigate back to the main feed from there, matching the iOS
-        // `OctopusInitialScreen.{post, group, createPost}` semantics. `null`
-        // for MainFeed, which keeps the existing OctopusHomeRoute path with
-        // our Home/HomeContent toggle (unaffected by the BridgeRootRoute
-        // wiring below — it already has its own working onBack).
+        // For bridge-mode initial screens (post / group / activity / profile /
+        // createPost), this is the matching SDK destination the user lands
+        // directly on — they cannot navigate back to the main feed from there,
+        // matching the iOS `OctopusInitialScreen.{post, group, activity,
+        // createPost}` semantics (and, for `profile`, iOS's standalone
+        // `OctopusProfileScreen` view). `null` for MainFeed, which keeps the
+        // existing OctopusHomeRoute path with our Home/HomeContent toggle
+        // (unaffected by the BridgeRootRoute wiring below — it already has its
+        // own working onBack).
         val bridgeTarget: OctopusDestination? = when (initialScreen) {
             InitialScreenSpec.MainFeed -> null
             is InitialScreenSpec.Post -> OctopusDestination.PostDetails(
@@ -171,6 +187,31 @@ fun OctopusHomeScreen(
                 groupId = initialScreen.groupId,
                 origin = OctopusDestination.Origin.CLIENT_APP,
             )
+            // The native destination takes the two id kinds as two mutually
+            // exclusive parameters, which is exactly what MemberId.Source
+            // discriminates — so both member-scoped screens below dispatch on
+            // the same `when`, no separate wire key per platform.
+            is InitialScreenSpec.Activity -> when (initialScreen.member.source) {
+                MemberId.Source.CLIENT_USER_ID -> OctopusDestination.Activity(
+                    clientUserId = initialScreen.member.id,
+                )
+                MemberId.Source.PROFILE_ID -> OctopusDestination.Activity(
+                    userId = initialScreen.member.id,
+                )
+            }
+            is InitialScreenSpec.Profile -> initialScreen.member?.let { member ->
+                when (member.source) {
+                    MemberId.Source.CLIENT_USER_ID -> OctopusDestination.ProfileSummary(
+                        clientUserId = member.id,
+                    )
+                    MemberId.Source.PROFILE_ID -> OctopusDestination.ProfileSummary(
+                        userId = member.id,
+                    )
+                }
+                // No member → the connected user's own profile. That is the
+                // *editable* graph, not `ProfileSummary`, which is read-only
+                // even for one's own id (per its native KDoc).
+            } ?: OctopusDestination.CurrentUserProfileGraph
             is InitialScreenSpec.CreatePost -> OctopusDestination.CreatePost(
                 type = Post.Draft.Type.TEXT,
                 groupId = initialScreen.topicId,

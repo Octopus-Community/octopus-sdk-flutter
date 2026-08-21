@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'bridge_to_client_object_scenario.dart';
 import 'community_data_scenario.dart';
 import 'connection_scenario.dart';
+import 'create_post_scenario.dart';
 import 'custom_events_scenario.dart';
 import 'events_scenario.dart';
 import 'force_octopus_ab_tests_scenario.dart';
@@ -13,8 +14,8 @@ import 'locale_scenario.dart';
 import 'modal_scenario.dart';
 import 'not_seen_notifications_scenario.dart';
 import 'push_notifications_scenario.dart';
+import 'reactions_scenario.dart';
 import 'refresh_entitlements_scenario.dart';
-import 'set_reaction_scenario.dart';
 import 'sheet_scenario.dart';
 import 'switch_community_scenario.dart';
 import 'sync_follow_groups_scenario.dart';
@@ -77,7 +78,7 @@ const List<_ScenarioDescriptor> _scenarios = [
     builder: _theme,
   ),
   _ScenarioDescriptor(
-    id: 'bridgeToClientObject',
+    id: 'bridge',
     title: 'Bridge → Client Object',
     subtitle: 'fetchOrCreateClientObjectRelatedPost + setReaction',
     icon: Icons.link,
@@ -91,7 +92,7 @@ const List<_ScenarioDescriptor> _scenarios = [
     builder: _initialScreen,
   ),
   _ScenarioDescriptor(
-    id: 'switchCommunity',
+    id: 'lifecycle',
     title: 'Switch Community',
     subtitle: 'Runtime community switch',
     icon: Icons.swap_horiz,
@@ -112,11 +113,18 @@ const List<_ScenarioDescriptor> _scenarios = [
     builder: _groupAccessDenied,
   ),
   _ScenarioDescriptor(
-    id: 'setReaction',
-    title: 'Set Reaction',
-    subtitle: 'OctopusReactionKind cycle on a fake post',
+    id: 'reactions',
+    title: 'Reactions',
+    subtitle: 'React, change reaction, unreact on a post',
     icon: Icons.favorite,
-    builder: _setReaction,
+    builder: _reactions,
+  ),
+  _ScenarioDescriptor(
+    id: 'createPost',
+    title: 'Create Post (Bridge Share)',
+    subtitle: 'Post editor prefilled with a host-supplied payload',
+    icon: Icons.post_add,
+    builder: _createPost,
   ),
   _ScenarioDescriptor(
     id: 'modal',
@@ -198,7 +206,8 @@ Widget _switchCommunity(BuildContext _) => const SwitchCommunityScenario();
 Widget _refreshEntitlements(BuildContext _) =>
     const RefreshEntitlementsScenario();
 Widget _groupAccessDenied(BuildContext _) => const GroupAccessDeniedScenario();
-Widget _setReaction(BuildContext _) => const SetReactionScenario();
+Widget _reactions(BuildContext _) => const ReactionsScenario();
+Widget _createPost(BuildContext _) => const CreatePostScenario();
 Widget _modal(BuildContext _) => const ModalScenario();
 Widget _fullscreen(BuildContext _) => const FullscreenScenario();
 Widget _sheet(BuildContext _) => const SheetScenario();

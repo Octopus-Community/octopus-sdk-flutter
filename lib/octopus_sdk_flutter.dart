@@ -14,6 +14,7 @@ export 'src/octopus_nav_bar_leading_action.dart';
 export 'src/octopus_navigation_mode.dart';
 export 'src/octopus_notification.dart';
 export 'src/octopus_post_details_screen.dart';
+export 'src/octopus_profile_screen.dart';
 export 'src/profile_field.dart';
 export 'src/sync_follow_group.dart';
 export 'src/octopus_sdk.dart';

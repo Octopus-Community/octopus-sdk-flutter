@@ -31,6 +31,14 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   # `OctopusUI/Utils/View+InsetableMainNavigationView.swift` when changing these.
   s.dependency 'OctopusCommunity', '1.13.2'
   s.dependency 'OctopusCommunityUI', '1.13.2'
+  # `OctopusCore` is where `ProfileFieldsLock` / `ContentOptions` /
+  # `TermsAcceptanceMode` are declared (the `debugOverride*` QA affordances
+  # need to construct these). It is not a Swift Package "product" of
+  # octopus-sdk-swift, but it *is* a first-class published pod that
+  # `OctopusCommunity` already pulls in transitively — CocoaPods has no
+  # concept of "products", so declaring it here is enough to `import
+  # OctopusCore` directly. Keep in lockstep with the two pins above.
+  s.dependency 'OctopusCommunityCore', '1.13.2'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

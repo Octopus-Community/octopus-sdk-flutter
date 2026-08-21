@@ -86,7 +86,7 @@ plugins {
 dependencies:
   firebase_core: ^3.6.0
   firebase_messaging: ^15.1.3
-  octopus_sdk_flutter: ^1.11.0
+  octopus_sdk_flutter: ^1.13.1
 ```
 
 ---

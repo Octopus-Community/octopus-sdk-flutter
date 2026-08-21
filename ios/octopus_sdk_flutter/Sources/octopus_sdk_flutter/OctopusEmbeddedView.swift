@@ -53,6 +53,38 @@ struct OctopusHomeScreenWithCallback: View {
   }
 }
 
+/// Wraps `OctopusProfileScreen` — the native view backing the Dart
+/// `OctopusInitialScreen.profile` / `OctopusProfileScreen` entry point — with the
+/// same login-notification observer `OctopusHomeScreenWithCallback` installs, so
+/// a "log in" tap inside the profile screen reaches the Dart host.
+///
+/// It takes no `bottomSafeAreaInset`: the native view has no such parameter (it
+/// pins its own to 0 internally), so there is nothing to normalize or track
+/// here — which is why this wrapper sits outside `NormalizedBottomInsetHost`
+/// rather than inside it.
+struct OctopusProfileScreenWithCallback: View {
+  let octopus: OctopusSDK
+  /// The host app's own id for the member whose profile to show, or `nil` for the
+  /// connected user's own (editable) profile.
+  let clientUserId: String?
+  /// Same container choice as the home screen — see `OctopusHomeScreenWithCallback`.
+  let navigationMode: OctopusNavigationMode
+  let navBarLeadingAction: OctopusNavBarLeadingAction?
+  let onNavigateToLogin: () -> Void
+
+  var body: some View {
+    OctopusProfileScreen(
+      octopus: octopus,
+      clientUserId: clientUserId,
+      navigationMode: navigationMode,
+      navBarLeadingAction: navBarLeadingAction
+    )
+    .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OctopusNavigateToLogin"))) { _ in
+      onNavigateToLogin()
+    }
+  }
+}
+
 /// Observable box holding the normalized bottom inset handed to the embedded
 /// SwiftUI tree.
 ///
@@ -86,37 +118,130 @@ private struct NormalizedBottomInsetHost<Content: View>: View {
   var body: some View { content(store.value) }
 }
 
-/// Decodes the Dart `OctopusInitialScreen.toMap()` wire shape into the iOS
-/// `OctopusInitialScreen` enum.
+/// Which native view the bridge mounts for a decoded Dart `initialScreen`.
+///
+/// Every case but one is an `OctopusInitialScreen` handed to `OctopusHomeScreen`.
+/// The Dart `OctopusInitialScreen.profile` case has **no counterpart in the
+/// native iOS enum** — iOS ships a separate top-level `OctopusProfileScreen`
+/// view for it (Android pushes a `ProfileSummary` destination inside the same
+/// `NavHost` as the other bridge-mode entries). So the decode result has to be
+/// able to say "mount a different view", not just "which start screen".
+enum BridgeInitialScreen {
+  /// Mount `OctopusHomeScreen` with this start screen.
+  case home(OctopusInitialScreen)
+  /// Mount `OctopusProfileScreen` for this member, or — `nil` — for the
+  /// connected user's own profile.
+  case profile(clientUserId: String?)
+}
+
+/// How a member-scoped entry point identifies its member, decoded from the wire.
+///
+/// A bridge-level mirror of the native `ActivityScreenInfo.Source`, which is
+/// `package`-visible in the iOS SDK and therefore unreadable from here: the two
+/// public `ActivityScreenInfo` initializers accept a source but nothing reads one
+/// back out, and the `profile` case needs the same discriminator without going
+/// through `ActivityScreenInfo` at all.
+private enum BridgeMemberId {
+  case clientUserId(String)
+  case profileId(String)
+}
+
+/// Decodes the shared `{source, id}` member payload every member-scoped entry
+/// point carries.
+///
+/// The one iOS counterpart of the Dart `memberIdToMap` encoder
+/// (`lib/src/member_id.dart`) and the Android `MemberId.fromMap`. Returns `nil`
+/// for a non-map, an unknown `source`, or a missing / blank `id`; each caller
+/// decides what that means for it.
+///
+/// A pure decoder: the id is forwarded exactly as it arrived. Normalization
+/// (trimming, and treating a blank id as no member) belongs to `memberIdToMap`,
+/// the single producer of this payload — so both bridges stay byte-for-byte
+/// agreed on what they hand their native SDK.
+private func decodeMemberId(_ raw: Any?) -> BridgeMemberId? {
+  guard let map = raw as? [String: Any],
+        let id = (map["id"] as? String)?.nilIfBlank else { return nil }
+  switch map["source"] as? String {
+  case "clientUserId": return .clientUserId(id)
+  case "profileId":    return .profileId(id)
+  default:
+    NSLog("[OctopusSdkFlutter] member: unknown source=\(map["source"] ?? "nil") — ignoring the member")
+    return nil
+  }
+}
+
+/// Decodes the Dart `OctopusInitialScreen.toMap()` wire shape into the native
+/// view the bridge should mount.
 ///
 /// Unknown / malformed values fold to `.mainFeed`. Image bytes from the
 /// `createPost` variant are intentionally dropped here: the embedded
 /// initialScreen entry point is not the route hosts use to share an image
 /// (`showOctopusCreatePostScreen` is). Hosts can still pass text, topicId,
 /// and CTA through.
-private func decodeInitialScreen(_ raw: Any?) -> OctopusInitialScreen {
-  guard let map = raw as? [String: Any] else { return .mainFeed }
+private func decodeInitialScreen(_ raw: Any?) -> BridgeInitialScreen {
+  guard let map = raw as? [String: Any] else { return .home(.mainFeed) }
   switch map["type"] as? String {
   case "mainFeed", nil:
-    return .mainFeed
+    return .home(.mainFeed)
   case "post":
     guard let postId = map["postId"] as? String,
           !postId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       NSLog("[OctopusSdkFlutter] initialScreen.post: missing/blank postId — falling back to mainFeed")
-      return .mainFeed
+      return .home(.mainFeed)
     }
-    return .post(.init(postId: postId))
+    return .home(.post(.init(postId: postId)))
   case "group":
     guard let groupId = map["groupId"] as? String,
           !groupId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       NSLog("[OctopusSdkFlutter] initialScreen.group: missing/blank groupId — falling back to mainFeed")
-      return .mainFeed
+      return .home(.mainFeed)
     }
-    return .group(.init(groupId: groupId))
+    return .home(.group(.init(groupId: groupId)))
+  case "activity":
+    // Unlike `profile`, this screen has no "connected user" meaning to fall back
+    // on — Dart always sends a member here, so an absent one is malformed.
+    guard let member = decodeMemberId(map["member"]) else {
+      NSLog("[OctopusSdkFlutter] initialScreen.activity: missing member — falling back to mainFeed")
+      return .home(.mainFeed)
+    }
+    switch member {
+    case let .clientUserId(id): return .home(.activity(.init(clientUserId: id)))
+    case let .profileId(id):    return .home(.activity(.init(profileId: id)))
+    }
+  case "profile":
+    // An absent (or undecodable) member means the connected user's own profile —
+    // `OctopusProfileScreen(clientUserId: nil)`.
+    switch decodeMemberId(map["member"]) {
+    case nil:
+      return .profile(clientUserId: nil)
+    case let .clientUserId(id):
+      return .profile(clientUserId: id)
+    case let .profileId(id):
+      // Not reachable from the current Dart API — `OctopusInitialScreen.profile`
+      // takes only a clientUserId, precisely because iOS's `OctopusProfileScreen`
+      // has no by-Octopus-id form (Android's `ProfileSummary` does, and the
+      // shared member payload carries it for that reason). Handled rather than
+      // ignored so the requested member is never swapped for the connected user:
+      // the activity screen is the one native view that opens an Octopus id
+      // directly, and it is what the Dart docs point hosts to for this case.
+      //
+      // The Android bridge does NOT mirror this fallback — its `ProfileSummary`
+      // takes an Octopus id, so it opens that member's profile proper. Each side
+      // opens the closest thing its native SDK has, which is only tenable while
+      // no Dart API can reach this branch. Whoever adds
+      // `OctopusInitialScreen.profile(profileId:)` has to settle the two on one
+      // behaviour; the same warning sits on `InitialScreenSpec.Profile` in
+      // `InitialScreenSpec.kt`.
+      NSLog(
+        "[OctopusSdkFlutter] initialScreen.profile by Octopus profile id is not supported on iOS — "
+        + "opening that member's activity screen instead"
+      )
+      return .home(.activity(.init(profileId: id)))
+    }
   case "createPost":
     let prefilled = map["prefilledPost"] as? [String: Any]
     guard let prefilled = prefilled else {
-      return .createPost(.init(prefilledPost: nil))
+      return .home(.createPost(.init(prefilledPost: nil)))
     }
     let text = (prefilled["text"] as? String)?.nilIfEmpty
     let topicId = (prefilled["topicId"] as? String)?.nilIfEmpty
@@ -136,15 +261,27 @@ private func decodeInitialScreen(_ raw: Any?) -> OctopusInitialScreen {
       NSLog("[OctopusSdkFlutter] initialScreen.createPost: payload rejected (\(error)) — opening empty editor")
       payload = nil
     }
-    return .createPost(.init(prefilledPost: payload))
+    return .home(.createPost(.init(prefilledPost: payload)))
   default:
     NSLog("[OctopusSdkFlutter] initialScreen: unknown type=\(map["type"] ?? "nil") — falling back to mainFeed")
-    return .mainFeed
+    return .home(.mainFeed)
   }
 }
 
 private extension String {
   var nilIfEmpty: String? { isEmpty ? nil : self }
+
+  /// `nil` when there is nothing but whitespace here, otherwise the string
+  /// **unchanged** — the same "missing/blank" test the `post` / `group` ids get
+  /// above, and the same one Android's `MemberId.fromMap` applies.
+  ///
+  /// It deliberately does not return the trimmed value: an earlier version did,
+  /// which made a padded id (`" cu-1 "`) resolve on iOS and miss on Android for
+  /// the same call. The producer trims now; a decoder that also normalized would
+  /// hide the next such divergence instead of ruling it out.
+  var nilIfBlank: String? {
+    trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
+  }
 }
 
 final class OctopusViewFactory: NSObject, FlutterPlatformViewFactory {
@@ -318,7 +455,7 @@ private final class SafeHostingContainerView: UIView {
     var interceptProfileTaps = false
     var hasModifyUserHandler = false
     var notificationUserInfo: [AnyHashable: Any]? = nil
-    var initialScreen: OctopusInitialScreen = .mainFeed
+    var initialScreen: BridgeInitialScreen = .home(.mainFeed)
     var titleCentered = false
     // Default to `.navigationStack` — every Flutter host is by definition a
     // UIKit-hosted controller, and the iOS SDK's `.automatic` currently maps
@@ -346,6 +483,10 @@ private final class SafeHostingContainerView: UIView {
       let low = (dict["primaryLowContrast"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
       let high = (dict["primaryHighContrast"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
       let onPrimary = (dict["onPrimary"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let background = (dict["background"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let link = (dict["link"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+      let fontFamily = dict["fontFamily"] as? String
+      let fontWeight = (dict["fontWeight"] as? NSNumber)?.intValue
       let logoBase64 = dict["logoBase64"] as? String
       // Only treat the logo as "custom" when the base64 actually decodes to a
       // UIImage — mirrors the decode guard in OctopusSDKFlutterPlugin.buildTheme.
@@ -419,13 +560,18 @@ private final class SafeHostingContainerView: UIView {
         )
       }
 
-      // Font sizes
-      let fontSizeTitle1 = (dict["fontSizeTitle1"] as? NSNumber)?.intValue ?? 26
-      let fontSizeTitle2 = (dict["fontSizeTitle2"] as? NSNumber)?.intValue ?? 20
-      let fontSizeBody1 = (dict["fontSizeBody1"] as? NSNumber)?.intValue ?? 17
-      let fontSizeBody2 = (dict["fontSizeBody2"] as? NSNumber)?.intValue ?? 14
-      let fontSizeCaption1 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue ?? 12
-      let fontSizeCaption2 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue ?? 10
+      // Font sizes. All seven stay optional all the way to `buildTheme`: Dart
+      // omits the key entirely for an unset slot, and `nil` is how that slot asks
+      // for the SDK's own `UIFontMetrics`-scaled default. Substituting a number
+      // here would pin the type size against Dynamic Type for every host that
+      // sets any *other* theme key.
+      let fontSizeTitle1 = (dict["fontSizeTitle1"] as? NSNumber)?.intValue
+      let fontSizeTitle2 = (dict["fontSizeTitle2"] as? NSNumber)?.intValue
+      let fontSizeBody1 = (dict["fontSizeBody1"] as? NSNumber)?.intValue
+      let fontSizeBody2 = (dict["fontSizeBody2"] as? NSNumber)?.intValue
+      let fontSizeCaption1 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue
+      let fontSizeCaption2 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue
+      let fontSizeNavBarItem = (dict["fontSizeNavBarItem"] as? NSNumber)?.intValue
 
       themeMode = dict["themeMode"] as? String
       interceptUrls = (dict["interceptUrls"] as? Bool) ?? false
@@ -466,25 +612,41 @@ private final class SafeHostingContainerView: UIView {
       if linkPath == nil || linkPath!.isEmpty {
         initialScreen = decodeInitialScreen(dict["initialScreen"])
       } else {
-        initialScreen = .mainFeed
+        initialScreen = .home(.mainFeed)
       }
 
+      // Any theme key present at all means the host asked for a theme — every slot
+      // is optional, so this is a plain presence test. It used to compare the font
+      // sizes against the wrapper's own numbers, which made "unset" and
+      // "explicitly set to the wrapper default" indistinguishable; now an absent
+      // key is absent all the way down.
       if main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil ||
-         fontSizeTitle1 != 26 || fontSizeTitle2 != 20 || fontSizeBody1 != 17 ||
-         fontSizeBody2 != 14 || fontSizeCaption1 != 12 || fontSizeCaption2 != 10 ||
+         background != nil || link != nil || fontFamily != nil || fontWeight != nil ||
+         fontSizeNavBarItem != nil ||
+         fontSizeTitle1 != nil || fontSizeTitle2 != nil || fontSizeBody1 != nil ||
+         fontSizeBody2 != nil || fontSizeCaption1 != nil || fontSizeCaption2 != nil ||
          themeMode != nil {
+        // Pass the optionals straight through: `buildTheme` resolves each unset
+        // slot to the SDK's own default. Substituting anything here would silently
+        // override the native primary palette — or the native scaled type — for a
+        // host that only asked for, say, `background`.
         theme = OctopusSDKFlutterPlugin.buildTheme(
-          main: main ?? .systemBlue,
-          low: low ?? UIColor.systemBlue.withAlphaComponent(0.2),
-          high: high ?? .white,
-          onPrimary: onPrimary ?? .white,
+          main: main,
+          low: low,
+          high: high,
+          onPrimary: onPrimary,
+          background: background,
+          link: link,
           logoBase64: logoBase64,
+          fontFamily: fontFamily,
+          fontWeight: fontWeight,
           fontSizeTitle1: fontSizeTitle1,
           fontSizeTitle2: fontSizeTitle2,
           fontSizeBody1: fontSizeBody1,
           fontSizeBody2: fontSizeBody2,
           fontSizeCaption1: fontSizeCaption1,
           fontSizeCaption2: fontSizeCaption2,
+          fontSizeNavBarItem: fontSizeNavBarItem,
           themeMode: themeMode
         )
       }
@@ -596,36 +758,46 @@ private final class SafeHostingContainerView: UIView {
       OctopusEventEmitter.shared?.emitNavigateToLogin()
     }
 
+    // Which native view to mount. `.profile` is the one Dart initial screen with
+    // no native `OctopusInitialScreen` counterpart — iOS ships a separate
+    // top-level view for it (see `BridgeInitialScreen`). Consequences for that
+    // branch, mirrored in the Dart doc: the main-feed nav-bar title and the
+    // notification deep link do not apply to it, and it has no
+    // `bottomSafeAreaInset` parameter to forward.
+    let content: AnyView
+    switch initialScreen {
+    case let .home(homeScreen):
+      content = AnyView(NormalizedBottomInsetHost(store: bottomInsetStore) { inset in
+        OctopusHomeScreenWithCallback(
+          octopus: octopus,
+          mainFeedNavBarTitle: mainFeedTitle,
+          mainFeedColoredNavBar: navBarPrimaryColor,
+          initialScreen: homeScreen,
+          navigationMode: navigationMode,
+          navBarLeadingAction: navBarLeadingAction,
+          notificationUserInfo: notificationUserInfo,
+          onNavigateToLogin: onNavigateToLogin,
+          bottomSafeAreaInset: inset
+        )
+      })
+    case let .profile(clientUserId):
+      content = AnyView(OctopusProfileScreenWithCallback(
+        octopus: octopus,
+        clientUserId: clientUserId,
+        navigationMode: navigationMode,
+        navBarLeadingAction: navBarLeadingAction,
+        onNavigateToLogin: onNavigateToLogin
+      ))
+    }
+
+    let colorScheme: ColorScheme? =
+      themeMode == "dark" ? .dark : themeMode == "light" ? .light : nil
     let root: AnyView
     if let theme {
-      root = AnyView(NormalizedBottomInsetHost(store: bottomInsetStore) { inset in
-        OctopusHomeScreenWithCallback(
-          octopus: octopus,
-          mainFeedNavBarTitle: mainFeedTitle,
-          mainFeedColoredNavBar: navBarPrimaryColor,
-          initialScreen: initialScreen,
-          navigationMode: navigationMode,
-          navBarLeadingAction: navBarLeadingAction,
-          notificationUserInfo: notificationUserInfo,
-          onNavigateToLogin: onNavigateToLogin,
-          bottomSafeAreaInset: inset
-        )
-      }.environment(\.octopusTheme, theme)
-      .preferredColorScheme(themeMode == "dark" ? .dark : themeMode == "light" ? .light : nil))
+      root = AnyView(content.environment(\.octopusTheme, theme)
+        .preferredColorScheme(colorScheme))
     } else {
-      root = AnyView(NormalizedBottomInsetHost(store: bottomInsetStore) { inset in
-        OctopusHomeScreenWithCallback(
-          octopus: octopus,
-          mainFeedNavBarTitle: mainFeedTitle,
-          mainFeedColoredNavBar: navBarPrimaryColor,
-          initialScreen: initialScreen,
-          navigationMode: navigationMode,
-          navBarLeadingAction: navBarLeadingAction,
-          notificationUserInfo: notificationUserInfo,
-          onNavigateToLogin: onNavigateToLogin,
-          bottomSafeAreaInset: inset
-        )
-      }.preferredColorScheme(themeMode == "dark" ? .dark : themeMode == "light" ? .light : nil))
+      root = AnyView(content.preferredColorScheme(colorScheme))
     }
     let controller = UIHostingController(rootView: root)
     let parentViewController = self.findViewController()

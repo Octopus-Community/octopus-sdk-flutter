@@ -160,27 +160,46 @@ enum OctopusCreatePostPresenter {
     let low = (dict["primaryLowContrast"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
     let high = (dict["primaryHighContrast"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
     let onPrimary = (dict["onPrimary"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+    let background = (dict["background"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+    let link = (dict["link"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
+    let fontFamily = dict["fontFamily"] as? String
+    let fontWeight = (dict["fontWeight"] as? NSNumber)?.intValue
     let logoBase64 = dict["logoBase64"] as? String
     let themeMode = dict["themeMode"] as? String
-    let f1 = (dict["fontSizeTitle1"] as? NSNumber)?.intValue ?? 26
-    let f2 = (dict["fontSizeTitle2"] as? NSNumber)?.intValue ?? 20
-    let f3 = (dict["fontSizeBody1"] as? NSNumber)?.intValue ?? 17
-    let f4 = (dict["fontSizeBody2"] as? NSNumber)?.intValue ?? 14
-    let f5 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue ?? 12
-    let f6 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue ?? 10
+    // All seven font slots stay optional, like the colors: `nil` is how a slot
+    // asks for the SDK's own scaled default. See `buildTheme`.
+    let f1 = (dict["fontSizeTitle1"] as? NSNumber)?.intValue
+    let f2 = (dict["fontSizeTitle2"] as? NSNumber)?.intValue
+    let f3 = (dict["fontSizeBody1"] as? NSNumber)?.intValue
+    let f4 = (dict["fontSizeBody2"] as? NSNumber)?.intValue
+    let f5 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue
+    let f6 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue
+    let navBarItem = (dict["fontSizeNavBarItem"] as? NSNumber)?.intValue
 
+    // A plain presence test over every slot — `background`, `link`,
+    // `fontFamily`, `fontWeight` and `navBarItem` included, since a host that
+    // sets only one of them must still get a theme.
     let hasTheme = main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil ||
-      themeMode != nil || f1 != 26 || f2 != 20 || f3 != 17 || f4 != 14 || f5 != 12 || f6 != 10
+      background != nil || link != nil || fontFamily != nil || fontWeight != nil ||
+      navBarItem != nil || themeMode != nil ||
+      f1 != nil || f2 != nil || f3 != nil || f4 != nil || f5 != nil || f6 != nil
     guard hasTheme else { return (nil, themeMode) }
 
+    // Optionals go through unsubstituted — see `buildTheme`: `nil` is how a slot
+    // asks for the SDK's own default, and the embedded path does the same.
     let theme = OctopusSDKFlutterPlugin.buildTheme(
-      main: main ?? .systemBlue,
-      low: low ?? UIColor.systemBlue.withAlphaComponent(0.2),
-      high: high ?? .white,
-      onPrimary: onPrimary ?? .white,
+      main: main,
+      low: low,
+      high: high,
+      onPrimary: onPrimary,
+      background: background,
+      link: link,
       logoBase64: logoBase64,
+      fontFamily: fontFamily,
+      fontWeight: fontWeight,
       fontSizeTitle1: f1, fontSizeTitle2: f2, fontSizeBody1: f3,
       fontSizeBody2: f4, fontSizeCaption1: f5, fontSizeCaption2: f6,
+      fontSizeNavBarItem: navBarItem,
       themeMode: themeMode)
     return (theme, themeMode)
   }

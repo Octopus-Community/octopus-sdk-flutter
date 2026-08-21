@@ -42,6 +42,10 @@ class OctopusEmbeddedView(
     private val primaryLowContrast: Color? = null,
     private val primaryHighContrast: Color? = null,
     private val onPrimary: Color? = null,
+    private val background: Color? = null,
+    private val link: Color? = null,
+    private val fontFamily: String? = null,
+    private val fontWeight: Int? = null,
     private val logoBase64: String? = null,
     private val navBarTitle: String? = null,
     private val navBarPrimaryColor: Boolean = false,
@@ -97,6 +101,14 @@ class OctopusEmbeddedView(
                 // shows on Android for a host with no `onModifyUser`) is recorded
                 // in the CHANGELOG.
                 //
+                // `fontSizeNavBarItem` is the third iOS-only key, and is
+                // likewise NOT read here. The native iOS theme has a dedicated
+                // `OctopusTheme.Fonts.navBarItem` slot; the native Android
+                // `OctopusTypography` has no counterpart (title1/title2/body1/
+                // body2/caption1/caption2 only), so there is nothing to map it
+                // onto. Do NOT approximate it by resizing another slot — that
+                // would change text the host did not ask to change.
+                //
                 // `navBarLeadingAction` IS consumed on Android (wrapped native
                 // SDK 1.12.1+): the native `OctopusHomeScreen` gained a
                 // `leadingNavigationIcon: NavigationIconType?` so a host can
@@ -119,6 +131,10 @@ class OctopusEmbeddedView(
                     primaryLowContrast = args.getColor("primaryLowContrast"),
                     primaryHighContrast = args.getColor("primaryHighContrast"),
                     onPrimary = args.getColor("onPrimary"),
+                    background = args.getColor("background"),
+                    link = args.getColor("link"),
+                    fontFamily = args["fontFamily"] as? String,
+                    fontWeight = (args["fontWeight"] as? Number)?.toInt(),
                     logoBase64 = args["logoBase64"] as? String,
                     navBarTitle = args["navBarTitle"] as? String,
                     navBarPrimaryColor = args["navBarPrimaryColor"] as? Boolean ?: false,
@@ -187,6 +203,19 @@ class OctopusEmbeddedView(
                             primaryLowContrast = primaryLowContrast,
                             primaryHighContrast = primaryHighContrast,
                             onPrimary = onPrimary,
+                            // Qualified: inside this `ComposeView(context).apply { }`
+                            // block, the unqualified name `background` resolves to
+                            // the receiver's own inherited `View.background: Drawable?`
+                            // (shadowing the class's `private val background: Color?`
+                            // declared above), not to this class's property. That
+                            // mismatch (Drawable? vs Color?) fails to compile, so the
+                            // explicit `this@OctopusEmbeddedView` qualifier is required
+                            // here, not stylistic. `link` has no such collision with
+                            // any `View` member, so it doesn't need qualifying.
+                            background = this@OctopusEmbeddedView.background,
+                            link = link,
+                            fontFamily = fontFamily,
+                            fontWeight = fontWeight,
                             logoBase64 = logoBase64,
                             navBarTitle = navBarTitle,
                             navBarPrimaryColor = navBarPrimaryColor,

@@ -5,11 +5,15 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
 import com.octopuscommunity.sdk.ApiServer
+import com.octopuscommunity.sdk.InternalOctopusApi
 import com.octopuscommunity.sdk.OctopusSDK
 import com.octopuscommunity.sdk.domain.model.ClientPost
 import com.octopuscommunity.sdk.domain.model.ClientUser
+import com.octopuscommunity.sdk.domain.model.CommunityConfig
 import com.octopuscommunity.sdk.domain.model.ConnectionMode
 import com.octopuscommunity.sdk.domain.model.Gamification
+import com.octopuscommunity.sdk.domain.model.ProfileFieldLockState
+import com.octopuscommunity.sdk.domain.model.ProfileFieldsLock
 import com.octopuscommunity.sdk.domain.model.Moderation
 import com.octopuscommunity.sdk.domain.model.OctopusEvent
 import com.octopuscommunity.sdk.domain.model.OctopusCommunityData
@@ -201,6 +205,11 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
     }
 
+    // The three "debugOverride*" cases below call `OctopusSDK` members annotated
+    // `@InternalOctopusApi` (test-only affordances, not part of the supported
+    // public API — see that annotation's KDoc). `onMethodCall` is their single
+    // call site in this file, so the opt-in is scoped here rather than per-case.
+    @OptIn(InternalOctopusApi::class)
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "getPlatformVersion" -> {
@@ -472,6 +481,24 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 }
             }
 
+            "debugOverrideProfileFieldsLock" -> {
+                val lock = parseProfileFieldsLock(call)
+                OctopusSDK.debugOverrideProfileFieldsLock(lock)
+                result.success(null)
+            }
+
+            "debugOverrideContentOptions" -> {
+                val options = parseContentOptions(call)
+                OctopusSDK.debugOverrideContentOptions(options)
+                result.success(null)
+            }
+
+            "debugOverrideTermsAcceptanceMode" -> {
+                val mode = parseTermsAcceptanceMode(call)
+                OctopusSDK.debugOverrideTermsAcceptanceMode(mode)
+                result.success(null)
+            }
+
             "fetchGroups" -> {
                 scope.launch {
                     try {
@@ -577,6 +604,73 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         val host = map["host"] as? String ?: return null
         val port = (map["port"] as? Number)?.toInt() ?: 443
         return ApiServer(host = host, port = port)
+    }
+
+    /** Parses the `lock` argument of `debugOverrideProfileFieldsLock`. `null` clears the override. */
+    private fun parseProfileFieldsLock(call: MethodCall): ProfileFieldsLock? {
+        val map = call.argument<Map<String, Any>>("lock") ?: return null
+        fun state(key: String): ProfileFieldLockState? {
+            val value = map[key] as? String
+            return when (value) {
+                "EDITABLE" -> ProfileFieldLockState.EDITABLE
+                "READ_ONLY" -> ProfileFieldLockState.READ_ONLY
+                "DISABLED" -> ProfileFieldLockState.DISABLED
+                else -> {
+                    Log.w(
+                        "OctopusSDKFlutterPlugin",
+                        "Unknown ProfileFieldsLock.$key entry '$value' — dropping the whole override " +
+                            "(no lock applied). Expected one of EDITABLE, READ_ONLY, DISABLED."
+                    )
+                    null
+                }
+            }
+        }
+        val nickname = state("nickname") ?: return null
+        val avatar = state("avatar") ?: return null
+        val bio = state("bio") ?: return null
+        return ProfileFieldsLock(
+            nickname = nickname,
+            avatar = avatar,
+            bio = bio,
+        )
+    }
+
+    /** Parses the `options` argument of `debugOverrideContentOptions`. `null` clears the override. */
+    private fun parseContentOptions(call: MethodCall): CommunityConfig.ContentOptions? {
+        val map = call.argument<Map<String, Any>>("options") ?: return null
+        val post = map["post"] as? Map<*, *>
+        val comment = map["comment"] as? Map<*, *>
+        val reply = map["reply"] as? Map<*, *>
+        return CommunityConfig.ContentOptions(
+            post = CommunityConfig.ContentOptions.PostOptions(
+                enablePictures = post?.get("enablePictures") as? Boolean ?: true,
+                enablePolls = post?.get("enablePolls") as? Boolean ?: true,
+            ),
+            comment = CommunityConfig.ContentOptions.CommentOptions(
+                enablePictures = comment?.get("enablePictures") as? Boolean ?: true,
+            ),
+            reply = CommunityConfig.ContentOptions.ReplyOptions(
+                enablePictures = reply?.get("enablePictures") as? Boolean ?: true,
+            ),
+        )
+    }
+
+    /** Parses the `mode` argument of `debugOverrideTermsAcceptanceMode`. `null` clears the override. */
+    private fun parseTermsAcceptanceMode(call: MethodCall): CommunityConfig.TermsAcceptanceMode? {
+        val value = call.argument<String?>("mode") ?: return null
+        return when (value) {
+            "IMPLICIT" -> CommunityConfig.TermsAcceptanceMode.IMPLICIT
+            "EXPLICIT_MULTI_CHECKBOX" -> CommunityConfig.TermsAcceptanceMode.EXPLICIT_MULTI_CHECKBOX
+            "EXPLICIT_SINGLE_CHECKBOX" -> CommunityConfig.TermsAcceptanceMode.EXPLICIT_SINGLE_CHECKBOX
+            else -> {
+                Log.w(
+                    "OctopusSDKFlutterPlugin",
+                    "Unknown TermsAcceptanceMode value '$value' — dropped (no override applied). " +
+                        "Expected one of IMPLICIT, EXPLICIT_MULTI_CHECKBOX, EXPLICIT_SINGLE_CHECKBOX."
+                )
+                null
+            }
+        }
     }
 
     /// Converts the optional `appManagedFields` wire strings into native

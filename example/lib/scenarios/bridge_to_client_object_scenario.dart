@@ -259,7 +259,7 @@ class _BridgeToClientObjectScenarioState
           'scenario; "Navigate-to-client-object fires" / "Last navigate '
           'objectId" below reflect the fire (app-scoped, persists across '
           'navigation).',
-      resultTestId: 'bridge-to-client-object-result',
+      resultTestId: 'bridge-result',
       liveState: KeyValueCard(
         title: 'Latest bridge post',
         rows: [
@@ -274,7 +274,7 @@ class _BridgeToClientObjectScenarioState
       ),
       presets: [
         ScenarioPreset(
-          testId: 'qa-preset-bridge-to-client-object-1',
+          testId: 'qa-preset-bridge-1',
           label: 'Preset 1 · Stable recipe (objectId="$_stableObjectId")',
           onRun: (setResult) async {
             await _runFetchOrCreate(
@@ -288,7 +288,7 @@ class _BridgeToClientObjectScenarioState
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-bridge-to-client-object-2',
+          testId: 'qa-preset-bridge-2',
           label: 'Preset 2 · Random recipe (fresh objectId each tap)',
           onRun: (setResult) async {
             // Mirrors iOS `UUID().uuidString` — millisecondsSinceEpoch is
@@ -305,7 +305,7 @@ class _BridgeToClientObjectScenarioState
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-bridge-to-client-object-3',
+          testId: 'qa-preset-bridge-3',
           label: 'Preset 3 · Heart-react on latest post',
           onRun: (setResult) async {
             await _runReaction(
@@ -316,7 +316,7 @@ class _BridgeToClientObjectScenarioState
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-bridge-to-client-object-4',
+          testId: 'qa-preset-bridge-4',
           label: 'Preset 4 · Unreact on latest post',
           onRun: (setResult) async {
             await _runReaction(

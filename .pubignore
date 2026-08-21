@@ -28,6 +28,14 @@ doc/superpowers/
 # Session state
 SESSION_STATE.md
 
+# Contributor guide — internal by construction: it names the self-hosted runner
+# pool, the pm-tools secrets file, the private release workflows and the store
+# upload lanes. A pub.dev consumer can act on none of it. The public mirror
+# already withholds it by default-deny (it is absent from the allowlist), but the
+# tarball is a separate channel and has to be told separately — same reason
+# CLAUDE.md is listed above.
+CONTRIBUTING.md
+
 # Internal-only surfaces — keep the consumable package to the showcase, not the
 # QA tooling or the tests.
 #
@@ -47,8 +55,29 @@ test/
 # so it must repeat the exclusion — otherwise the launcher ships to pub.dev.
 scripts/
 
+# Icon generation tooling — same rationale as scripts/ above: a dev tool that
+# regenerates the five samples' launcher icons, of no use to a consumer. It is
+# already outside the public-mirror plan (.github/sync/match.py does not list
+# it), and pub.dev packaging is a separate channel that has to be told
+# independently — without this line the generator ships in the tarball AND pub's
+# layout check fails the publish dry-run ("Rename the top-level \"tools\"
+# directory to \"tool\"").
+tools/
+
 # Opt-in local git hooks — dev-only, not consumed by host apps.
 lefthook.yml
 
 # Release tooling — not part of the consumable package
 melos.yaml
+
+# Twin of the public-mirror denylist's `release_tooling` group
+# (.github/sync/public-mirror-denylist.yaml): fastlane config for the
+# `internal_beta` TestFlight lane. No secrets live in these files, but
+# Matchfile names the private `ios-certificates` signing-certs repo and
+# Appfile carries the Apple Developer/ASC team ids — internal infrastructure a
+# pub.dev consumer has no use for and should not see. Unlike the mirror (which
+# is a default-deny allowlist), pub.dev has no allowlist to fall back on: every
+# tracked file under example/** ships unless it is excluded here too.
+example/ios/fastlane/
+example/ios/Gemfile
+example/ios/Gemfile.lock

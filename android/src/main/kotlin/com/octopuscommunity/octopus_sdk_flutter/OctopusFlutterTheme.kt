@@ -2,6 +2,7 @@ package com.octopuscommunity.octopus_sdk_flutter
 
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarDefaults
@@ -10,6 +11,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
 import com.octopuscommunity.sdk.ui.OctopusImagesDefaults
@@ -19,6 +24,8 @@ import com.octopuscommunity.sdk.ui.components.OctopusTopAppBarDefaults
 import com.octopuscommunity.sdk.ui.octopusDarkColorScheme
 import com.octopuscommunity.sdk.ui.octopusLightColorScheme
 
+private const val TAG = "OctopusFlutterTheme"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OctopusFlutterTheme(
@@ -27,6 +34,10 @@ fun OctopusFlutterTheme(
     primaryLowContrast: Color?,
     primaryHighContrast: Color?,
     onPrimary: Color?,
+    background: Color?,
+    link: Color?,
+    fontFamily: String?,
+    fontWeight: Int?,
     logoBase64: String?,
     navBarTitle: String?,
     navBarPrimaryColor: Boolean,
@@ -62,6 +73,12 @@ fun OctopusFlutterTheme(
             primaryLow = primaryLowContrast ?: defaultColorScheme.primaryLow,
             primaryHigh = primaryHighContrast ?: defaultColorScheme.primaryHigh,
             onPrimary = onPrimary ?: defaultColorScheme.onPrimary,
+            // Host-provided `background` also reaches the top app bar below
+            // (`topAppBarContainerColor` reads `resolvedScheme.background`), so
+            // the bar keeps tracking the community surface instead of splitting
+            // from it.
+            background = background ?: defaultColorScheme.background,
+            link = link ?: defaultColorScheme.link,
         )
     }
     // Title / nav-icon / action-icon colours on the top app bar. The native
@@ -95,9 +112,96 @@ fun OctopusFlutterTheme(
         resolvedScheme.background
     }
 
+    // Resolve a custom font family from a native Android resource. This name is
+    // NEVER read from the Flutter asset bundle (a font declared in the Flutter
+    // app's pubspec.yaml is invisible to this native Compose tree) — it must
+    // match a font resource shipped by the host Android app under
+    // `res/font/`. `getIdentifier` returns 0 when there is no match, in which
+    // case we log a warning and keep the SDK's default font rather than
+    // silently doing nothing.
+    val context = LocalContext.current
+    val resolvedFontFamily = fontFamily?.let { name ->
+        remember(name) {
+            val resId = context.resources.getIdentifier(name, "font", context.packageName)
+            if (resId != 0) {
+                FontFamily(Font(resId))
+            } else {
+                Log.w(
+                    TAG,
+                    "fontFamily '$name' was not found under res/font/ in the host app; " +
+                        "keeping the default SDK font. See OctopusTheme.fontFamily's " +
+                        "documentation for how to register a custom font natively."
+                )
+                null
+            }
+        }
+    }
+    // Unlike fontFamily, a numeric weight needs no native registration:
+    // Compose renders the closest matching face the font actually provides.
+    // `OctopusTheme.fontWeight` asserts 100-900 on the Dart side, so an
+    // out-of-range value only reaches here in a release build. Coerce it into
+    // that same range instead of forwarding it raw: `FontWeight(int)` throws
+    // IllegalArgumentException outside 1-1000, which would take down the whole
+    // SDK screen, and clamping to 100-900 lands on the same weight iOS
+    // resolves for the same input rather than diverging from it.
+    val resolvedFontWeight = fontWeight?.let { FontWeight(it.coerceIn(100, 900)) }
+
+    val resolvedTypography = OctopusTypographyDefaults.typography().let { defaultTypography ->
+        defaultTypography.copy(
+            title1 = defaultTypography.title1.withOverrides(
+                fontSizeTitle1, resolvedFontFamily, resolvedFontWeight
+            ),
+            title2 = defaultTypography.title2.withOverrides(
+                fontSizeTitle2, resolvedFontFamily, resolvedFontWeight
+            ),
+            body1 = defaultTypography.body1.withOverrides(
+                fontSizeBody1, resolvedFontFamily, resolvedFontWeight
+            ),
+            body2 = defaultTypography.body2.withOverrides(
+                fontSizeBody2, resolvedFontFamily, resolvedFontWeight
+            ),
+            caption1 = defaultTypography.caption1.withOverrides(
+                fontSizeCaption1, resolvedFontFamily, resolvedFontWeight
+            ),
+            caption2 = defaultTypography.caption2.withOverrides(
+                fontSizeCaption2, resolvedFontFamily, resolvedFontWeight
+            )
+        )
+    }
+
+    // The top app bar title has no dedicated typography role of its own; the
+    // SDK renders it with the ambient `LocalTextStyle` unless we pass one
+    // explicitly, and the style we pass REPLACES that ambient style instead of
+    // merging with it (`style = textStyle ?: LocalTextStyle.current` in the
+    // native `OctopusTopAppBarTitle`). A bare `TextStyle(fontFamily = ...)`
+    // would therefore drop the ambient font size too, so we have to supply a
+    // complete style — and we cannot supply the ambient one, because the title
+    // slot's real value (`titleLarge`, 22sp, provided by Material3's
+    // `TopAppBar`; `headlineSmall`, 24sp, on the medium bar) is only readable
+    // from inside that slot, which this call site is not.
+    //
+    // Known consequence: basing the style on the resolved `body1` (18sp) means
+    // a host that sets only a font override also gets the nav bar title at
+    // `fontSizeBody1`'s size. `fontSizeBody1` is the knob to take it back.
+    // Declared in `OctopusTheme.fontFamily`'s dartdoc and in the CHANGELOG.
+    // Fixing it properly needs a merge-capable `textStyle` on the native SDK,
+    // which is tracked internally.
+    //
+    // Only build an explicit style at all when a font override is requested,
+    // so the default path keeps the ambient style untouched.
+    val navBarTitleTextStyle = if (resolvedFontFamily != null || resolvedFontWeight != null) {
+        resolvedTypography.body1.copy(
+            fontFamily = resolvedFontFamily ?: resolvedTypography.body1.fontFamily,
+            fontWeight = resolvedFontWeight ?: resolvedTypography.body1.fontWeight,
+        )
+    } else {
+        null
+    }
+
     OctopusTheme(
         topAppBar = OctopusTopAppBarDefaults.topAppBar(
             title = OctopusTopAppBarDefaults.title(
+                textStyle = navBarTitleTextStyle,
                 text = { it ?: navBarTitle }
             ),
             colors = TopAppBarDefaults.topAppBarColors(
@@ -119,34 +223,28 @@ fun OctopusFlutterTheme(
             )
         ),
         colorScheme = resolvedScheme,
-        typography = OctopusTypographyDefaults.typography().let { defaultTypography ->
-            defaultTypography.copy(
-                title1 = fontSizeTitle1?.let {
-                    defaultTypography.title1.copy(fontSize = it.sp)
-                } ?: defaultTypography.title1,
-                title2 = fontSizeTitle2?.let {
-                    defaultTypography.title2.copy(fontSize = it.sp)
-                } ?: defaultTypography.title2,
-                body1 = fontSizeBody1?.let {
-                    defaultTypography.body1.copy(fontSize = it.sp)
-                } ?: defaultTypography.body1,
-                body2 = fontSizeBody2?.let {
-                    defaultTypography.body2.copy(fontSize = it.sp)
-                } ?: defaultTypography.body2,
-                caption1 = fontSizeCaption1?.let {
-                    defaultTypography.caption1.copy(fontSize = it.sp)
-                } ?: defaultTypography.caption1,
-                caption2 = fontSizeCaption2?.let {
-                    defaultTypography.caption2.copy(fontSize = it.sp)
-                } ?: defaultTypography.caption2
-            )
-        },
+        typography = resolvedTypography,
         images = OctopusImagesDefaults.images(
             logo = logoBase64?.base64ToPainter()?.let { painter -> @Composable { painter } }
         ),
         content = content
     )
 }
+
+/**
+ * Applies an optional font size (in sp), font family and font weight override on top of this
+ * [androidx.compose.ui.text.TextStyle], preserving every field left unset (in particular the
+ * base style's `fontSize` when [fontFamily]/[fontWeight] are set but [fontSizeSp] isn't).
+ */
+private fun androidx.compose.ui.text.TextStyle.withOverrides(
+    fontSizeSp: Int?,
+    fontFamily: FontFamily?,
+    fontWeight: FontWeight?
+) = copy(
+    fontSize = fontSizeSp?.sp ?: fontSize,
+    fontFamily = fontFamily ?: this.fontFamily,
+    fontWeight = fontWeight ?: this.fontWeight,
+)
 
 fun Int.toColor() = Color(this)
 

@@ -11,6 +11,7 @@ import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
+import 'content_options.dart';
 import 'create_post_screen_info.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_community_data.dart';
@@ -29,16 +30,19 @@ import 'override_community_access_error.dart';
 import 'refresh_entitlements_error.dart';
 import 'set_reaction_error.dart';
 import 'profile_field.dart';
+import 'profile_fields_lock.dart';
 import 'octopus_sdk_platform.dart';
 import 'octopus_theme.dart';
 import 'octopus_home_screen.dart';
 import 'sync_follow_group.dart';
+import 'terms_acceptance_mode.dart';
 import 'url_opening_strategy.dart';
 
 export 'api_server.dart';
 export 'client_post.dart';
 export 'client_post_error.dart';
 export 'client_user_error.dart';
+export 'content_options.dart';
 export 'octopus_community_data.dart';
 export 'create_post_screen_info.dart';
 export 'group_follow_unfollow_error.dart';
@@ -55,8 +59,10 @@ export 'override_community_access_error.dart';
 export 'refresh_entitlements_error.dart';
 export 'set_reaction_error.dart';
 export 'profile_field.dart';
+export 'profile_fields_lock.dart';
 export 'octopus_home_screen.dart';
 export 'sync_follow_group.dart';
+export 'terms_acceptance_mode.dart';
 export 'url_opening_strategy.dart';
 
 // Event stream controller for native events
@@ -1821,6 +1827,74 @@ class OctopusSDK {
   /// Pass `null` to reset to the system default locale.
   Future<void> overrideDefaultLocale(Locale? locale) {
     return OctopusSDKPlatform.instance.overrideDefaultLocale(locale);
+  }
+
+  /// Internal test affordance: locally overrides the per-field profile lock
+  /// of the community config, without a backend-driven config. Pass `null`
+  /// to clear the override and fall back to the backend value.
+  ///
+  /// Mirrors the native SDKs' debug-only `debugOverrideProfileFieldsLock`
+  /// (Android `@InternalOctopusApi`, iOS `@_spi(OctopusInternalTesting)`),
+  /// used by their sample apps to exercise the per-field profile lock before
+  /// a backend serves it. **Not part of the supported public API** — it may
+  /// change or be removed at any time.
+  ///
+  /// iOS support: pending. `ProfileFieldsLock` lives in the native SDK's
+  /// `OctopusCore` module, which `octopus-sdk-swift`'s `Package.swift` does
+  /// not expose as a library product, so this plugin cannot construct it —
+  /// calling this on iOS resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException]. Android is fully supported.
+  ///
+  /// [lock] - the lock to apply, or `null` to restore the backend-provided
+  /// config.
+  Future<void> debugOverrideProfileFieldsLock(ProfileFieldsLock? lock) {
+    return OctopusSDKPlatform.instance.debugOverrideProfileFieldsLock(lock);
+  }
+
+  /// Internal test affordance: locally overrides the per-content-type
+  /// content options of the community config, without a backend-driven
+  /// config. Pass `null` to clear the override and fall back to the backend
+  /// value.
+  ///
+  /// Mirrors the native SDKs' debug-only `debugOverrideContentOptions`
+  /// (Android `@InternalOctopusApi`, iOS `@_spi(OctopusInternalTesting)`),
+  /// used by their sample apps to exercise the pictures/polls creation
+  /// gating before a backend serves it. **Not part of the supported public
+  /// API** — it may change or be removed at any time.
+  ///
+  /// iOS support: pending. `ContentOptions` lives in the native SDK's
+  /// `OctopusCore` module, which `octopus-sdk-swift`'s `Package.swift` does
+  /// not expose as a library product, so this plugin cannot construct it —
+  /// calling this on iOS resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException]. Android is fully supported.
+  ///
+  /// [options] - the content options to apply, or `null` to restore the
+  /// backend-provided config.
+  Future<void> debugOverrideContentOptions(ContentOptions? options) {
+    return OctopusSDKPlatform.instance.debugOverrideContentOptions(options);
+  }
+
+  /// Internal test affordance: locally overrides the terms-acceptance mode
+  /// of the community config, without a backend-driven config. Pass `null`
+  /// to clear the override and fall back to the backend value (currently
+  /// implicit acceptance).
+  ///
+  /// Mirrors the native SDKs' debug-only `debugOverrideTermsAcceptanceMode`
+  /// (Android `@InternalOctopusApi`, iOS `@_spi(OctopusInternalTesting)`),
+  /// used by their sample apps to exercise the explicit-consent modes.
+  /// **Not part of the supported public API** — it may change or be removed
+  /// at any time.
+  ///
+  /// iOS support: pending. `TermsAcceptanceMode` lives in the native SDK's
+  /// `OctopusCore` module, which `octopus-sdk-swift`'s `Package.swift` does
+  /// not expose as a library product, so this plugin cannot construct it —
+  /// calling this on iOS resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException]. Android is fully supported.
+  ///
+  /// [mode] - the mode to force, or `null` to restore the backend-provided
+  /// config.
+  Future<void> debugOverrideTermsAcceptanceMode(TermsAcceptanceMode? mode) {
+    return OctopusSDKPlatform.instance.debugOverrideTermsAcceptanceMode(mode);
   }
 
   /// Track a custom event for analytics.

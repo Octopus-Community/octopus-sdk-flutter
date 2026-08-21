@@ -28,12 +28,16 @@ Dart change can arrive in a minor**. Every one is listed under `### Breaking` in
 
 ## Requirements
 
-| | Min |
-|---|---|
-| Flutter | 3.10 |
-| Dart | 3.0 |
-| Android | `minSdk` 21, `compileSdk` 35 |
-| iOS | 14.0 |
+| Package | Flutter | Dart | Android | iOS | Native SDKs (Android · iOS) |
+|---|---|---|---|---|---|
+| 1.13.x | 3.10+ (tested 3.44.5) | 3.0+ | `minSdk` 21, `compileSdk` 35 | 14.0+ | 1.13.2 · 1.13.2 |
+
+* Flutter versions between the minimum and the tested one are expected to work but
+  are not covered by CI, which builds and tests on the version named above
+* On Android the plugin compiles with **Kotlin 2.1.10** and a **JVM target of 11**;
+  your app's Kotlin toolchain has to be able to consume that
+* `MainActivity` must extend `FlutterFragmentActivity` — see
+  [Platform setup](#android)
 
 You also need an Octopus **API key** for your community. Reach out to
 [Octopus Community](https://www.octopuscommunity.com) to get one.
@@ -42,7 +46,7 @@ You also need an Octopus **API key** for your community. Reach out to
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.12.3
+  octopus_sdk_flutter: ^1.13.1
 ```
 
 ## Platform setup
@@ -214,6 +218,19 @@ OctopusHomeScreen(
 
 There are also dedicated `OctopusPostDetailsScreen(postId:)` and
 `OctopusGroupDetailsScreen(groupId:)` widgets for bridge-mode entry points.
+
+To open a **member**, pass `OctopusInitialScreen.activity(...)` for their posts
+(by your own `clientUserId`, or by their Octopus `profileId`) or
+`OctopusInitialScreen.profile(clientUserId: ...)` for their profile — with the
+id omitted, the latter opens the connected user's own editable profile. The
+dedicated `OctopusProfileScreen(clientUserId:)` widget is the shorthand:
+
+```dart
+OctopusProfileScreen(clientUserId: member.id)
+```
+
+This is what a host that intercepts profile taps with `onNavigateToProfile`
+uses to hand the user back to the SDK from its own profile page.
 
 ## Bridge: link your content to a discussion
 

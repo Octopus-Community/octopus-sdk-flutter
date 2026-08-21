@@ -34,14 +34,14 @@ class RefreshEntitlementsScenario extends StatelessWidget {
           'claims. On success the OctopusProfile.entitlements set below is '
           'updated through the profile stream. Failures are decoded into the '
           'typed RefreshEntitlementsError subtypes.',
-      resultTestId: 'refresh-entitlements-result',
+      resultTestId: 'refreshEntitlements-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [('Entitlements', entitlementsLabel)],
       ),
       presets: [
         ScenarioPreset(
-          testId: 'qa-preset-refresh-entitlements-1',
+          testId: 'qa-preset-refreshEntitlements-1',
           label: 'Preset 1 · Refresh entitlements',
           onRun: (setResult) async {
             try {

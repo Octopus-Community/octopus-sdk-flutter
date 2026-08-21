@@ -95,6 +95,11 @@ android {
     }
 
     testOptions {
+        // The decoders under test log their fallback paths through android.util.Log, which the
+        // mockable android.jar throws on rather than stubs. Returning defaults keeps those cases
+        // testable without pulling in Robolectric for what are pure Map -> sealed-class functions.
+        unitTests.returnDefaultValues = true
+
         unitTests.all {
             useJUnitPlatform()
 

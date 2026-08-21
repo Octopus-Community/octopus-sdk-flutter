@@ -1,3 +1,175 @@
+## 1.13.1
+
+### New Features
+- Three internal test affordances bridged from the native SDKs, for QA
+  scenarios only — not part of the supported public API and may change or be
+  removed at any time: `OctopusSDK.debugOverrideProfileFieldsLock`,
+  `debugOverrideContentOptions`, `debugOverrideTermsAcceptanceMode`, with new
+  `ProfileFieldsLock`, `ContentOptions` (+ `PostOptions` / `CommentOptions` /
+  `ReplyOptions`), and `TermsAcceptanceMode` Dart types mirroring the native
+  models. Passing `null` clears the override and falls back to the
+  backend-provided config, matching both natives.
+  **Android, and iOS via CocoaPods; not yet on iOS via Swift Package
+  Manager.** The three native `debugOverride*` entry points live on
+  `OctopusSDK` in the `Octopus` module (reachable on both iOS integration
+  paths), but the three parameter types they construct (`ProfileFieldsLock`,
+  `ContentOptions`, `TermsAcceptanceMode`) live in `octopus-sdk-swift`'s
+  `OctopusCore` target. CocoaPods has no concept of a package "product": this
+  plugin declares `OctopusCommunityCore` as a pod dependency and imports
+  `OctopusCore` directly, so the CocoaPods path is fully implemented. Swift
+  Package Manager only exposes a dependency's declared `products`, and
+  `OctopusCore` is not one of `octopus-sdk-swift`'s SPM products — so on the
+  SPM path these three calls resolve with an `UNSUPPORTED_PLATFORM`
+  `PlatformException` until upstream exposes the type another way.
+- `OctopusTheme` gains two optional color overrides, `background` and `link`,
+  wired end-to-end to the native Android and iOS color schemes (`background`:
+  the community screens' background color; `link`: the color of clickable
+  links in posts and comments). Both default to `null`, which keeps the
+  native SDK's own default — no behavior change for existing hosts.
+- `OctopusTheme` gains `fontFamily` and `fontWeight`, applied to every SDK text
+  style (titles, body, captions) and to the top app bar / navigation bar title.
+  `fontWeight` is a plain 100-900 Int (no native setup needed). `fontFamily` is
+  **not** read from the Flutter asset bundle — it must additionally be
+  registered natively with the exact same name: as a font resource under
+  `android/app/src/main/res/font/` on Android, and as a PostScript name
+  declared under `UIAppFonts` in `ios/Runner/Info.plist` on iOS. An
+  unregistered name is logged as a warning on both platforms and falls back to
+  the SDK's default font rather than being silently ignored. Both fields
+  default to `null` — no behavior change for existing hosts. Note the
+  navigation-bar scope differs slightly by platform: on Android it restyles
+  only the top app bar's title text (back/close are icon-only, with no font to
+  override); on iOS it also affects the navigation bar's icon buttons.
+  `fontWeight` must be within 100-900 — the `OctopusTheme` constructor now
+  asserts it, since an out-of-range value used to reach Android as a crash.
+- `OctopusTheme.fontSizeNavBarItem` — font size for navigation-bar items.
+  **iOS only**: the native iOS theme has a dedicated `navBarItem` font slot and
+  the native Android typography has no counterpart, so the Android bridge
+  documents the key as ignored rather than approximating it by resizing another
+  slot. `null` keeps the previous behaviour (nav-bar items follow
+  `fontSizeBody1`). Reaches both theme consumption paths — the embedded
+  `PlatformView` and the standalone create-post screen — so it applies to
+  `showOctopusCreatePostScreen` too, not only to the embedded community view.
+
+- **Member-scoped entry points: open one member's posts or profile directly.**
+  Two additive `OctopusInitialScreen` cases, plus a dedicated widget, all
+  reaching the same native screens the SDK already opens when a user taps a
+  member inside the community:
+  - `OctopusInitialScreen.activity(ActivityScreenInfo.clientUserId(id))` /
+    `.activity(ActivityScreenInfo.profileId(id))` — that member's posts-only
+    activity screen. The two named constructors are mutually exclusive and take
+    different paths natively: `clientUserId` is resolved through the
+    client-user-id lookup, so it needs a community that **exposes client user
+    ids**, while `profileId` is already resolved and opens with no lookup. An id
+    that does not resolve shows the empty state; it never falls back to another
+    member. Pointed at the connected user's own id, the natives open their
+    two-tab activity screen instead.
+  - `OctopusInitialScreen.profile({String? clientUserId})` — that member's
+    read-only Octopus profile; omit the id (or pass `null`) for the connected
+    user's **own, editable** profile, where `onModifyUser` fires your edit page.
+  - `OctopusProfileScreen({String? clientUserId, …})` — the standalone
+    shorthand for the case above, same shape as the existing
+    `OctopusPostDetailsScreen` / `OctopusGroupDetailsScreen` widgets.
+
+  These entry points open on the screen's own default tab; there is no way to
+  preselect another one.
+
+  Member ids are trimmed, so surrounding whitespace never reaches the lookup,
+  and an id left blank or whitespace-only counts as no id at all:
+  `OctopusInitialScreen.profile` then opens the connected user's own profile,
+  exactly as omitting it does, while `.activity` — which has no own-user form —
+  opens the main feed.
+
+  This is the other half of Unified Profile: once your app intercepts every
+  profile tap with `onNavigateToProfile` and renders its own page, these are the
+  entry points that let it hand the user back to the SDK on purpose.
+
+### Known Issues
+- Setting `OctopusTheme.fontFamily` or `OctopusTheme.fontWeight` also sets the
+  Android navigation bar title to the size of `fontSizeBody1`, which is smaller
+  than the title size applied when no font override is set. `fontSizeBody1`
+  controls the resulting size. Kept as-is in this release.
+
+### Fixed
+- **iOS: an unset theme slot no longer overrides the native default.** Both iOS
+  theme builders substituted a value for anything the host left unset, so a
+  partial `OctopusTheme` silently redefined the rest of the theme:
+  - **Colors** were substituted with `systemBlue` / `white`, replacing the SDK's
+    adaptive primary palette with a fixed blue.
+  - **The six font sizes** were substituted with `26 / 20 / 17 / 14 / 12 / 10`
+    points — numbers that were never the SDK's own defaults
+    (`26 / 22 / 18 / 16 / 14 / 12`), and that are fixed sizes where the native
+    defaults are `UIFontMetrics`-scaled. A host setting *any* theme key therefore
+    got community text both mis-sized and frozen against the reader's Dynamic
+    Type setting.
+
+  An unset color or font size now keeps the SDK's own default instead of being
+  substituted — the real default font sizes are `26 / 22 / 18 / 16 / 14 / 12`.
+
+  This mattered immediately for the three keys above, since each of them alone
+  now builds a theme. It also changes the pre-existing `themeMode`-only path: a
+  theme carrying nothing but `themeMode` used to yield a blue primary and
+  wrapper-invented type sizes, and now keeps the SDK's palette and type scale.
+
+- **iOS: the same six wrong sizes were still reachable through `fontFamily` /
+  `fontWeight`.** A custom family or weight needs a concrete point size even for a
+  slot whose size the host left unset, and the sizes used for that were the same
+  `26 / 20 / 17 / 14 / 12 / 10` — so a host setting only `fontFamily` still got
+  five of six slots mis-sized. They now repeat the natives' own scale
+  (`26 / 22 / 18 / 16 / 14 / 12`, plus 17 for `navBarItem`, the base size of the
+  `.body` style its native default resolves to).
+
+- **iOS: an explicit font size now follows the reader's text-size setting**, as
+  the Android bridge's `<size>.sp` always did and as the iOS SDK's own defaults
+  do. `Font.system(size:)` renders a fixed point size, so setting any size at all
+  used to opt that slot out of Dynamic Type on iOS only — on the very keys a host
+  reaches for to make text bigger. Every size the bridge resolves, explicit or
+  reference, is now run through `UIFontMetrics(forTextStyle:).scaledValue(for:)`
+  with the slot's own text style, and the custom-family path uses
+  `Font.custom(_:fixedSize:)` so the value is scaled once rather than twice.
+  A size set here is a base size on both platforms, not a frozen one.
+
+### Example App
+- The Initial-screen scenario gains four presets for the new entry points —
+  member activity by `clientUserId` and by `profileId` (resolving one with
+  `fetchCommunityData` when the field is left empty, so it runs in one tap),
+  plus `OctopusProfileScreen` with and without an id. Both member id fields
+  fall back to the connected user's own id.
+- The host-rendered profile page (`ClientProfilePage`, the page
+  `onNavigateToProfile` pushes) now ends with those same member entry points, so
+  the round trip host page → back into the SDK is exercised from the place a
+  real host actually needs it.
+- **New "Create Post (Bridge Share)" scenario.** The Scenarios tab now has a
+  dedicated screen for opening the post editor prefilled with a payload the host
+  app builds: five one-tap presets cover text only, text + call-to-action, text +
+  image, the full payload and image only, over an editable form (text, CTA label
+  and url, target group picked from the live groups stream, bundled image). An
+  invalid payload — text out of bounds, half-filled CTA — is reported in the
+  result panel with the concrete rejection instead of opening the editor. The
+  Initial Screen scenario still covers the editor mounted *inside* a host route;
+  this one presents it as a full screen.
+- **The reactions scenario walks the capability instead of the enum.** Its first
+  three presets are now react, change the reaction, then unreact — the sequence
+  a tester needs to see — with the remaining reaction kinds moved to presets 4
+  through 7. Renamed from "Set Reaction" to "Reactions", and its automation
+  identifiers now match the shared QA catalog verbatim.
+
+### Documentation
+- `PARITY_MATRIX.md` rewritten against native 1.13.2: 6 real gaps from 2 root
+  causes, replacing a 2026-05-28 table whose 53 "missing" APIs were ~46 stale.
+  It now carries its anchors, the genuinely-N/A and Android-only-by-design
+  verdicts, and a section on how to regenerate it — a matrix nobody can
+  regenerate is the defect being fixed. `PARITY_VERIFICATION_2026-05-29.md` and
+  `REFACTOR_PLAN.md` §4bis are marked superseded instead of contradicting it.
+- The install snippet in `README.md` was still `^1.12.3` after 1.13.0 was
+  published, and the one in `doc/push-notifications-with-firebase.md` had been
+  `^1.11.0` since that release. Both now read `^1.13.0`, and the coherence guard
+  checks every doc's snippet against the package version so a release cannot
+  ship a snippet naming an older version again.
+- `example/README.md` now states the Android prerequisite up front: the sample
+  applies the Google Services Gradle plugin for push, so every Android build
+  fails without a `google-services.json`, which is per-project and gitignored.
+  The step was only documented in a nested notifications README.
+
 ## 1.13.0
 
 ### Dependencies

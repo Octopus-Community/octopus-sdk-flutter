@@ -10,7 +10,15 @@ plugins {
 android {
     namespace = "com.octopuscommunity.sdk.flutter.sample"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Pinned to Flutter 3.44.5's default (what `flutter.ndkVersion` resolves to:
+    // 28.2.13676358), instead of tracking `flutter.ndkVersion` directly. The
+    // self-hosted CI runners don't auto-provision NDKs, and when the matching
+    // strip tool is missing AGP silently skips stripping debug symbols instead
+    // of failing — which then makes `flutter build appbundle --release` fail
+    // with "Release app bundle failed to strip debug symbols from native
+    // libraries." main.yml installs this exact version when it's missing.
+    // Keep this in sync with `flutter.ndkVersion` when upgrading Flutter.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         // Required by flutter_local_notifications (used to render Octopus pushes).
@@ -33,11 +41,33 @@ android {
         versionName = flutter.versionName
     }
 
+    // Release signing reads from environment variables so CI (main.yml) can inject a real
+    // keystore without committing one. KEYSTORE_FILE is an absolute path to a decoded
+    // keystore (CI: base64-decoded from the KEYSTORE_BASE64 secret into a temp file).
+    // Locally none of these are set, so `release` falls back to the debug signing config
+    // below — this is what keeps `flutter run --release` / local release builds working.
+    val keystoreFile = System.getenv("KEYSTORE_FILE")
+
+    signingConfigs {
+        if (keystoreFile != null) {
+            create("release") {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEYSTORE_KEY_ALIAS")
+                keyPassword = System.getenv("KEYSTORE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Real signing only when CI (or a developer) exported the env vars above;
+            // otherwise sign with the debug keys, same as the original Flutter template.
+            signingConfig = if (keystoreFile != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

@@ -81,6 +81,18 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     return OctopusSDK.Configuration(apiServer: apiServer)
   }
 
+  /// The typed error returned for a `debugOverride*` call on an iOS integration path that cannot
+  /// reach the native parameter type it needs (currently: SPM — see `DebugOverrides.swift`).
+  private static func unsupportedDebugOverrideError(_ method: String) -> FlutterError {
+    FlutterError(
+      code: "UNSUPPORTED_PLATFORM",
+      message: "\(method) is not available on this iOS integration path yet: the native type it "
+        + "needs is not reachable here. Android is fully supported; on iOS, the CocoaPods "
+        + "integration is supported, the Swift Package Manager integration is not yet.",
+      details: nil
+    )
+  }
+
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "getPlatformVersion":
@@ -700,6 +712,56 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       }
       octopus.overrideDefaultLocale(with: locale)
       result(nil)
+    // The three cases below delegate to `OctopusDebugOverridesBridge`
+    // (`DebugOverrides.swift`) rather than doing the native calls inline
+    // here. That file is the only place that (conditionally) imports
+    // `OctopusCore` — the types these overrides need (`ProfileFieldsLock` /
+    // `ContentOptions` / `TermsAcceptanceMode`) live there, but `OctopusCore`
+    // also declares its own `ConnectionMode` / `ClientPost` / `CustomEvent`
+    // etc. that collide by name with the public `Octopus` module's types
+    // used unqualified all over this file. Confining the `OctopusCore`
+    // import to its own file keeps every other unqualified reference here
+    // resolving to `Octopus`. Each bridge call reports back whether this
+    // integration path actually supports the override (`OctopusCore` is
+    // reachable on CocoaPods, not on SPM — see that file), so an
+    // unsupported override still surfaces a typed error here instead of
+    // silently doing nothing.
+    case "debugOverrideProfileFieldsLock":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      let args = call.arguments as? [String: Any]
+      Task {
+        let applied = await OctopusDebugOverridesBridge.debugOverrideProfileFieldsLock(
+          octopus, lockMap: args?["lock"] as? [String: Any]
+        )
+        result(applied ? nil : Self.unsupportedDebugOverrideError(call.method))
+      }
+    case "debugOverrideContentOptions":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      let args = call.arguments as? [String: Any]
+      Task {
+        let applied = await OctopusDebugOverridesBridge.debugOverrideContentOptions(
+          octopus, optionsMap: args?["options"] as? [String: Any]
+        )
+        result(applied ? nil : Self.unsupportedDebugOverrideError(call.method))
+      }
+    case "debugOverrideTermsAcceptanceMode":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      let args = call.arguments as? [String: Any]
+      Task {
+        let applied = await OctopusDebugOverridesBridge.debugOverrideTermsAcceptanceMode(
+          octopus, mode: args?["mode"] as? String
+        )
+        result(applied ? nil : Self.unsupportedDebugOverrideError(call.method))
+      }
     case "registerPushNotificationToken":
       guard let octopus else {
         result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
@@ -1108,56 +1170,164 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     return Color(red: Double(red), green: Double(green), blue: Double(blue), opacity: Double(alpha))
   }
 
-  static func buildTheme(main: UIColor, low: UIColor, high: UIColor, onPrimary: UIColor, logoBase64: String?, 
-                        fontSizeTitle1: Int = 26, fontSizeTitle2: Int = 20, fontSizeBody1: Int = 17, 
-                        fontSizeBody2: Int = 14, fontSizeCaption1: Int = 12, fontSizeCaption2: Int = 10,
-                        themeMode: String? = nil) -> OctopusTheme {
-    print("iOS: buildTheme called with themeMode: \(themeMode ?? "nil")")
-    
-    // Adjust colors based on theme mode
-    let adjustedMain: UIColor
-    let adjustedLow: UIColor
-    let adjustedHigh: UIColor
-    let adjustedOnPrimary: UIColor
-    
-    switch themeMode {
-    case "dark":
-      // For dark mode, use colors suitable for dark backgrounds
-      adjustedMain = main
-      adjustedLow = low
-      adjustedHigh = high
-      adjustedOnPrimary = onPrimary
-    case "light":
-      // For light mode, use colors suitable for light backgrounds
-      adjustedMain = main
-      adjustedLow = low
-      adjustedHigh = high
-      adjustedOnPrimary = onPrimary
-    default:
-      // Use system appearance or default colors
-      adjustedMain = main
-      adjustedLow = low
-      adjustedHigh = high
-      adjustedOnPrimary = onPrimary
+  /// Resolves a `Font.Weight` from a 100 (thinnest) - 900 (boldest) scale (the same scale as
+  /// CSS `font-weight` / Android `FontWeight`), bucketing to the nearest of SwiftUI's fixed
+  /// named cases since `Font.Weight` — unlike Android's `FontWeight` — has no arbitrary-Int
+  /// initializer.
+  private static func resolveFontWeight(from value: Int?) -> Font.Weight? {
+    guard let value else { return nil }
+    switch value {
+    case ..<150: return .ultraLight
+    case ..<250: return .thin
+    case ..<350: return .light
+    case ..<450: return .regular
+    case ..<550: return .medium
+    case ..<650: return .semibold
+    case ..<750: return .bold
+    case ..<850: return .heavy
+    default: return .black
     }
-    
+  }
+
+  /// Builds a `Font` for one text slot, honoring an optional explicit size and an
+  /// optional custom family/weight. Falls back to the SDK's own resolved default
+  /// (`defaultFont`) only when the host set none of the three for this slot.
+  ///
+  /// Whatever size this ends up rendering at is run through
+  /// `UIFontMetrics(forTextStyle: textStyle).scaledValue(for:)` first, so an
+  /// explicit `fontSizeBody1: 16` follows the reader's iOS text-size setting
+  /// exactly like the untouched default does — the native defaults are
+  /// `UIFontMetrics`-scaled themselves, and the Android bridge resolves the same
+  /// value as `16.sp`, which follows the OS font-size setting. Without this,
+  /// `Font.system(size:)` would pin the slot to a fixed point size and a host
+  /// setting any size at all would silently opt its readers out of Dynamic Type
+  /// on iOS only. `Font.custom(_:fixedSize:)` is used for the same reason: the
+  /// plain `Font.custom(_:size:)` scales relative to `.body` for every slot, so
+  /// combining it with the metric below would scale twice, unevenly.
+  ///
+  /// `referenceSize` is the size used when a family/weight override is set but no
+  /// explicit size is: `Font.custom` needs a concrete point size to render at,
+  /// and the native default `Font` has none we can read back out of it
+  /// generically, so this repeats the slot's own native design-time size. The six
+  /// values passed below are the ones both SDKs ship (26 / 22 / 18 / 16 / 14 /
+  /// 12) and `navBarItem`'s 17, the base size of the `.body` text style its
+  /// native default resolves to.
+  ///
+  /// `family` is **never** resolved from the Flutter asset bundle (a font declared under
+  /// `flutter: fonts:` in `pubspec.yaml` lives only inside the Flutter engine's own asset
+  /// manager, invisible to this native SwiftUI tree) — it must be the exact PostScript name of
+  /// a font added to the Xcode project and declared under `UIAppFonts` in
+  /// `ios/Runner/Info.plist`. `UIFont(name:size:)` doubles as the existence check `getIdentifier`
+  /// serves on the Android side; when it fails we log a warning and keep the system font instead
+  /// of silently ignoring the request.
+  private static func font(
+    size: Int?, family: String?, weight: Font.Weight?, or defaultFont: Font,
+    referenceSize: CGFloat, textStyle: UIFont.TextStyle
+  ) -> Font {
+    guard size != nil || (family?.isEmpty == false) || weight != nil else { return defaultFont }
+    let requestedSize = size.map { CGFloat($0) } ?? referenceSize
+    let resolvedSize = UIFontMetrics(forTextStyle: textStyle).scaledValue(for: requestedSize)
+    if let family, !family.isEmpty {
+      if UIFont(name: family, size: resolvedSize) != nil {
+        let custom = Font.custom(family, fixedSize: resolvedSize)
+        return weight.map { custom.weight($0) } ?? custom
+      }
+      NSLog(
+        "[OctopusSdkFlutter] fontFamily '\(family)' is not a registered PostScript name " +
+        "(add the font to the Xcode project and declare it under UIAppFonts in Info.plist); " +
+        "keeping the default SDK font."
+      )
+    }
+    let system = Font.system(size: resolvedSize)
+    return weight.map { system.weight($0) } ?? system
+  }
+
+  /// Builds the native theme from the wire values sent by the Dart `OctopusTheme`.
+  ///
+  /// **Every parameter is optional on purpose**, colors and font sizes alike: an
+  /// unset Dart field must arrive here — and be forwarded from here — as `nil`
+  /// rather than as a substituted value, so the slot keeps the SDK's own default.
+  /// The SDK defaults are not neutral placeholders we could re-spell: the primary
+  /// set is a dynamic asset color that adapts to light/dark mode, and every font
+  /// default is a `UIFontMetrics`-scaled system font that follows Dynamic Type.
+  /// Hardcoding a stand-in would recolor the community, freeze that adaptivity,
+  /// and pin the type size against the user's accessibility setting. The same
+  /// applies to `link`, `background` and `fontSizeNavBarItem`.
+  ///
+  /// `Colors` and `Fonts` differ in *how* they take a default: `Colors.init`
+  /// accepts `nil` per slot, while `Fonts.init` has no optional parameter — so
+  /// unset font slots are filled by reading the resolved defaults back off a
+  /// default-constructed `Fonts` (all seven are `public let`). Same tactic as the
+  /// `ColorSet` fill below. `fontFamily`/`fontWeight`, when set, still need a
+  /// concrete size to render at even for an otherwise-unset slot — see `font`'s
+  /// `referenceSize` parameter.
+  ///
+  /// This matches the Android bridge, where `OctopusFlutterTheme` resolves each
+  /// unset color to `defaultColorScheme.<slot>` and each unset size to
+  /// `defaultTypography.<slot>`, field by field.
+  static func buildTheme(main: UIColor?, low: UIColor?, high: UIColor?, onPrimary: UIColor?,
+                        background: UIColor? = nil, link: UIColor? = nil, logoBase64: String?,
+                        fontFamily: String? = nil, fontWeight: Int? = nil,
+                        fontSizeTitle1: Int? = nil, fontSizeTitle2: Int? = nil, fontSizeBody1: Int? = nil,
+                        fontSizeBody2: Int? = nil, fontSizeCaption1: Int? = nil, fontSizeCaption2: Int? = nil,
+                        fontSizeNavBarItem: Int? = nil,
+                        themeMode: String? = nil) -> OctopusTheme {
+    // `themeMode` is forwarded for logging only — the native theme carries no
+    // light/dark switch of its own, and its default colors already adapt to the
+    // system appearance. Pre-existing behaviour, unchanged here.
+    print("iOS: buildTheme called with themeMode: \(themeMode ?? "nil")")
+    let resolvedFontWeight = resolveFontWeight(from: fontWeight)
+
+    // `ColorSet` requires all three primary slots, so fill the ones the host left
+    // unset from the SDK's own defaults (read off a default-constructed `Colors`)
+    // instead of inventing values. With none of the three set, pass no set at all
+    // and let the native initializer apply its default.
+    let nativeDefaults = OctopusTheme.Colors()
+    let nativeFonts = OctopusTheme.Fonts()
+    let primarySet: OctopusTheme.Colors.ColorSet?
+    if main != nil || low != nil || high != nil {
+      primarySet = .init(
+        main: main.map { swiftUIColor(from: $0) } ?? nativeDefaults.primary,
+        lowContrast: low.map { swiftUIColor(from: $0) } ?? nativeDefaults.primaryLowContrast,
+        highContrast: high.map { swiftUIColor(from: $0) } ?? nativeDefaults.primaryHighContrast
+      )
+    } else {
+      primarySet = nil
+    }
+
     var theme = OctopusTheme(
       colors: .init(
-        primarySet: .init(
-          main: swiftUIColor(from: adjustedMain),
-          lowContrast: swiftUIColor(from: adjustedLow),
-          highContrast: swiftUIColor(from: adjustedHigh)
-        ),
-        onPrimary: swiftUIColor(from: adjustedOnPrimary)
+        primarySet: primarySet,
+        onPrimary: onPrimary.map { swiftUIColor(from: $0) },
+        link: link.map { swiftUIColor(from: $0) },
+        background: background.map { swiftUIColor(from: $0) }
       ),
       fonts: .init(
-        title1: .system(size: CGFloat(fontSizeTitle1)),
-        title2: .system(size: CGFloat(fontSizeTitle2)),
-        body1: .system(size: CGFloat(fontSizeBody1)),
-        body2: .system(size: CGFloat(fontSizeBody2)),
-        caption1: .system(size: CGFloat(fontSizeCaption1)),
-        caption2: .system(size: CGFloat(fontSizeCaption2)),
-        navBarItem: .system(size: CGFloat(fontSizeBody1)) // Using body1 size for nav bar items
+        title1: font(size: fontSizeTitle1, family: fontFamily, weight: resolvedFontWeight,
+              or: nativeFonts.title1, referenceSize: 26, textStyle: .title1),
+        title2: font(size: fontSizeTitle2, family: fontFamily, weight: resolvedFontWeight,
+              or: nativeFonts.title2, referenceSize: 22, textStyle: .title2),
+        body1: font(size: fontSizeBody1, family: fontFamily, weight: resolvedFontWeight,
+             or: nativeFonts.body1, referenceSize: 18, textStyle: .body),
+        body2: font(size: fontSizeBody2, family: fontFamily, weight: resolvedFontWeight,
+             or: nativeFonts.body2, referenceSize: 16, textStyle: .body),
+        caption1: font(size: fontSizeCaption1, family: fontFamily, weight: resolvedFontWeight,
+                or: nativeFonts.caption1, referenceSize: 14, textStyle: .caption1),
+        caption2: font(size: fontSizeCaption2, family: fontFamily, weight: resolvedFontWeight,
+                or: nativeFonts.caption2, referenceSize: 12, textStyle: .caption2),
+        // `fontSizeNavBarItem` unset falls back to `fontSizeBody1` — the
+        // pre-existing wrapper behaviour, kept (with the same family/weight
+        // override) so a host that customizes body text still gets matching
+        // nav-bar items. With none of size/body1-size/family/weight set, the
+        // native `.body` default stands, exactly like every other unset slot.
+        navBarItem: font(
+          size: fontSizeNavBarItem ?? fontSizeBody1,
+          family: fontFamily,
+          weight: resolvedFontWeight,
+          or: nativeFonts.navBarItem,
+          referenceSize: 17,
+          textStyle: .body
+        )
       )
     )
     if let logoBase64, let data = Data(base64Encoded: logoBase64), let image = UIImage(data: data) {
