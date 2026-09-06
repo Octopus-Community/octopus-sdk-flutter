@@ -224,9 +224,10 @@ class EventsScenario extends StatelessWidget {
   Widget build(BuildContext context) {
     return ScenarioScaffold(
       title: 'Events',
+      api: 'OctopusSDK.events',
       description:
           'Persistent log of the typed events streamed by '
-          '`OctopusSDK.events`, recorded from app launch. Interact with the '
+          'OctopusSDK.events, recorded from app launch. Interact with the '
           'embedded Community (Community tab), then reopen this scenario to see '
           'the events. Keeps the most recent '
           '${RealDebugLog.maxTypedEvents} events (reverse-chronological).',

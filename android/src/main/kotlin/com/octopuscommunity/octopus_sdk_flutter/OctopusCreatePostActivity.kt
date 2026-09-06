@@ -23,6 +23,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.octopuscommunity.sdk.OctopusSDK
 import com.octopuscommunity.sdk.domain.model.CreatePostScreenInfo
 import com.octopuscommunity.sdk.domain.model.OctopusPostCTA
 import com.octopuscommunity.sdk.domain.model.OctopusPrefilledPost
@@ -73,6 +74,21 @@ class OctopusCreatePostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The SDK is initialised from Dart only (`OctopusSDK.initialize()`),
+        // never at Application startup. When Android restores this activity in
+        // a fresh process — after a process death (low memory, another crash,
+        // "Don't keep activities") while the editor was in the foreground —
+        // nothing has run `initialize()` yet, and the first Compose frame
+        // would crash in `OctopusSDK.getKoinApp` with an
+        // `UninitializedPropertyAccessException`. Finish instead: the host's
+        // own activity is right below us in the restored task, so this hands
+        // control back exactly where the OS put it. Same guard as the RN
+        // `OctopusActivity`.
+        if (!OctopusSDK.isInitialised) {
+            Log.w(TAG, "OctopusCreatePostActivity started while the SDK is not initialised — finishing")
+            finish()
+            return
+        }
         enableEdgeToEdge()
 
         val info = buildInfoFromIntent(intent)
@@ -273,6 +289,7 @@ class OctopusCreatePostActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val TAG = "OctopusSdkFlutter"
         private const val EXTRA_TEXT = "octopus.text"
         private const val EXTRA_BRIDGE_TOKEN_REQUEST_ID = "octopus.bridgeTokenRequestId"
         private const val EXTRA_TOPIC_ID = "octopus.topicId"

@@ -1026,6 +1026,12 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     private fun showCreatePostScreen(call: MethodCall, result: Result) {
         @Suppress("UNCHECKED_CAST")
         val args = call.arguments as? Map<String, Any?>
+        // Match the iOS presenter: reject before initialize() instead of
+        // starting an activity that would immediately finish itself (its
+        // onCreate guard) — the Dart Future gets an error it can act on.
+        if (!OctopusSDK.isInitialised) {
+            return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+        }
         try {
             val intent = OctopusCreatePostActivity.newIntent(context, args)
             context.startActivity(intent)

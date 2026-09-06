@@ -52,6 +52,22 @@ post_install do |installer|
       # Force iOS 14.0 for all pods/targets to satisfy SwiftProtobuf and friends
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      # Opt-in compiler cache for CI: when the environment provides a ccache
+      # launcher script, run pod C/C++/ObjC compilation through it.
+      # No-op on developer machines (the variables are unset there).
+      #
+      # `C_COMPILER_LAUNCHER` (Xcode 16.3+), NOT a `CC`/`CXX` override: Xcode
+      # builds C/ObjC targets with explicit modules and only recognises its
+      # own clang there — a wrapper in `CC` made every CompileC of the C pods
+      # (`nanopb`, `package_info_plus`) fail on runners that have ccache
+      # ("Explicit modules is enabled but the compiler was not recognized").
+      # With a launcher Xcode keeps calling its own clang, prefixed by the
+      # launcher, and falls back to implicit modules for those targets
+      # (`CLANG_ENABLE_EXPLICIT_MODULES_WITH_COMPILER_LAUNCHER` stays at its
+      # default NO — ccache's explicit-modules support is not relied on).
+      if ENV['CCACHE_ENABLED'] == 'true' && ENV['CCACHE_LAUNCHER']
+        config.build_settings['C_COMPILER_LAUNCHER'] = ENV['CCACHE_LAUNCHER']
+      end
     end
   end
 

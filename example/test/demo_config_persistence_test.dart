@@ -142,6 +142,25 @@ void main() {
       expect(restored!.userId, octopusUserId);
     });
 
+    test(
+      'legacy blob carrying octopusTealTheme: false → octopusNavyTheme restores false',
+      () {
+        // Blob written by a pre-navy-rollout build, before the field was
+        // renamed octopusNavyTheme. fromJson must still honour a persisted
+        // "SDK default" choice (false) rather than silently resetting it to
+        // the navy default (true) just because the new key is absent.
+        final restored = DemoConfig.fromJson({
+          'apiKeySource': 'custom',
+          'userId': 'qa-tester-1',
+          'theme': 'light',
+          'serverEnv': 'custom',
+          'octopusTealTheme': false,
+        });
+        expect(restored, isNotNull);
+        expect(restored!.octopusNavyTheme, isFalse);
+      },
+    );
+
     test('returns null on schema drift / corrupt blob', () {
       expect(DemoConfig.fromJson(<String, dynamic>{}), isNull);
       expect(

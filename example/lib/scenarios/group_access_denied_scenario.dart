@@ -73,6 +73,7 @@ class _GroupAccessDeniedScenarioState extends State<GroupAccessDeniedScenario> {
     final registered = _cancel != null;
     return ScenarioScaffold(
       title: 'Group access denied',
+      api: 'setGroupAccessDeniedCallback',
       description:
           'Register a callback fired when the user taps a locked group, its '
           'follow button, or a locked detail CTA. The SDK never navigates on '

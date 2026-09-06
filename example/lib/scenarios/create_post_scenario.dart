@@ -358,6 +358,8 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Create post (Bridge Share)',
+      api: 'showOctopusCreatePostScreen',
+      verifyInCommunity: true,
       description:
           'Open the Octopus post editor as a standalone screen, prefilled with '
           'a payload this app builds — text, an image, a target group and an '

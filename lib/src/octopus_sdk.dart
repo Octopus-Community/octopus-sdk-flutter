@@ -1998,12 +1998,90 @@ class OctopusSDK {
   /// themselves were never at fault; the helper now pushes a plain
   /// [MaterialPageRoute] (no bottom sheet involved). Tracked internally.
   ///
-  /// The returned [Future] completes when the route is popped (the SDK's
-  /// own back chevron on Android, system back, iOS swipe-from-left-edge,
-  /// or programmatic dismissal). [closeWidget] is accepted for backward
+  /// The returned [Future] completes when the route is popped — on **every**
+  /// path that actually dismisses it, whether or not it went through
+  /// [onBack]: the SDK's own root leading icon, Android system / predictive
+  /// back **while the SDK is on its root screen**, the iOS
+  /// swipe-from-left-edge gesture [MaterialPageRoute] enables, or a
+  /// programmatic `Navigator.pop`. Deeper inside the SDK a back gesture is
+  /// consumed by the native navigation stack and dismisses nothing — see
+  /// *Which paths do NOT* below. [closeWidget] is accepted for backward
   /// compatibility with 1.11.0's API but is **not currently wired** —
   /// the full-screen route already exposes back/dismiss affordances on
   /// both platforms, so an extra overlay close button is redundant here.
+  ///
+  /// ## Getting notified when the user leaves — [onBack]
+  ///
+  /// [onBack] is a **notification, not a delegation**. The route pops itself
+  /// when the SDK's root leading icon is tapped — today's behaviour, and it is
+  /// unchanged whether or not you pass a callback. When [onBack] is given it
+  /// is invoked **before** the pop; it does not have to pop the route itself.
+  /// This helper owns the route it pushed, so it can never let a host that
+  /// registered no callback — or one whose handler throws — strand the user
+  /// inside the community. (A callback that throws is reported through
+  /// [FlutterError.reportError] and the route still pops.) It is the same
+  /// choice, for the same reason, as the React Native wrapper's
+  /// `openUI({ onBackRequested })`.
+  ///
+  /// **If your callback navigates itself, the helper leaves the stack alone.**
+  /// The pop is guarded on this helper's own route still being the current one
+  /// when the callback returns. So a callback that pops the route is not
+  /// double-popped, and one that pushes something (a dialog, a confirmation
+  /// page) keeps what it pushed instead of having it closed from under it — in
+  /// that case the SDK route stays underneath it, and dismissing it is yours
+  /// to do. A callback that only does bookkeeping — the intended use — leaves
+  /// the pop exactly as it was.
+  ///
+  /// Use it for host-side bookkeeping — analytics, restoring a bottom bar,
+  /// refreshing a badge count. To run code on **every** dismissal path
+  /// instead, `await` the returned [Future].
+  ///
+  /// **Which paths reach [onBack].** It fires exactly when the native side
+  /// emits `backRequested` — see [OctopusHomeScreen.onBack], which this
+  /// helper wires it to:
+  /// - **Android** — the tap on the SDK's root leading icon (the M3 chevron
+  ///   this helper requests via `showBackButton: true`, or the
+  ///   [navBarLeadingAction] icon when you set one). Deeper SDK screens pop
+  ///   inside the native navigation stack and never reach here.
+  /// - **iOS** — the tap on the SDK's root leading item. With no
+  ///   [navBarLeadingAction] the bridge backfills
+  ///   [OctopusNavBarLeadingAction.back] from this helper's
+  ///   `showBackButton: true`, so the chevron is present and routed either
+  ///   way.
+  ///
+  /// **Which paths do NOT.** No OS-level gesture routes through [onBack]: the
+  /// plugin installs no back interception of its own (no `PopScope` on the
+  /// Dart side, no `BackHandler` in the Android bridge). What such a gesture
+  /// does instead depends on **where the user is inside the SDK**:
+  /// - **On the SDK's root screen** — Android system / predictive back pops
+  ///   the Flutter route directly, without a `backRequested` event, so the
+  ///   returned [Future] completes. Same for any programmatic
+  ///   `Navigator.pop`.
+  /// - **Deeper inside the SDK** — the native navigation stack consumes the
+  ///   gesture and navigates up inside itself: the plugin hosts the native
+  ///   screens in a Navigation-Compose `NavHost`, whose back callback is
+  ///   enabled as soon as that stack holds more than one entry, and the
+  ///   wrapped native SDK installs its own back handlers on the deeper screens
+  ///   (post detail, group detail, profile, create-post…). Neither [onBack]
+  ///   nor the returned [Future] fires there — the Flutter route is still up.
+  ///
+  /// On **iOS** the route this helper pushes is an ordinary
+  /// [MaterialPageRoute], so the swipe-from-left-edge gesture that route
+  /// enables is a Flutter-level pop and never emits `backRequested`; the
+  /// native SDK drives its own `NavigationStack` for its internal screens, so
+  /// which of the two a swipe reaches on a deeper screen is not something the
+  /// plugin decides. Either way, the returned [Future] — not the gesture — is
+  /// the contract: it completes if and only if this route is popped.
+  ///
+  /// [navBarLeadingAction] is forwarded verbatim to
+  /// [OctopusHomeScreen.navBarLeadingAction] and keeps that contract: it
+  /// replaces the SDK's **root** leading icon with a close (X) or back (‹)
+  /// affordance on both platforms, taking precedence over the
+  /// `showBackButton: true` this helper passes, and its tap fires [onBack]
+  /// before the route pops like any other root leading tap. Left `null`
+  /// (the default) the behaviour is exactly what it was before this
+  /// parameter existed: a back chevron on Android, and the iOS bridge's
+  /// backfilled `.back` chevron.
   ///
   /// [bottomSafeAreaInset] controls the bottom padding the embedded native
   /// screen reserves for its floating "Write a post" button. Leave it `null`
@@ -2025,6 +2103,8 @@ class OctopusSDK {
     Widget? closeWidget,
     OctopusNotification? notification,
     double? bottomSafeAreaInset,
+    VoidCallback? onBack,
+    OctopusNavBarLeadingAction? navBarLeadingAction,
   }) {
     // Edge-to-edge Android (API 35+): the embedded PlatformView consumes the
     // system-bar insets internally, and this route's `SafeArea(bottom: false)`
@@ -2059,46 +2139,95 @@ class OctopusSDK {
     // or disappears between rebuilds, and the PlatformView is never reparented
     // (the failure mode described in `OctopusHomeScreen.build`).
     final optOutOfBottomInset = effectiveBottomInset == 0;
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (routeContext) {
-          Widget content = Scaffold(
-            body: SafeArea(
-              bottom: false,
-              child: OctopusHomeScreen(
-                theme: theme,
-                navBarTitle: navBarTitle,
-                navBarPrimaryColor: navBarPrimaryColor,
-                showBackButton: true,
-                bottomSafeAreaInset: effectiveBottomInset,
-                onBack: () => Navigator.of(routeContext).pop(),
-                onNavigateToLogin: onNavigateToLogin,
-                onModifyUser: onModifyUser,
-                onNavigateToProfile: onNavigateToProfile,
-                onNavigateToUrl: onNavigateToUrl,
-                notification: notification,
-              ),
+    // Held in a local so the notify-then-close handler below can ask whether
+    // THIS route is still the current one before popping (see `onBack`). It is
+    // assigned on the very next statement and only ever read from a callback
+    // that cannot run before the route is pushed, so the `late` is resolved
+    // long before anything reads it.
+    late final MaterialPageRoute<void> sdkRoute;
+    sdkRoute = MaterialPageRoute<void>(
+      builder: (routeContext) {
+        Widget content = Scaffold(
+          body: SafeArea(
+            bottom: false,
+            child: OctopusHomeScreen(
+              theme: theme,
+              navBarTitle: navBarTitle,
+              navBarPrimaryColor: navBarPrimaryColor,
+              showBackButton: true,
+              bottomSafeAreaInset: effectiveBottomInset,
+              navBarLeadingAction: navBarLeadingAction,
+              // Notify-then-close, guarded on this route still being the
+              // current one. The helper owns the route it pushed, so a host
+              // that registered no callback — or one whose handler throws —
+              // must never be able to strand the user inside the community:
+              // the host is notified first, then the route pops, exactly as
+              // it did before `onBack` existed. What the pop must not do is
+              // fire blind at whatever happens to be on top afterwards. A
+              // callback that navigates by itself — pushes a dialog, or pops
+              // this route already — would otherwise get its own route
+              // closed, or this one popped twice. Testing `sdkRoute.isCurrent`
+              // costs nothing in the intended case (a bookkeeping callback,
+              // no callback at all, or a throwing one: the route is still
+              // current, so the pop happens as before) and makes the
+              // navigating case a no-op instead of a wrong pop. It also
+              // closes the double-tap window on the native icon during the
+              // exit animation, where the route is no longer present.
+              // (Same contract, and the same reason, as the React Native
+              // wrapper's `openUI({ onBackRequested })`.)
+              onBack: () {
+                if (onBack != null) {
+                  try {
+                    onBack();
+                  } catch (error, stack) {
+                    // Surfaced through the framework's error reporter
+                    // rather than swallowed: a broken host callback stays
+                    // visible in the console and in `FlutterError.onError`,
+                    // without taking the dismissal down with it.
+                    FlutterError.reportError(
+                      FlutterErrorDetails(
+                        exception: error,
+                        stack: stack,
+                        library: 'octopus_sdk_flutter',
+                        context: ErrorDescription(
+                          'while notifying the showOctopusHomeScreen '
+                          'onBack callback',
+                        ),
+                      ),
+                    );
+                  }
+                }
+                if (sdkRoute.isCurrent) {
+                  Navigator.of(routeContext).pop();
+                }
+              },
+              onNavigateToLogin: onNavigateToLogin,
+              onModifyUser: onModifyUser,
+              onNavigateToProfile: onNavigateToProfile,
+              onNavigateToUrl: onNavigateToUrl,
+              notification: notification,
             ),
+          ),
+        );
+        if (optOutOfBottomInset) {
+          // Wrapped ABOVE the `Scaffold` and paired with the route's own
+          // context. `removePadding` rebuilds the data from the context it is
+          // handed, so what matters is that the two match — not the depth.
+          // Keeping `context: routeContext` while moving the wrapper BELOW the
+          // `SafeArea` would re-inject the top inset that `SafeArea` had just
+          // consumed, double-padding the widget's own top overlays. (Pairing a
+          // lower wrapper with a local context would be correct as well: it is
+          // the mismatch that breaks, not the position.)
+          content = MediaQuery.removePadding(
+            context: routeContext,
+            removeBottom: true,
+            child: content,
           );
-          if (optOutOfBottomInset) {
-            // Wrapped ABOVE the `Scaffold` and paired with the route's own
-            // context. `removePadding` rebuilds the data from the context it is
-            // handed, so what matters is that the two match — not the depth.
-            // Keeping `context: routeContext` while moving the wrapper BELOW the
-            // `SafeArea` would re-inject the top inset that `SafeArea` had just
-            // consumed, double-padding the widget's own top overlays. (Pairing a
-            // lower wrapper with a local context would be correct as well: it is
-            // the mismatch that breaks, not the position.)
-            content = MediaQuery.removePadding(
-              context: routeContext,
-              removeBottom: true,
-              child: content,
-            );
-          }
-          return content;
-        },
-      ),
+        }
+        return content;
+      },
     );
+    return Navigator.of(context).push<void>(sdkRoute);
   }
 
   /// Opens the Octopus UI navigated to the content referenced by [notification].
@@ -2126,6 +2255,11 @@ class OctopusSDK {
   /// briefly `@Deprecated` alongside it during 1.12.0 development over a
   /// sub-navigation report whose root cause (overlay gating recreating the
   /// PlatformView) was found and fixed in 1.12.0; tracked internally.
+  ///
+  /// [onBack] and [navBarLeadingAction] are forwarded unchanged to
+  /// [showOctopusHomeScreen] — including the notify-then-close contract and
+  /// the per-platform list of which dismissal paths reach [onBack]. Read that
+  /// helper's documentation for both.
   Future<void> openNotification(
     BuildContext context,
     OctopusNotification notification, {
@@ -2137,6 +2271,8 @@ class OctopusSDK {
     UrlOpeningStrategy Function(String)? onNavigateToUrl,
     void Function(String clientUserId)? onNavigateToProfile,
     double? bottomSafeAreaInset,
+    VoidCallback? onBack,
+    OctopusNavBarLeadingAction? navBarLeadingAction,
   }) {
     return showOctopusHomeScreen(
       context,
@@ -2149,6 +2285,8 @@ class OctopusSDK {
       onNavigateToProfile: onNavigateToProfile,
       notification: notification,
       bottomSafeAreaInset: bottomSafeAreaInset,
+      onBack: onBack,
+      navBarLeadingAction: navBarLeadingAction,
     );
   }
 

@@ -29,9 +29,11 @@ class RefreshEntitlementsScenario extends StatelessWidget {
 
     return ScenarioScaffold(
       title: 'Refresh entitlements',
+      api: 'refreshEntitlements',
       description:
           'Calls refreshEntitlements() to mint a fresh JWT and re-apply its '
-          'claims. On success the OctopusProfile.entitlements set below is '
+          'entitlements. On success the OctopusProfile.entitlements set below '
+          'is '
           'updated through the profile stream. Failures are decoded into the '
           'typed RefreshEntitlementsError subtypes.',
       resultTestId: 'refreshEntitlements-result',

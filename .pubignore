@@ -28,6 +28,14 @@ doc/superpowers/
 # Session state
 SESSION_STATE.md
 
+# Contributor guide — internal by construction: it names the self-hosted runner
+# pool, the pm-tools secrets file, the private release workflows and the store
+# upload lanes. A pub.dev consumer can act on none of it. The public mirror
+# already withholds it by default-deny (it is absent from the allowlist), but the
+# tarball is a separate channel and has to be told separately — same reason
+# CLAUDE.md is listed above.
+CONTRIBUTING.md
+
 # Internal-only surfaces — keep the consumable package to the showcase, not the
 # QA tooling or the tests.
 #

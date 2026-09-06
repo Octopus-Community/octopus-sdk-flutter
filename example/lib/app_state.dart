@@ -3,13 +3,16 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_log.dart';
 import 'auth/client_user_token_signer.dart';
+import 'auth/connect_user_result.dart';
 import 'branding.dart';
 import 'config/api_key_registry.dart';
 import 'octopus_demo_config.dart';
+import 'update/sample_update_checker.dart';
 
 /// Where the API key passed to the SDK comes from.
 enum ApiKeySource {
@@ -22,17 +25,49 @@ enum ApiKeySource {
   custom,
 }
 
-/// Backend environment the sample documents it is pointing at.
+/// Backend environment the SDK is pointed at, chosen on the Config screen.
 ///
-/// Fixed at build time: [start] routes the SDK to the host injected via
-/// `--dart-define=OCTOPUS_API_HOST` (see [octopusApiHost]) when one is set,
-/// otherwise the native SDK's default (production) host. The Config-screen
-/// picker is therefore display-only — recorded for the Settings card and
-/// cross-platform Config parity, not a runtime host switch.
-enum ServerEnv { custom, prod }
+/// A real runtime switch (not a label): [DemoConfig.resolvedHost] turns the
+/// choice into the `ApiServer` handed to `initialize` / `switchCommunity`.
+///
+/// Enum order is the Config-screen order, and [demo] is the default —
+/// a sample must never default to a client-facing backend.
+enum ServerEnv {
+  /// The internal demo backend, whose host is injected at build time via
+  /// `--dart-define=OCTOPUS_API_HOST` (never committed — see
+  /// [octopusDemoApiHost]). A build that injects none resolves to the SDK
+  /// default instead, which is production; that is why the label says so.
+  demo,
+
+  /// The published production backend — the SDK's own default host (no
+  /// `ApiServer` passed).
+  prod,
+
+  /// A host typed on the Config screen (`DemoConfig.customHost`), for a
+  /// backend feature env or a local gateway.
+  custom,
+}
+
+extension ServerEnvX on ServerEnv {
+  /// Section label on Config, Home and Settings.
+  String get label => switch (this) {
+    ServerEnv.demo => 'Demo',
+    ServerEnv.prod => 'Prod',
+    ServerEnv.custom => 'Custom',
+  };
+}
 
 /// Material brightness chosen on the Config screen.
 enum AppThemeChoice { system, light, dark }
+
+extension AppThemeChoiceX on AppThemeChoice {
+  /// Label shown by the Config / Appearance pickers and the Settings summary.
+  String get label => switch (this) {
+    AppThemeChoice.system => 'System',
+    AppThemeChoice.light => 'Light',
+    AppThemeChoice.dark => 'Dark',
+  };
+}
 
 /// Locale override choice (Locale scenario + Settings language picker).
 enum LocaleChoice { system, fr, en }
@@ -85,6 +120,15 @@ class DemoConfig {
   final AppThemeChoice theme;
   final ServerEnv serverEnv;
 
+  /// Host typed on the Config screen for [ServerEnv.custom] — a hostname, not
+  /// a credential, so unlike [customApiKey] it IS persisted.
+  final String customHost;
+
+  /// Which `OctopusTheme` the embedded SDK surface starts on (Config → Theme
+  /// preset). `true` = the sample's Octopus-navy brand theme, `false` = the
+  /// SDK's own default. A Theme scenario preset can still override it live.
+  final bool octopusNavyTheme;
+
   const DemoConfig({
     required this.apiKeySource,
     this.customApiKey = '',
@@ -92,6 +136,8 @@ class DemoConfig {
     required this.userId,
     required this.theme,
     required this.serverEnv,
+    this.customHost = '',
+    this.octopusNavyTheme = true,
   }) : // Const-ctor asserts cannot call methods (`.trim()` would compile-fail
        // for the `const DemoConfig(…)` round-trip tests), so this is the
        // practical guard: non-empty. Callers are responsible for trimming —
@@ -119,6 +165,61 @@ class DemoConfig {
               : 'Demo (no key injected)'),
   };
 
+  /// The host the SDK is actually routed to for this configuration — empty
+  /// means "pass no `ApiServer`", i.e. the native SDK's own default host
+  /// (production).
+  ///
+  /// [ServerEnv.custom] with nothing typed falls back to the build-time
+  /// injected host: that is the shape of a blob persisted by a build from
+  /// before this picker existed (`serverEnv: custom`, no `customHost`), which
+  /// meant exactly "the injected host". The Config screen refuses to Apply an
+  /// empty custom host, so no new config lands here.
+  String get resolvedHost => switch (serverEnv) {
+    ServerEnv.demo => octopusDemoApiHost,
+    ServerEnv.prod => '',
+    ServerEnv.custom =>
+      customHost.trim().isNotEmpty ? customHost.trim() : octopusDemoApiHost,
+  };
+
+  /// The `ApiServer` to hand `initialize` / `switchCommunity` (`null` = the
+  /// SDK's default production host).
+  ApiServer? get apiServer =>
+      resolvedHost.isEmpty ? null : ApiServer(host: resolvedHost);
+
+  /// Human-readable host for the Home / Settings summary rows.
+  String get hostLabel =>
+      resolvedHost.isEmpty ? '$productionHost (SDK default)' : resolvedHost;
+
+  /// Whether this configuration talks to the production backend — either
+  /// explicitly, or by resolving to the SDK's default host. Drives the
+  /// internal-build production banner, which must follow the runtime choice
+  /// now that the environment is switchable.
+  bool get pointsAtProduction =>
+      resolvedHost.isEmpty || resolvedHost == productionHost;
+
+  DemoConfig copyWith({
+    ApiKeySource? apiKeySource,
+    String? customApiKey,
+    InjectedApiKey? selectedInjectedKey,
+    bool clearSelectedInjectedKey = false,
+    String? userId,
+    AppThemeChoice? theme,
+    ServerEnv? serverEnv,
+    String? customHost,
+    bool? octopusNavyTheme,
+  }) => DemoConfig(
+    apiKeySource: apiKeySource ?? this.apiKeySource,
+    customApiKey: customApiKey ?? this.customApiKey,
+    selectedInjectedKey: clearSelectedInjectedKey
+        ? null
+        : (selectedInjectedKey ?? this.selectedInjectedKey),
+    userId: userId ?? this.userId,
+    theme: theme ?? this.theme,
+    serverEnv: serverEnv ?? this.serverEnv,
+    customHost: customHost ?? this.customHost,
+    octopusNavyTheme: octopusNavyTheme ?? this.octopusNavyTheme,
+  );
+
   Brightness? get forcedBrightness => switch (theme) {
     AppThemeChoice.system => null,
     AppThemeChoice.light => Brightness.light,
@@ -144,6 +245,8 @@ class DemoConfig {
     'userId': userId,
     'theme': theme.name,
     'serverEnv': serverEnv.name,
+    'customHost': customHost,
+    'octopusNavyTheme': octopusNavyTheme,
   };
 
   /// Rebuilds a config from [toJson] output. Returns `null` on any schema
@@ -178,6 +281,20 @@ class DemoConfig {
         userId: resolvedUserId,
         theme: AppThemeChoice.values.byName(json['theme'] as String),
         serverEnv: ServerEnv.values.byName(json['serverEnv'] as String),
+        // Both fields post-date the first schema, so a blob written by an
+        // older build carries neither — read them leniently rather than
+        // sending the whole config back to the Config screen over a field
+        // whose absence has a perfectly good default.
+        customHost: (json['customHost'] as String?)?.trim() ?? '',
+        // `octopusNavyTheme` was `octopusTealTheme` before the navy rollout —
+        // a blob written by a pre-rename build still carries the old key, and
+        // reading only the new one would silently reset an existing "SDK
+        // default" (`false`) choice back to the navy default. Fall back to
+        // the pre-navy key before the hardcoded default.
+        octopusNavyTheme:
+            json['octopusNavyTheme'] as bool? ??
+            json['octopusTealTheme'] as bool? ??
+            true,
       );
     } catch (_) {
       return null;
@@ -352,37 +469,77 @@ class AppState extends ChangeNotifier {
   String? _logoBase64;
   String? get logoBase64 => _logoBase64;
 
-  OctopusTheme? _activeOctopusTheme;
-  OctopusTheme? get activeOctopusTheme => _activeOctopusTheme;
+  /// "Version {version}+{build}" read from real platform build metadata
+  /// (`package_info_plus`, D5 / report 18) — never a hand-kept string.
+  /// `null` until [bootstrap] resolves it (a `Future`, not const-evaluable),
+  /// which the Settings label handles by simply omitting the line for one
+  /// frame; it fires alongside every other bootstrap field, before the
+  /// first paint in practice.
+  String? _sampleVersionLabel;
+  String? get sampleVersionLabel => _sampleVersionLabel;
+
+  /// Owns the Play in-app update state shown next to the version label in
+  /// Settings. App-scoped rather than screen-scoped so a check survives the
+  /// tester leaving Settings, and so the start-up check has somewhere to land
+  /// before any screen is built. Android-only by construction — see
+  /// [SampleUpdateChecker]; on iOS it reports [UpdateUnsupported] and the card
+  /// renders nothing.
+  final SampleUpdateChecker updateChecker = SampleUpdateChecker();
+
+  /// Builds the [OctopusTheme] a Theme-scenario preset selected, under the
+  /// brightness the host is forcing (`null` = follow the ambient one). A
+  /// *builder*, not a built theme: the brightness that matters is the one in
+  /// force when the theme is handed to the SDK, not the one that happened to be
+  /// ambient when the tester tapped the preset.
+  OctopusThemeBuilder? _activeOctopusThemeBuilder;
 
   /// Resolves the [OctopusTheme] to apply to the embedded SDK surface,
   /// combining the Theme-scenario brand theme (if any) with the host's
   /// Light/Dark/System choice from the Config screen so the SDK content
   /// tracks the same light/dark mode as the surrounding Flutter chrome.
   ///
-  /// - **System** — returns the active brand theme as-is (or `null` when no
-  ///   brand is set), so the native SDK falls back to its own system-trait
-  ///   observation (Compose `isSystemInDarkTheme()` on Android,
-  ///   `UITraitCollection` on iOS) — same behaviour as Flutter's
+  /// [_activeOctopusThemeBuilder] being `null` (no preset picked yet, or "Brand
+  /// theme" — preset 1 — since it explicitly sets it back to `null`) falls
+  /// back to [brandOctopusTheme] rather than to a bare `null`/`OctopusTheme`.
+  /// Without this fallback the sample never poses an [OctopusTheme] at all
+  /// by default, so every embedded SDK surface renders on the SDK's own
+  /// `#141414` near-black primary instead of the brand color — this is what
+  /// used to read as a "black CTA" bug (cadrage report 24 §2.6). The genuine,
+  /// no-theme-at-all default is reachable via the "SDK default (no theme)"
+  /// preset, which sets an explicit empty [OctopusTheme] instead of `null`.
+  ///
+  /// - **System** — returns the active brand theme (falling back to
+  ///   [brandOctopusTheme] as above), so the native SDK falls back to its
+  ///   own system-trait observation (Compose `isSystemInDarkTheme()` on
+  ///   Android, `UITraitCollection` on iOS) — same behaviour as Flutter's
   ///   `MaterialApp.themeMode = system`.
-  /// - **Light / Dark** — forces [OctopusThemeMode] on the active brand
-  ///   theme (or on an empty [OctopusTheme] when no brand is set), so the
-  ///   SDK renders in the chosen mode regardless of the device setting.
+  /// - **Light / Dark** — forces [OctopusThemeMode] on top of that theme, so
+  ///   the SDK renders in the chosen mode regardless of the device setting.
   ///   Without this propagation, picking "Light" on a dark device would
   ///   leave the SDK rendering dark (it observes the system) while the
   ///   Flutter chrome flips light — a visible mismatch.
   OctopusTheme? effectiveOctopusTheme() {
     final forced = _config?.forcedBrightness;
-    if (forced == null) return _activeOctopusTheme;
+    final builder = _activeOctopusThemeBuilder;
+    // No scenario preset active → the Config screen's Theme preset decides:
+    // "Octopus navy" (the default) poses the sample's brand theme, "SDK
+    // default" poses an explicitly empty one so the SDK renders on its own
+    // palette. Handing `null` to the SDK is NOT the same thing — see the
+    // no-theme-at-all note above.
+    final configTheme = _config?.octopusNavyTheme ?? true;
+    final theme = builder == null
+        ? (configTheme
+              ? brandOctopusTheme(_logoBase64, brightness: forced)
+              : const OctopusTheme())
+        : builder(forced);
+    if (forced == null) return theme;
     final mode = forced == Brightness.dark
         ? OctopusThemeMode.dark
         : OctopusThemeMode.light;
-    return (_activeOctopusTheme ?? const OctopusTheme()).copyWith(
-      themeMode: mode,
-    );
+    return theme.copyWith(themeMode: mode);
   }
 
-  String _activeThemeLabel = 'SDK default';
+  String _activeThemeLabel = 'Octopus navy';
   String get activeThemeLabel => _activeThemeLabel;
 
   LocaleChoice _localeChoice = LocaleChoice.system;
@@ -473,6 +630,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
     _logoBase64 = await loadLogoBase64();
+    final packageInfo = await PackageInfo.fromPlatform();
+    _sampleVersionLabel = '${packageInfo.version}+${packageInfo.buildNumber}';
+    // One check per launch, not awaited: it is a network round-trip to Play and
+    // nothing downstream of bootstrap depends on its answer. The card renders
+    // "checking" and then whatever came back.
+    unawaited(updateChecker.check());
     // Restore the last config and auto-start so a relaunch lands straight back
     // in the app instead of the Config screen — and so a cold-start push tap
     // can deep-link (the main shell, which routes the pending notification,
@@ -480,6 +643,37 @@ class AppState extends ChangeNotifier {
     // own init errors. Reconfigure via Settings → Reset (which clears this).
     final restored = await loadPersistedDemoConfig();
     _restoringConfig = false;
+    // D2③ (cadrage report 07, narrowed by report 18's D3): a build that
+    // EXPLICITLY injects the real production host
+    // (`--dart-define=OCTOPUS_API_HOST=api.8pus.io`) never auto-restores a
+    // persisted config, unconditionally — mirrors Android's
+    // `SampleApplication`, which clears any persisted env on a `prod`-flavor
+    // launch regardless of which flavor wrote it. Flutter has no separate
+    // flavor artifact, but the same on-device risk exists: demo and prod
+    // builds share one bundle/application id, so installing a build pinned
+    // to the real prod host over a demo-hostname one leaves the demo build's
+    // persisted blob sitting in the same SharedPreferences file. Erase it
+    // here rather than let it auto-start against the prod host with the
+    // previous build's identity/key choices.
+    //
+    // Deliberately narrower than [octopusIsProdServer] (which is also true
+    // for the empty-define case — a bare `flutter run`, or a keyless public
+    // clone): that case has no explicit host opinion at all, so it must not
+    // wipe a persisted config on every launch just because none was passed
+    // this time. Only an explicit, exact match on the production literal
+    // erases; the bundled SDK's own fail-safe (prod unless told otherwise)
+    // still applies everywhere else and is unaffected by this check.
+    if (octopusApiHost.trim() == 'api.8pus.io' && restored != null) {
+      demoLog.apiCall('bootstrap', {
+        'warning':
+            'prod build — erasing persisted demo config, falling back to '
+            'the blank Config screen (D2③)',
+      });
+      await _clearPersistedDemoConfig();
+      _restoredConfig = null;
+      notifyListeners();
+      return;
+    }
     // Only auto-start a config that still resolves to a key. A custom-key
     // config never does (the pasted key isn't persisted), and auto-starting it
     // would re-enter the SDK — production by default, see [octopusApiHost] —
@@ -496,22 +690,31 @@ class AppState extends ChangeNotifier {
   }
 
   /// Applies [config] and initialises the SDK (host-managed / SSO auth).
+  ///
+  /// Branches on [_initialized]: a first Start (or one after [reset], which
+  /// clears it) goes through the `initialize()` path below. A Start reached
+  /// via [backToConfig] — SDK still mounted, [_initialized] still true —
+  /// instead performs a live [switchToCommunity], the non-destructive half
+  /// of D5 (see [backToConfig]'s doc comment; mirrors Android's
+  /// `SampleApplication` reactive collector).
   Future<void> start(DemoConfig config) async {
+    if (_initialized) {
+      await _startViaSwitch(config);
+      return;
+    }
     _config = config;
     _initError = null;
     _initialized = false;
     notifyListeners();
 
     try {
-      // Route the SDK to a non-production host when one was injected at build
-      // time via `--dart-define=OCTOPUS_API_HOST`; the published native SDK
-      // defaults to prod (`api.8pus.io`) when no apiServer is passed, so an
-      // internal QA build must steer the SDK to its backend explicitly via
-      // `ApiServer`. Empty host → prod default. The host value is injected at
-      // build time and never committed.
-      final apiServer = octopusApiHost.trim().isNotEmpty
-          ? ApiServer(host: octopusApiHost.trim())
-          : null;
+      // Route the SDK to the host the chosen server environment resolves to
+      // (`DemoConfig.resolvedHost`): the build-injected demo host for Demo, a
+      // typed host for Custom, and nothing at all for Prod — the published
+      // native SDK defaults to production when no `apiServer` is passed, so
+      // "no ApiServer" IS the prod choice. No host literal is committed for
+      // the demo env; it comes from `--dart-define=OCTOPUS_API_HOST`.
+      final apiServer = config.apiServer;
       // No `appManagedFields` here on purpose. The Flutter sample tests
       // against the demo keys, each of which the backend issued
       // for a specific managed-fields shape (NO/ALL/SOME). Hardcoding
@@ -549,6 +752,32 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [start]'s branch for a Start reached with the SDK already mounted (a
+  /// "Back to Config" round-trip) — switches community live instead of
+  /// re-`initialize()`-ing, via the existing [switchToCommunity].
+  Future<void> _startViaSwitch(DemoConfig config) async {
+    _config = config;
+    _initError = null;
+    notifyListeners();
+    try {
+      demoLog.apiCall('switchCommunity (Back to Config → Start)', {
+        'apiKey': _redactKey(config.effectiveApiKey),
+      });
+      // No explicit apiServer: [switchToCommunity] already defaults it to
+      // the same --dart-define-resolved host [start] uses — computing it
+      // again here would just duplicate that default and risk drifting
+      // from it.
+      await switchToCommunity(config.effectiveApiKey);
+      // [switchToCommunity] already updates [_activeApiKey] and notifies;
+      // still persist here so a relaunch restores the post-switch choice,
+      // exactly like the fresh-initialize path does.
+      unawaited(_persistDemoConfig(config));
+    } catch (e) {
+      _initError = e.toString();
+    }
+    notifyListeners();
+  }
+
   /// The host-side entitlement set the next user JWT will carry. Mutable so
   /// the Connection scenario's entitlement presets can flip "Premium" /
   /// "Moderator" on/off and `refreshEntitlements()` picks up the new value
@@ -567,6 +796,70 @@ class AppState extends ChangeNotifier {
   /// profile updates).
   void setCurrentEntitlements(Set<String> entitlements) {
     _currentEntitlements = Set.unmodifiable(entitlements);
+    notifyListeners();
+  }
+
+  /// The sample's **local test profile** — the fields the Account screen edits
+  /// and hands to `connectUser`.
+  ///
+  /// Host-side by construction: `OctopusProfile` (the SDK's published profile)
+  /// carries only `entitlements` and `clientUserId`, so nickname / bio /
+  /// avatar are the demo host's own inputs, not SDK state read back. That is
+  /// also why the Account screen can render an avatar at all — it renders what
+  /// the host would send, falling back to initials.
+  String _testNickname = '';
+  String get testNickname => _testNickname;
+
+  String _testBio = '';
+  String get testBio => _testBio;
+
+  /// Avatar handed to `connectUser(picture:)` — a URL or a base64 payload,
+  /// whichever the tester pasted. Empty = no picture, render initials.
+  String _testAvatarUrl = '';
+  String get testAvatarUrl => _testAvatarUrl;
+
+  /// Updates the local test profile. Does not touch the SDK: the change lands
+  /// on the next connect / reconnect, which is what the Account screen's help
+  /// lines say.
+  void setTestProfile({String? nickname, String? bio, String? avatarUrl}) {
+    _testNickname = nickname?.trim() ?? _testNickname;
+    _testBio = bio?.trim() ?? _testBio;
+    _testAvatarUrl = avatarUrl?.trim() ?? _testAvatarUrl;
+    notifyListeners();
+  }
+
+  /// Display name for the Account / Home connection cards: the nickname the
+  /// tester set, else the SSO user id.
+  String get displayName =>
+      _testNickname.isNotEmpty ? _testNickname : effectiveUserId;
+
+  /// Pushes the current [currentEntitlements] through the SDK without
+  /// re-creating the session (`refreshEntitlements`): the persistent token
+  /// provider re-signs with the new set and the backend issues a fresh
+  /// community JWT.
+  Future<OctopusResult<void, RefreshEntitlementsError>>
+  refreshEntitlements() async {
+    demoLog.apiCall('refreshEntitlements', {
+      'entitlements': _currentEntitlements.toList()..sort(),
+    });
+    final result = await octopus.refreshEntitlements();
+    notifyListeners();
+    return result;
+  }
+
+  /// Last connect attempt that came back refused, if the session is still
+  /// down — what turns Home's connection card from "guest" (amber) into "SSO
+  /// session failed" (red). Cleared by a successful connect and by an explicit
+  /// disconnect, so the red state always means *a real attempt failed*, never
+  /// "nobody has tried yet".
+  String? _lastConnectError;
+  String? get lastConnectError => _lastConnectError;
+
+  /// Records a connect failure raised outside [connectDemoUser] (the Login
+  /// page's own `connectUser` path, an exception a caller caught).
+  void noteConnectFailure(String? message) {
+    if (_lastConnectError == message) return;
+    _lastConnectError = message;
     notifyListeners();
   }
 
@@ -598,16 +891,30 @@ class AppState extends ChangeNotifier {
   /// turns it into a message. Rethrows on an actual exception. The reactive
   /// [connectionState] stream — the source of truth for [userConnected] —
   /// emits independently on success.
+  /// Set [sendTestProfile] to also send the local test profile (nickname /
+  /// bio / avatar) with the connect — what the Account screen does. Scenarios
+  /// leave it off so they exercise `connectUser` with nothing but the JWT.
   Future<OctopusResult<void, ClientUserError>> connectDemoUser({
     Set<String> entitlements = const {},
+    bool sendTestProfile = false,
   }) async {
     _currentEntitlements = Set.unmodifiable(entitlements);
     final userId = effectiveUserId;
+    final nickname = sendTestProfile && _testNickname.isNotEmpty
+        ? _testNickname
+        : null;
+    final bio = sendTestProfile && _testBio.isNotEmpty ? _testBio : null;
+    final picture = sendTestProfile && _testAvatarUrl.isNotEmpty
+        ? _testAvatarUrl
+        : null;
     final OctopusResult<void, ClientUserError> result;
     if (hasInjectedSsoSecret) {
       demoLog.apiCall('connectUser (tokenProvider)', {
         'userId': userId,
         'entitlements': _currentEntitlements.toList()..sort(),
+        if (nickname != null) 'nickname': nickname,
+        if (bio != null) 'bio': bio,
+        if (picture != null) 'picture': '<set>',
       });
       result = await octopus.connectUser(
         userId: userId,
@@ -615,6 +922,9 @@ class AppState extends ChangeNotifier {
           userId: userId,
           entitlements: _currentEntitlements,
         ),
+        nickname: nickname,
+        bio: bio,
+        picture: picture,
       );
     } else {
       // Keyless / public build: no secret to sign with — connect with a
@@ -629,8 +939,12 @@ class AppState extends ChangeNotifier {
       result = await octopus.connectUser(
         userId: userId,
         tokenProvider: () async => octopusUserToken,
+        nickname: nickname,
+        bio: bio,
+        picture: picture,
       );
     }
+    _lastConnectError = describeConnectUserFailure(result);
     notifyListeners();
     return result;
   }
@@ -640,6 +954,7 @@ class AppState extends ChangeNotifier {
   Future<void> disconnectUser() async {
     demoLog.apiCall('disconnectUser');
     await octopus.disconnectUser();
+    _lastConnectError = null;
     notifyListeners();
   }
 
@@ -654,26 +969,36 @@ class AppState extends ChangeNotifier {
   /// would conflict with the `NO_MANAGED_FIELDS_…` demo keys. Override only
   /// when you specifically want to demo per-community managed-field shapes.
   ///
-  /// [apiServer] defaults to the same host routing [start] applies (the host
-  /// injected via `--dart-define=OCTOPUS_API_HOST`, if any) — otherwise a
-  /// switch from a non-prod init would silently fall back to prod and produce
-  /// a host↔community mismatch.
+  /// [apiServer] defaults to the host the active [config]'s server environment
+  /// resolves to — otherwise a switch from a non-prod init would silently fall
+  /// back to prod and produce a host↔community mismatch.
   Future<void> switchToCommunity(
     String apiKey, {
     List<ProfileField> appManagedFields = const [],
     ApiServer? apiServer,
   }) async {
-    final resolvedServer =
-        apiServer ??
-        (octopusApiHost.trim().isNotEmpty
-            ? ApiServer(host: octopusApiHost.trim())
-            : null);
+    final resolvedServer = apiServer ?? _config?.apiServer;
     await octopus.switchCommunity(
       apiKey: apiKey,
       appManagedFields: appManagedFields,
       apiServer: resolvedServer,
     );
     _activeApiKey = apiKey;
+    notifyListeners();
+  }
+
+  /// Changes the app's light/dark choice from Settings → Appearance, without
+  /// going back through Config.
+  ///
+  /// Persists it on the live [DemoConfig] so the pick survives a relaunch, and
+  /// re-poses the SDK theme: [effectiveOctopusTheme] resolves its quadruple
+  /// against the forced brightness, so a preset picked in light mode still
+  /// hands the SDK its dark colors once Dark is pinned.
+  void setThemeChoice(AppThemeChoice choice) {
+    final config = _config;
+    if (config == null || config.theme == choice) return;
+    _config = config.copyWith(theme: choice);
+    unawaited(_persistDemoConfig(_config!));
     notifyListeners();
   }
 
@@ -711,16 +1036,133 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The other 6 rows of Config → Host callbacks
+  /// (`onNavigateToContent`, `onAuthenticationRequired`,
+  /// `onPushNotificationTapped`, `onUnreadCountChanged`, `onEvent`,
+  /// `onError`).
+  ///
+  /// **Known spec/SDK gap**: unlike [unifiedProfileWired]
+  /// (`onNavigateToProfile`), the Flutter SDK does not yet expose a
+  /// constructor parameter for any of these — `OctopusSDK`/`OctopusHomeScreen`
+  /// only take `onNavigateToProfile` today. These 6 flags therefore do not
+  /// change SDK behaviour; they exist so the Config screen can show the same
+  /// 7-row layout as the other platforms (design parity) and so Debug info can
+  /// report what the app *would* wire once the SDK grows the callback. Wiring
+  /// real behaviour behind them is follow-up work, not part of this pass —
+  /// flagged rather than silently faked.
+  ///
+  /// Defaults mirror the design spec: the 5 navigation/auth-flavoured
+  /// callbacks default on, the 2 telemetry ones (`onEvent`, `onError`)
+  /// default off.
+  bool _onNavigateToContentWired = true;
+  bool _onAuthenticationRequiredWired = true;
+  bool _onPushNotificationTappedWired = true;
+  bool _onUnreadCountChangedWired = true;
+  bool _onEventWired = false;
+  bool _onErrorWired = false;
+
+  bool get onNavigateToContentWired => _onNavigateToContentWired;
+  bool get onAuthenticationRequiredWired => _onAuthenticationRequiredWired;
+  bool get onPushNotificationTappedWired => _onPushNotificationTappedWired;
+  bool get onUnreadCountChangedWired => _onUnreadCountChangedWired;
+  bool get onEventWired => _onEventWired;
+  bool get onErrorWired => _onErrorWired;
+
+  void setOnNavigateToContentWired(bool v) {
+    _onNavigateToContentWired = v;
+    notifyListeners();
+  }
+
+  void setOnAuthenticationRequiredWired(bool v) {
+    _onAuthenticationRequiredWired = v;
+    notifyListeners();
+  }
+
+  void setOnPushNotificationTappedWired(bool v) {
+    _onPushNotificationTappedWired = v;
+    notifyListeners();
+  }
+
+  void setOnUnreadCountChangedWired(bool v) {
+    _onUnreadCountChangedWired = v;
+    notifyListeners();
+  }
+
+  void setOnEventWired(bool v) {
+    _onEventWired = v;
+    notifyListeners();
+  }
+
+  void setOnErrorWired(bool v) {
+    _onErrorWired = v;
+    notifyListeners();
+  }
+
+  /// Comma-separated summary of every wired host callback, for Debug info.
+  ///
+  /// Only [unifiedProfileWired] (`onNavigateToProfile`) actually reaches the
+  /// Flutter binding today — the other six toggles are UI-only (see
+  /// `ConfigScreen`'s Host callbacks section), so each is suffixed
+  /// `(ui-only)` here too: a copied debug dump must not read as if the SDK
+  /// received them.
+  String get hostCallbacksSummary {
+    final wired = <String>[
+      if (unifiedProfileWired) 'onNavigateToProfile',
+      if (onNavigateToContentWired) 'onNavigateToContent (ui-only)',
+      if (onAuthenticationRequiredWired) 'onAuthenticationRequired (ui-only)',
+      if (onPushNotificationTappedWired) 'onPushNotificationTapped (ui-only)',
+      if (onUnreadCountChangedWired) 'onUnreadCountChanged (ui-only)',
+      if (onEventWired) 'onEvent (ui-only)',
+      if (onErrorWired) 'onError (ui-only)',
+    ];
+    return wired.isEmpty ? 'none' : wired.join(', ');
+  }
+
   /// Sets the custom [OctopusTheme] applied to the embedded Community view.
-  void setActiveOctopusTheme(OctopusTheme? theme, String label) {
-    _activeOctopusTheme = theme;
+  ///
+  /// [build] takes the brightness the theme is being applied under, so a preset
+  /// picked in light mode still hands the SDK its dark quadruple once the
+  /// Config screen pins Dark. `null` means "no preset" and falls back to the
+  /// brand theme — see [effectiveOctopusTheme].
+  void setActiveOctopusTheme(OctopusThemeBuilder? build, String label) {
+    _activeOctopusThemeBuilder = build;
     _activeThemeLabel = label;
+    notifyListeners();
+  }
+
+  /// Whether the persistent production warning banner must show right now.
+  ///
+  /// Build-gated exactly as before ([octopusIsInternalBuild] — a client
+  /// integrating the SDK nominally runs against production and must not see
+  /// it), but the *environment* half is now read off the live config rather
+  /// than the build: with a runtime server picker, picking **Prod** on an
+  /// internal build has to raise the banner even though the build injected a
+  /// demo host. Before a config exists (Config screen, splash) it falls back
+  /// to the build-time fail-safe.
+  bool get showsProductionWarning {
+    if (!octopusIsInternalBuild) return false;
+    final config = _config;
+    return config == null ? octopusIsProdServer : config.pointsAtProduction;
+  }
+
+  /// Tab index the shell should show, when something outside the shell asks
+  /// for one (a Community status band's action, a scenario's "Verify in
+  /// Community"). Consumed by the shell through [navEpoch].
+  int _requestedTab = 0;
+  int get requestedTab => _requestedTab;
+
+  /// Asks the shell to switch to [index] (canonical order: Home 0, Scenarios
+  /// 1, Community 2, Settings 3).
+  void requestTab(int index) {
+    _requestedTab = index;
+    _navEpoch++;
     notifyListeners();
   }
 
   /// Asks the shell to switch to the Community tab, optionally deep-linked to
   /// the content referenced by [notification] (push tap).
   void requestCommunityTab(OctopusNotification? notification) {
+    _requestedTab = 2;
     _pendingCommunityNotification = notification;
     _navEpoch++;
     notifyListeners();
@@ -733,10 +1175,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Returns to the Config screen (first-launch flow) and clears session state.
-  /// [userConnected] follows [connectionState] — the SDK emits the
-  /// not-connected state on disconnect; no need to mirror it here.
-  void reset() {
+  /// Destructive reset (`settings-reset-button`, D5, cadrage report 07):
+  /// unmounts the native SDK, clears the persisted config blob, and returns
+  /// to a blank Config screen — the first-launch flow. Distinct from
+  /// [backToConfig], the non-destructive sibling action: this one throws the
+  /// persisted blob away (so the *next* launch also starts blank, not just
+  /// this session) and clears [restoredConfig] rather than seeding it, so
+  /// Config re-opens empty rather than pre-filled.
+  ///
+  /// Awaits [OctopusSDK.stop] before clearing local state — the SDK instance
+  /// this session held is fully torn down, not just abandoned in memory.
+  /// Also nulls the fields mirrored from the SDK's static streams
+  /// ([_profile], [_groups], [_connectionState], [_isInitialised],
+  /// [_notSeenCount], [_hasAccess]) rather than waiting on each of them to
+  /// emit a final post-stop value — belt and suspenders, since nothing in
+  /// their contract guarantees one.
+  Future<void> reset() async {
+    await octopus.stop();
     _config = null;
     // Reset means first-launch flow: don't re-seed the Config screen from the
     // config being thrown away.
@@ -744,12 +1199,47 @@ class AppState extends ChangeNotifier {
     _activeApiKey = null;
     _initialized = false;
     _initError = null;
-    _activeOctopusTheme = null;
-    _activeThemeLabel = 'SDK default';
+    _activeOctopusThemeBuilder = null;
+    _activeThemeLabel = 'Octopus navy';
     _localeChoice = LocaleChoice.system;
     _pendingCommunityNotification = null;
+    _profile = null;
+    _groups = const [];
+    _connectionState = null;
+    _isInitialised = false;
+    _notSeenCount = null;
+    _hasAccess = null;
+    _currentEntitlements = const {};
     // Forget the saved config so the next launch shows the first-launch flow.
-    unawaited(_clearPersistedDemoConfig());
+    await _clearPersistedDemoConfig();
+    notifyListeners();
+  }
+
+  /// Non-destructive "Back to Config" (`settings-reconfigure-button`, D5,
+  /// cadrage report 07): returns to the Config screen *without* unmounting
+  /// the SDK.
+  ///
+  /// Mirrors the Android sample's own "Back to Config" exactly: there,
+  /// `onNavigateToConfig` is a plain navigation call
+  /// (`ui/navigation/MainScaffold.kt`) — no `stop()`, no `reset()`. The
+  /// non-destructive half of D5 is delivered entirely by `Start SDK`
+  /// resolving to a live `OctopusSDK.switchCommunity(...)` instead of a
+  /// fresh `initialize()` once the SDK is already up (Android's
+  /// `SampleApplication`: `if (isInitialised) switchCommunity else
+  /// initialize`) — "le socle existe", cadrage report 07 §D5. [start] below
+  /// applies the same branch via the existing [switchToCommunity].
+  ///
+  /// Only [_config] changes here, to flip the root's routing (`main.dart`:
+  /// `config == null` routes to [ConfigScreen]) — [_initialized],
+  /// [_activeApiKey] and the streamed session values are left untouched
+  /// because the underlying instance is still live and still theirs.
+  /// [restoredConfig] is seeded with the config being left, so Config
+  /// re-opens with every choice (server, theme, locale, user id, key
+  /// source) still filled in — the distinction from [reset], which clears
+  /// it instead.
+  void backToConfig() {
+    _restoredConfig = _config;
+    _config = null;
     notifyListeners();
   }
 
@@ -766,6 +1256,9 @@ class AppState extends ChangeNotifier {
     _isInitialisedSub?.cancel();
     _cancelNavigateCallback?.call();
     _cancelNavigateCallback = null;
+    // AppState owns the checker (it constructs it), so it also disposes it —
+    // its listeners are the Home update card's.
+    updateChecker.dispose();
     super.dispose();
   }
 }
@@ -780,4 +1273,9 @@ class AppScope extends InheritedNotifier<AppState> {
     assert(scope != null, 'AppScope not found in the widget tree');
     return scope!.notifier!;
   }
+
+  /// [of] without the assert — for a screen that must also render outside the
+  /// app shell (the Config screen, pumped on its own by its widget test).
+  static AppState? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppScope>()?.notifier;
 }

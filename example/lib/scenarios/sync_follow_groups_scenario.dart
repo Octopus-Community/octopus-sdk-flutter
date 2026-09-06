@@ -155,6 +155,8 @@ class _SyncFollowGroupsScenarioState extends State<SyncFollowGroupsScenario> {
     final groups = app.groups;
     return ScenarioScaffold(
       title: 'Sync Followed Groups',
+      api: 'syncFollowGroups',
+      verifyInCommunity: true,
       description:
           'Batch follow/unfollow the community\'s real groups in one '
           'round-trip (from the OctopusSDK.groups stream). Requires a connected '

@@ -169,6 +169,7 @@ class SheetScenario extends StatelessWidget {
 
     return ScenarioScaffold(
       title: 'Sheet',
+      api: 'showModalBottomSheet',
       description:
           'Open the SDK as a modal bottom sheet — host integration mode where '
           'OctopusHomeScreen is presented inside a showModalBottomSheet sized '

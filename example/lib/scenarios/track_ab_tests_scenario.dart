@@ -101,6 +101,7 @@ class _TrackABTestsScenarioState extends State<TrackABTestsScenario> {
   Widget build(BuildContext context) {
     return ScenarioScaffold(
       title: 'Track A/B Tests',
+      api: 'trackCommunityAccess',
       description:
           'When the host runs its own A/B test to enable/disable community '
           'access, call OctopusSDK.trackCommunityAccess(bool) every time the '

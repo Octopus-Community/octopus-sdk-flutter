@@ -13,6 +13,8 @@ class LocaleScenario extends StatelessWidget {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Locale',
+      api: 'overrideDefaultLocale',
+      verifyInCommunity: true,
       description:
           'Override the locale used by the SDK UI, or reset to the system '
           'locale. Open the Community tab to see the override applied.',

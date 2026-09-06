@@ -1,3 +1,157 @@
+## 1.13.2
+
+### New Features
+- `OctopusSDK.showOctopusHomeScreen()` and `OctopusSDK.openNotification()` now
+  accept **`onBack`** and **`navBarLeadingAction`**. `onBack` is a
+  *notification*, not a delegation: the helper still pops the route it owns —
+  before this change it popped and told the host nothing, so a host had no way
+  to learn the user had left the community without dropping down to the
+  `OctopusHomeScreen` widget and rebuilding the route itself. The callback runs
+  **before** the pop, and a callback that throws is reported through
+  `FlutterError.reportError` while the route pops anyway, so a host handler can
+  never strand the user inside the SDK. The pop is guarded on the helper's own
+  route still being the current one when the callback returns, so a callback
+  that navigates by itself — pops the route, or pushes a dialog — is neither
+  double-popped nor has its own route closed from under it; a callback that
+  only does bookkeeping pops exactly as before. `navBarLeadingAction` is
+  forwarded verbatim to the embedded view, so the full-screen helper can now
+  show the close (X) icon instead of the back chevron. Both parameters are
+  optional; omitting them leaves the previous behaviour unchanged, except that
+  a leading-icon tap arriving while the route is already leaving is now a
+  no-op instead of popping whatever sits under it.
+
+  Only the tap on the SDK's **root** leading icon reaches `onBack`; no
+  OS-level gesture does. While the SDK is on its **root** screen, Android
+  system / predictive back pops the Flutter route directly, without a
+  `backRequested` event. **Deeper inside the SDK** the native navigation stack
+  consumes the gesture and navigates up inside itself, so neither `onBack` nor
+  the returned `Future` fires and the Flutter route stays up. On iOS the helper
+  pushes a plain `MaterialPageRoute`, so the swipe-from-left-edge gesture it
+  enables is a Flutter-level pop that emits no `backRequested`, while the
+  native SDK runs its own navigation stack for its internal screens. The
+  returned `Future` — which completes on *every* path that actually dismisses
+  the route — remains the way to observe those.
+
+### Bug Fixes
+- Android: fixed a crash (`UninitializedPropertyAccessException` in
+  `OctopusSDK.getKoinApp`) when Android restores the native create-post
+  editor in a process where the SDK was never initialised — after a process
+  death (low memory, another crash, "Don't keep activities") while the editor
+  was in the foreground. The editor activity now finishes itself instead of
+  rendering, handing control back to the host app as the OS restored it. On
+  Android, `showCreatePostScreen()` called before `initialize()` now fails
+  with the same `NOT_INITIALIZED` error as on iOS instead of starting the
+  editor.
+
+### Dependencies
+- Android Octopus SDK: 1.13.2 → 1.13.4. No API change. Fixes four crashes in
+  the native Android layer:
+  - two in the embedded UI when a host sets `overrideDefaultLocale` — the
+    text-selection "process text" actions and the fullscreen image viewer
+    (1.13.3);
+  - the `UninitializedPropertyAccessException` on `koinApp` when Android
+    restores an Octopus screen — including the embedded view — in a process
+    where the SDK has not been initialised yet: the native UI now renders
+    nothing and finishes cleanly instead of crashing (1.13.4);
+  - a `NoClassDefFoundError` / `NoSuchMethodError` at `initialize()` in host
+    apps that shrink their build with R8, because gRPC's Guava surface was
+    stripped: the SDK now ships the consumer keep rules it needs (1.13.4).
+
+### Example App
+- New **Presentation modes → Embedded Back Button** scenario: pick the leading
+  icon (`showBackButton`, `navBarLeadingAction`, and the case where both are set
+  and disagree), pick the container (the embedded `OctopusHomeScreen` widget or
+  the `showOctopusHomeScreen` helper), and watch a live counter of how many
+  times `onBack` fired and from which container — the two callback contracts
+  side by side.
+- **Dark-theme nav accent, SDK brand theme and remaining `ColorScheme` teal
+  values corrected to the shared sample tokens contract**, ported from the
+  Android sample: the earlier navy pass had already retired teal/salmon but
+  predated that later contrast fix, so dark theme still used the
+  light-theme accent `#1D88FE` directly as a label, a selected-segment
+  label and a selected-control fill, and the SDK theme's dark
+  `primaryMain`/`onPrimary` were `#1D88FE`/black. `#1D88FE` is fill-only
+  (3.50:1 on white — under the 4.5:1 label/text floor in either theme):
+  dark theme now uses the dedicated `AccentDark #6FB2FF` for labels/icons
+  and selected-control fills, with `AccentInk #142238` as the ink on any
+  text drawn over an `AccentDark`/`#1D88FE` fill — including the selected
+  segmented-button label, which previously read white-on-`#1D88FE` in
+  light theme (3.50:1) — while the switch thumb, a graphical control
+  rather than text, keeps the white/`AccentInk` split its 3:1 non-text
+  floor allows. The SDK theme's dark block is now `primaryMain #6FB2FF ·
+  primaryLow #142238 · primaryHigh #DCE9FC · onPrimary #142238`, the nav
+  indicator is the accent at a posed 15% alpha instead of a hardcoded tint
+  hex, and every remaining teal `ColorScheme` container/tertiary/surface
+  value (both themes) is now a navy tint instead. No wording or layout
+  change.
+- **iOS sample: Release now signs against a `production` push entitlement.**
+  All three build configurations shared `Runner.entitlements`, which declares
+  `aps-environment = development`, while an App Store provisioning profile
+  carries `production` — a mismatch on the configuration the TestFlight archive
+  is built from. Release now points at a dedicated
+  `Runner-Release.entitlements`; Debug and Profile keep the development value,
+  the same per-configuration split the Swift and React Native samples use.
+- **Sample visual identity aligned with the shared cross-platform design
+  spec** (cadrage report 24): the host-app footer notice is gone from every
+  screen (Home, Scenarios, each of the 21 scenario shells, Settings) — it
+  duplicated identity already conveyed elsewhere and fell under the shared
+  readability floor. The app label is now the attributive
+  `Octopus Sample for Flutter` (`AndroidManifest.xml`, `Info.plist`,
+  `MaterialApp.title`), matching Flutter's own brand guidelines instead of
+  juxtaposing the SDK name with the platform's. A "Flutter" platform badge
+  now sits on the Home tab (slot hue `#02569B`, and its lighter pair
+  `#54C5F8` in dark mode where the brand hue falls under the contrast floor;
+  tonal — never the Flutter logo, which the brand guidelines reserve for
+  in-app use only), and
+  Settings carries the required plain-text attribution ("Built with
+  Flutter™" + Google's trademark line), since no local asset for the
+  official "Build with Flutter" lockup exists in this repo.
+- **Fixed embedded SDK surfaces rendering a near-black CTA by default.**
+  `AppState.effectiveOctopusTheme()` returned `null` until the Theme
+  scenario's presets were touched by hand, so every site embedding the
+  SDK fell through to the SDK's own unthemed `#141414` primary — an omitted
+  default, not a theming bug. It now falls back to `brandOctopusTheme()`,
+  matching what the Android sample's `Default` branch already does. The
+  Theme scenario's Preset 1 is renamed "Brand theme" to reflect that it's
+  no longer the no-theme oracle, and a new Preset 5 ("SDK default (no
+  theme)") passes an explicit empty `OctopusTheme` to keep that oracle
+  reachable.
+- **`buildAppTheme()` no longer derives its `ColorScheme` via
+  `ColorScheme.fromSeed`.** A seeded scheme rendered a `primary` nobody
+  chose, shifted with the Material/Flutter version, and left every role
+  besides `secondary` unreviewed. It is now hand-built role-by-role, ported
+  verbatim from the Android sample's `Theme.kt` — the one complete,
+  Figma-annotated source for this palette — with an explicit nav-bar accent
+  (teal in light mode, salmon in dark: salmon on white measures ~2.1:1,
+  under the 4.5:1 contrast floor) instead of the Material default. The
+  unified SDK brand theme handed to the embedded SDK
+  (`primaryMain`/`primaryLow`/`primaryHigh`/`onPrimary`) now matches the
+  values shared with the Android sample instead of Flutter's own ad hoc
+  set. The bottom nav itself moves from `BottomNavigationBar` (Material 2)
+  to `NavigationBar` (Material 3), same four tabs and order.
+- **Sample shell reduced to 4 tabs** (Home / Scenarios / Community /
+  Settings): the Debug tab is gone, replaced by a modal opened from Settings
+  (`debug-open-button`), matching the native samples' navigation. Settings
+  also gains a visually separated danger zone — "Back to Config"
+  (non-destructive) in its own card, away from "Reset Configuration"
+  (destructive, error-tinted icon and title, and which now fully stops the
+  SDK session before clearing local state).
+- The Server field on the Config and Settings screens is read-only and now
+  shows the *resolved* host (e.g. `Resolved host: … (set by
+  --dart-define=OCTOPUS_API_HOST)`) instead of an editable value.
+- `settings-version-label` now reads the installed build's real version and
+  build number via `package_info_plus`, replacing a hand-kept string
+  constant that had no automated link to `pubspec.yaml` and could silently
+  drift from it.
+- The production-environment warning banner (`env-warning-banner`) is now
+  visible to accessibility tooling, so on-device QA passes (uiautomator /
+  XCUITest) can assert its presence. It always rendered correctly but never
+  reached the accessibility tree at all: it was painted before the
+  Navigator, whose route machinery blocks the semantics of everything
+  painted before it. The app builder now paints it after the Navigator
+  while keeping it visually on top, and the banner carries an accessibility
+  label; a widget test locks the semantics node's presence.
+
 ## 1.13.1
 
 ### New Features

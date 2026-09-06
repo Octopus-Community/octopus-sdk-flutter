@@ -80,11 +80,12 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
     final gamification = data?.gamification;
     return ScenarioScaffold(
       title: 'Community Data (Unified Profile)',
+      api: 'communityDataFlow',
       description:
-          'Reads a member\'s public Octopus stats with `fetchCommunityData` '
-          '(one shot) and `communityDataFlow` (reactive), by Octopus '
-          '`profileId` or by your own `clientUserId`. Note that '
-          '`gamification.score` is always null through this API — use `level`.',
+          'Reads a member\'s public Octopus stats with fetchCommunityData '
+          '(one shot) and communityDataFlow (reactive), by Octopus '
+          'profileId or by your own clientUserId. Note that '
+          'gamification.score is always null through this API — use level.',
       resultTestId: 'communityData-result',
       liveState: KeyValueCard(
         title: 'Live state',

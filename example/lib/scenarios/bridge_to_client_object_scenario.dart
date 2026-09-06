@@ -246,6 +246,8 @@ class _BridgeToClientObjectScenarioState
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Bridge to client object',
+      api: 'setNavigateToClientObjectCallback',
+      verifyInCommunity: true,
       description:
           'Link external objects (here two recipes — stable and random) to '
           'Octopus posts via fetchOrCreateClientObjectRelatedPost (with a '

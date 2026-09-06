@@ -1,7 +1,7 @@
 # Octopus Community SDK for Flutter
 
 [![pub package](https://img.shields.io/pub/v/octopus_sdk_flutter.svg)](https://pub.dev/packages/octopus_sdk_flutter)
-[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.13.2-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
+[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.13.4-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
 [![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.13.2-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
 
 Drop a fully moderated, white-label community — feed, posts, comments, reactions,
@@ -28,12 +28,16 @@ Dart change can arrive in a minor**. Every one is listed under `### Breaking` in
 
 ## Requirements
 
-| | Min |
-|---|---|
-| Flutter | 3.10 |
-| Dart | 3.0 |
-| Android | `minSdk` 21, `compileSdk` 35 |
-| iOS | 14.0 |
+| Package | Flutter | Dart | Android | iOS | Native SDKs (Android · iOS) |
+|---|---|---|---|---|---|
+| 1.13.x | 3.10+ (tested 3.44.5) | 3.0+ | `minSdk` 21, `compileSdk` 35 | 14.0+ | 1.13.4 · 1.13.2 |
+
+* Flutter versions between the minimum and the tested one are expected to work but
+  are not covered by CI, which builds and tests on the version named above
+* On Android the plugin compiles with **Kotlin 2.1.10** and a **JVM target of 11**;
+  your app's Kotlin toolchain has to be able to consume that
+* `MainActivity` must extend `FlutterFragmentActivity` — see
+  [Platform setup](#android)
 
 You also need an Octopus **API key** for your community. Reach out to
 [Octopus Community](https://www.octopuscommunity.com) to get one.
@@ -42,7 +46,7 @@ You also need an Octopus **API key** for your community. Reach out to
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.13.1
+  octopus_sdk_flutter: ^1.13.2
 ```
 
 ## Platform setup

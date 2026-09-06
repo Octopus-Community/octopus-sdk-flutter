@@ -108,8 +108,9 @@ class _NotSeenNotificationsScenarioState
     final count = app.notSeenCount ?? 0;
     return ScenarioScaffold(
       title: 'Not-Seen Notifications',
+      api: 'notSeenNotificationsCount',
       description:
-          'Demonstrates the `notSeenNotificationsCount` stream. The badge on '
+          'Demonstrates the notSeenNotificationsCount stream. The badge on '
           'the "Open Octopus" button updates reactively as the SDK pushes new '
           'counts. The scenario auto-refreshes the count on entry and exposes '
           'a preset to force another refresh.',

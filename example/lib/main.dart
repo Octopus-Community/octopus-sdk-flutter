@@ -9,13 +9,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
-import 'app_log.dart';
 import 'app_state.dart';
 import 'branding.dart';
 import 'community/community_screen.dart';
 import 'config/config_screen.dart';
-import 'debug/debug_log.dart';
-import 'debug/debug_tab.dart';
+import 'debug/debug_console.dart';
+import 'design.dart';
 import 'home/home_screen.dart';
 import 'octopus_demo_config.dart';
 import 'scenarios/scenarios_screen.dart';
@@ -107,24 +106,22 @@ Future<void> octopusFcmBackgroundHandler(RemoteMessage message) async {
   await showOctopusPushNotification(_flatFcmData(message));
 }
 
-/// Public showcase entrypoint. The QA/debug build uses
-/// `lib/debug/internal/main_debug.dart`, which installs the Debug console then
-/// calls [runOctopusDemo].
+/// Public showcase entrypoint.
 Future<void> main() => runOctopusDemo();
 
-/// Boots the sample app. Shared by the public and debug entrypoints.
+/// Boots the sample app. Shared by the default entrypoint and the
+/// QA-tooling-compatibility one (`lib/debug/internal/main_debug.dart`).
 Future<void> runOctopusDemo() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Start the persistent debug recorder before the SDK can emit anything, so
-  // the Debug tab (a public bottom-nav tab) and the Events scenario capture the
-  // whole session. Both `OctopusSDK.eventStream` and the typed `events` stream
-  // are non-replaying broadcasts — a late subscriber misses prior emissions —
-  // so we subscribe once, here, at launch, and route the sample's API-call log
-  // into the same recorder. Idempotent with the debug entrypoint's
-  // `installDebugConsole()` (which additionally installs the internal-only
-  // Settings → "Open debug console" sheet).
-  debugLog.start();
-  demoLog = debugLog;
+  // Starts the event recorder (SDK events + API calls) that Settings →
+  // Developer tools → Events log reads, before the SDK can emit anything so
+  // it captures the whole session — both
+  // `OctopusSDK.eventStream` and the typed `events` stream are non-replaying
+  // broadcasts, so a late subscriber misses prior emissions. Ships in every
+  // build (D1, cadrage report 07): no separate internal-only entrypoint gates
+  // it anymore. Idempotent — safe if the QA-tooling-compatibility entrypoint
+  // also calls it.
+  installDebugConsole();
   // Firebase Messaging powers the Android push path. iOS uses the native APNs
   // wiring in AppDelegate.swift; Firebase is not initialized on iOS here (no
   // GoogleService-Info.plist bundled). The Android init is best-effort: without
@@ -141,6 +138,67 @@ Future<void> runOctopusDemo() async {
   }
   runApp(const OctopusDemoApp());
 }
+
+/// The `MaterialApp.builder` callback that pins [ProductionWarningBanner]
+/// above every route (D7.3) — extracted to a named, importable top-level
+/// function (report 18's M2) so `production_warning_banner_test.dart` can
+/// pump this exact wiring instead of a hand-copied duplicate. A regression
+/// introduced here now fails that test too, which a copy could never catch.
+///
+/// The banner must be painted AFTER the Navigator ([child]) while still
+/// sitting visually ABOVE it: the Navigator's route machinery blocks the
+/// semantics of everything painted before it (`BlockSemantics` semantics —
+/// verified empirically: even a bare `Semantics(label:)` painted before the
+/// Navigator produces no SemanticsNode at all, host-side and on-device
+/// alike), which is why the banner used to be invisible to accessibility /
+/// `uiautomator` despite rendering correctly. A Flex paints its children in
+/// list order regardless of layout direction, so listing the Navigator first
+/// and flipping [Column.verticalDirection] keeps the banner at the top with
+/// identical geometry while painting it last. The semantics traversal order
+/// is geometric, so the banner is still read first.
+///
+/// The build-time-only form, kept as a plain `TransitionBuilder`: the app
+/// itself passes [AppState.showsProductionWarning] instead (the runtime
+/// predicate — the Config screen can now point the SDK at production on a
+/// build that injected a demo host, and the banner must follow that choice),
+/// but before any config exists the build-time fail-safe is the answer, and
+/// that is also the path the banner test pumps for client parity.
+Widget octopusDemoAppBuilder(BuildContext context, Widget? child) =>
+    octopusDemoAppBuilderWith(
+      context,
+      child,
+      showWarning: octopusShowsServerWarning,
+    );
+
+/// [octopusDemoAppBuilder] with the banner decision injected — tests only
+/// (`flutter test` injects no dart-defines, so [octopusShowsServerWarning]
+/// can never be true there; forcing `showWarning: true` is the only way the
+/// suite can still lock the paint-after-Navigator semantics fix below).
+@visibleForTesting
+Widget octopusDemoAppBuilderWith(
+  BuildContext context,
+  Widget? child, {
+  required bool showWarning,
+}) => Column(
+  verticalDirection: VerticalDirection.up,
+  children: [
+    // The banner consumes the top inset, so the routed content drops it to
+    // avoid a double status-bar gap; when the banner is hidden the route
+    // keeps its normal padding. Keyed on the SAME predicate as the banner:
+    // removing the inset while the banner renders nothing would glue every
+    // screen under the status bar.
+    Expanded(
+      child: showWarning
+          ? MediaQuery.removePadding(
+              context: context,
+              removeTop: true,
+              child: child!,
+            )
+          : child!,
+    ),
+    ProductionWarningBanner(show: showWarning),
+  ],
+);
 
 /// Root widget: owns [AppState], wires push notifications, and chooses between
 /// the Config screen and the main bottom-nav shell.
@@ -345,28 +403,17 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
       state: _app,
       child: MaterialApp(
         navigatorKey: navigatorKey,
-        title: 'Octopus SDK Sample',
+        title: 'Octopus Sample for Flutter',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(Brightness.light),
         darkTheme: buildAppTheme(Brightness.dark),
         themeMode: _themeMode,
-        // Pin the production/client-env warning above every route. The banner
-        // consumes the top inset, so the routed content drops it to avoid a
-        // double status-bar gap; when the banner is hidden the route keeps its
-        // normal padding.
-        builder: (context, child) => Column(
-          children: [
-            const ProductionWarningBanner(),
-            Expanded(
-              child: octopusIsProdServer
-                  ? MediaQuery.removePadding(
-                      context: context,
-                      removeTop: true,
-                      child: child!,
-                    )
-                  : child!,
-            ),
-          ],
+        // Pin the production/client-env warning above every route (D7.3),
+        // keyed on the LIVE server choice — see [AppState.showsProductionWarning].
+        builder: (context, child) => octopusDemoAppBuilderWith(
+          context,
+          child,
+          showWarning: _app.showsProductionWarning,
         ),
         // While bootstrap restores a persisted config, show a splash so a saved
         // session doesn't flash the Config screen before auto-starting back in.
@@ -380,7 +427,10 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
   }
 }
 
-/// Main bottom-navigation shell (Home / Scenarios / Community / Settings).
+/// Main bottom-navigation shell — exactly 4 tabs, in this order (D1, cadrage
+/// report 07): Home / Scenarios / Community / Settings. Debug is not a tab —
+/// the Events log is a screen pushed from Settings → Developer tools
+/// (`lib/debug/events_log_screen.dart`).
 class MainScreen extends StatefulWidget {
   final AppState app;
 
@@ -392,7 +442,6 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   static const int _communityIndex = 2;
-  static const int _debugIndex = 4;
   // Land directly on Community when there's a pending deep link from a push.
   // A cold-start tap on a notification calls `requestCommunityTab` BEFORE this
   // screen mounts, so the `navEpoch` diff in `_onAppChanged` can't trip — the
@@ -403,22 +452,47 @@ class _MainScreenState extends State<MainScreen> {
       : 0;
   late int _seenNavEpoch = widget.app.navEpoch;
 
-  static const _titles = [
-    'Home',
-    'Scenarios',
-    'Community',
-    'Settings',
-    'Debug',
-  ];
+  static const _titles = ['Home', 'Scenarios', 'Community', 'Settings'];
 
   @override
   void initState() {
     super.initState();
     widget.app.addListener(_onAppChanged);
+    widget.app.updateChecker.addListener(_onUpdateStatusChanged);
+    // The start-up check is fired from `bootstrap()`, which runs before this
+    // shell mounts — so its result can already be in by now and the listener
+    // above would never see it. Read it once, after the first frame gives us a
+    // ScaffoldMessenger to show it on.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _onUpdateStatusChanged(),
+    );
+  }
+
+  /// A newer sample build deserves one snackbar, not a badge the tester has to
+  /// go looking for: the update card lives in Settings, a tab a tester running
+  /// a scenario has no reason to open. `acknowledgeNewVersion` returns a
+  /// versionCode at most once per build, so re-checks do not re-announce.
+  void _onUpdateStatusChanged() {
+    final version = widget.app.updateChecker.acknowledgeNewVersion();
+    if (version == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Sample build $version is available'),
+        duration: const Duration(seconds: 8),
+        // Same trap as in `showSampleSnackBar`: an action makes a snackbar
+        // persist by default, so these 8 seconds would never elapse.
+        persist: false,
+        action: SnackBarAction(
+          label: 'Update',
+          onPressed: () => widget.app.updateChecker.startUpdate(),
+        ),
+      ),
+    );
   }
 
   void _onAppChanged() {
-    // A push tap bumps navEpoch — jump to the Community tab when it changes.
+    // A push tap — or any in-app "go to that tab" request (a Community status
+    // band's action, a scenario's Verify in Community) — bumps navEpoch.
     if (widget.app.navEpoch != _seenNavEpoch) {
       _seenNavEpoch = widget.app.navEpoch;
       if (mounted) {
@@ -432,13 +506,14 @@ class _MainScreenState extends State<MainScreen> {
           context,
           rootNavigator: true,
         )?.popUntil((route) => route.isFirst);
-        setState(() => _index = _communityIndex);
+        setState(() => _index = widget.app.requestedTab);
       }
     }
   }
 
   @override
   void dispose() {
+    widget.app.updateChecker.removeListener(_onUpdateStatusChanged);
     widget.app.removeListener(_onAppChanged);
     super.dispose();
   }
@@ -458,7 +533,6 @@ class _MainScreenState extends State<MainScreen> {
       ScenariosTab(),
       CommunityTab(),
       SettingsTab(),
-      DebugTab(),
     ][_index];
 
     // The Community tab embeds the SDK with its own native top bar
@@ -473,55 +547,45 @@ class _MainScreenState extends State<MainScreen> {
     // (Modal / Fullscreen / Sheet) are demonstrated by their respective
     // scenarios in the Scenarios tab — each gives the SDK a chrome-clean
     // surface without embedding.
-    //
-    // The Debug tab carries its own `Scaffold` + `AppBar` (Copy / Clear
-    // actions) — drop the shell `AppBar` here too to avoid double headers.
-    final isCommunityTab = _index == _communityIndex;
-    final isDebugTab = _index == _debugIndex;
-    final hasOwnAppBar = isCommunityTab || isDebugTab;
+    final hasOwnAppBar = _index == _communityIndex;
 
     return Scaffold(
-      appBar: hasOwnAppBar ? null : AppBar(title: Text(_titles[_index])),
+      appBar: hasOwnAppBar
+          ? null
+          : AppBar(title: SampleAppBarTitle(_titles[_index])),
       body: SafeArea(child: body),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _index,
-        onTap: _onTap,
-        type: BottomNavigationBarType.fixed,
-        items: [
-          BottomNavigationBarItem(
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: _onTap,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: [
+          NavigationDestination(
             icon: Semantics(
               identifier: 'home-tab',
               child: const Icon(Icons.home),
             ),
             label: 'Home',
           ),
-          BottomNavigationBarItem(
+          NavigationDestination(
             icon: Semantics(
               identifier: 'scenarios-tab',
               child: const Icon(Icons.science),
             ),
             label: 'Scenarios',
           ),
-          BottomNavigationBarItem(
+          NavigationDestination(
             icon: Semantics(
               identifier: 'community-tab',
-              child: const Icon(Icons.people),
+              child: const Icon(Icons.forum),
             ),
             label: 'Community',
           ),
-          BottomNavigationBarItem(
+          NavigationDestination(
             icon: Semantics(
               identifier: 'settings-tab',
               child: const Icon(Icons.settings),
             ),
             label: 'Settings',
-          ),
-          BottomNavigationBarItem(
-            icon: Semantics(
-              identifier: 'debug-tab',
-              child: const Icon(Icons.bug_report),
-            ),
-            label: 'Debug',
           ),
         ],
       ),

@@ -5,6 +5,9 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
+import '../config/config_screen.dart';
+import '../design.dart';
+import '../settings/account_screen.dart';
 import 'client_profile_page.dart';
 
 /// Community tab — the SDK's own embedded UI ([OctopusHomeScreen]).
@@ -16,26 +19,86 @@ import 'client_profile_page.dart';
 class CommunityTab extends StatelessWidget {
   const CommunityTab({super.key});
 
+  /// Blocking band action — retries the initialisation with the setup already
+  /// saved, or sends the host back to Config when there is nothing to retry.
+  Future<void> _retry(BuildContext context) async {
+    final app = AppScope.of(context);
+    final config = app.config;
+    if (config == null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const ConfigScreen(entry: ConfigEntry.revisit),
+        ),
+      );
+      return;
+    }
+    await app.start(config);
+  }
+
+  /// Degraded band action — Settings → Account, where the SSO user connects.
+  void _connect(BuildContext context) {
+    AppScope.of(context).requestTab(3);
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(MaterialPageRoute<void>(builder: (_) => const AccountScreen()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
 
     if (!app.initialized) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 56),
-              SizedBox(height: 12),
-              Text(
-                'SDK not initialized. Check the Home tab for the init status.',
-                textAlign: TextAlign.center,
+      // Not initialised covers two very different states, and only one of them
+      // is a problem: a cold start still in flight, and an initialisation that
+      // actually failed. Band A is blocking and accusatory ("check your API
+      // key"), so it is keyed on the recorded error — never on the normal
+      // second or two the first Start takes.
+      final failed = app.initError != null;
+      return Column(
+        children: [
+          if (failed)
+            SampleBand(
+              tone: SampleTone.danger,
+              message:
+                  "Couldn't reach the community — Check the server and API key "
+                  'in Config.',
+              actionLabel: 'Retry',
+              onAction: () => _retry(context),
+              identifier: 'community-band-blocked',
+            ),
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: failed
+                      ? const [
+                          Icon(Icons.cloud_off, size: 56),
+                          SizedBox(height: 12),
+                          Text(
+                            'The community loads once the SDK is initialised.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ]
+                      : const [
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(strokeWidth: 3),
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'Starting the SDK…',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       );
     }
 
@@ -73,6 +136,30 @@ class CommunityTab extends StatelessWidget {
     // BOTH platforms keeps the two natives visually aligned in the sample.
     // The non-embedded integration modes (Modal / Fullscreen / Sheet) are
     // demonstrated by their respective scenarios in the Scenarios tab.
+    // Band B — degraded. The sample layer sits ABOVE the SDK surface; the SDK
+    // surface itself never carries sample chrome.
+    return Column(
+      children: [
+        if (!app.userConnected)
+          SampleBand(
+            tone: SampleTone.warning,
+            message: 'Read-only — Connect an SSO user to post and react.',
+            actionLabel: 'Connect',
+            onAction: () => _connect(context),
+            identifier: 'community-band-readonly',
+          ),
+        Expanded(child: _octopusHome(context, app, key, octopusTheme, pending)),
+      ],
+    );
+  }
+
+  Widget _octopusHome(
+    BuildContext context,
+    AppState app,
+    Key key,
+    OctopusTheme? octopusTheme,
+    OctopusNotification? pending,
+  ) {
     return OctopusHomeScreen(
       key: key,
       theme: octopusTheme,

@@ -30,15 +30,17 @@ class ConnectionScenario extends StatelessWidget {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Connection',
+      api: 'connectUser / disconnectUser',
+      verifyInCommunity: true,
       description:
-          'Connect the bundled demo SSO user with a **persistent** token '
+          'Connect the bundled demo SSO user with a persistent token '
           'provider (so refreshEntitlements works) and pick which '
           'entitlements the host signs into the user JWT. Presets 1–4 each '
           'connect with a different requested entitlement set; the BE '
           'validates them, and the SDK\'s OctopusProfile.entitlements '
           'stream reflects the resolved set in the Live state below. '
           'Requires --dart-define=OCTOPUS_SSO_CLIENT_USER_TOKEN_SECRET '
-          '(`--dart-define` injects it). Without it, the sample '
+          '(--dart-define injects it). Without it, the sample '
           'falls back to the pre-baked OCTOPUS_USER_TOKEN — connect still '
           'works but refreshEntitlements returns NoClientTokenProvider.\n\n'
           'After Disconnect, a forced-login community re-establishes a '

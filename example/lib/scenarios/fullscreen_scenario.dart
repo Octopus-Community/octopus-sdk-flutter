@@ -230,6 +230,7 @@ class FullscreenScenario extends StatelessWidget {
 
     return ScenarioScaffold(
       title: 'Fullscreen',
+      api: 'showOctopusHomeScreen',
       description:
           'Open the SDK as a dedicated full-screen destination — a standard '
           'MaterialPageRoute push hosting OctopusHomeScreen (the same shape '

@@ -127,6 +127,8 @@ class _ReactionsScenarioState extends State<ReactionsScenario> {
   Widget build(BuildContext context) {
     return ScenarioScaffold(
       title: 'Reactions',
+      api: 'setReaction',
+      verifyInCommunity: true,
       description:
           'Calls OctopusSDK().setReaction(reaction, postId) once per preset. '
           'Presets 1-3 react, change the reaction, then unreact; presets 4-7 '

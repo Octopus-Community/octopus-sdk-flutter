@@ -6,7 +6,9 @@ then a bottom-navigation shell with four tabs:
 - **Home** — a read-only dashboard (init status, connection, unseen count, community access).
 - **Scenarios** — a searchable list of one-tap scenario screens, each exercising one SDK capability.
 - **Community** — the embedded `OctopusHomeScreen`.
-- **Settings** — login / edit profile / disconnect, language, server, reset.
+- **Settings** — login / edit profile / disconnect, language, server, "Back
+  to Config" (non-destructive) / "Reset Configuration" (destructive, its own
+  danger zone), the Debug console entry, and the app version.
 
 Each scenario is driven by **preset buttons** (no free-text forms) and shows a
 live result panel, so the effect of every SDK call is observable on screen.
@@ -118,17 +120,23 @@ example/lib/
 ├── community/                 # Embedded OctopusHomeScreen
 ├── settings/                  # Settings tab
 ├── auth/                      # Login + profile-edit pages
-├── debug/                     # Debug tab + the SDK event / API-call recorder
+├── debug/                     # Debug console (modal) + the SDK event / API-call recorder
 └── widgets/                   # Shared scenario scaffold + cards
 ```
 
-> The **Debug** tab is part of the app you are running: `main.dart` starts the
-> recorder at launch, so it captures every SDK event and every API call the
-> sample makes from the first frame. Nothing needs to be enabled.
+> **Debug is not a tab.** `main.dart` starts the recorder at launch
+> unconditionally, so it captures every SDK event and every API call the
+> sample makes from the first frame — nothing needs to be enabled. The console
+> itself is a modal sheet opened from Settings via "Open debug console"
+> (`debug-open-button`), ships in every build including the published
+> package, and offers copy / clear / close actions
+> (`debug-copy-button` / `debug-clear-button` / `debug-close-button`).
 >
-> One debug surface does *not* ship — a console sheet reachable from Settings,
-> installed by a separate internal entrypoint. It lives in `debug/internal/`,
-> which is the only part of `debug/` stripped from the published package.
+> `debug/internal/` still exists, but only as a QA-tooling-compatibility
+> entrypoint (`flutter run -t lib/debug/internal/main_debug.dart`, targeted by
+> an internal QA launcher by path) — its own console-install call is redundant
+> with the default entrypoint's and is the only part of `debug/` stripped from
+> the published package.
 
 ## Push notifications
 

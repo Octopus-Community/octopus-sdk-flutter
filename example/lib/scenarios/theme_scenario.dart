@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_state.dart';
 import '../branding.dart';
@@ -14,6 +15,8 @@ class ThemeScenario extends StatelessWidget {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Theme',
+      api: 'OctopusTheme',
+      verifyInCommunity: true,
       description:
           'Switch the embedded Community UI between the SDK default theme, a '
           'custom OctopusTheme (brand colors + bundled logo), that same theme '
@@ -28,11 +31,15 @@ class ThemeScenario extends StatelessWidget {
       presets: [
         ScenarioPreset(
           testId: 'qa-preset-theme-1',
-          label: 'Preset 1 · Default theme',
+          label: 'Preset 1 · Octopus navy',
           onRun: (setResult) async {
-            app.setActiveOctopusTheme(null, 'SDK default');
+            // Passes null, not an explicit theme: `effectiveOctopusTheme()`
+            // falls back to `brandOctopusTheme` for a null active theme, so
+            // this preset *is* the brand theme — see preset 5 for the actual
+            // no-theme-at-all oracle this preset used to be.
+            app.setActiveOctopusTheme(null, 'Octopus navy');
             setResult(
-              'Embedded view → SDK default theme. '
+              'Embedded view → brand theme (the sample\'s default). '
               'Open the Community tab to see it.',
             );
           },
@@ -42,7 +49,8 @@ class ThemeScenario extends StatelessWidget {
           label: 'Preset 2 · Custom theme (brand colors + logo)',
           onRun: (setResult) async {
             app.setActiveOctopusTheme(
-              brandOctopusTheme(app.logoBase64),
+              (brightness) =>
+                  brandOctopusTheme(app.logoBase64, brightness: brightness),
               'Custom (brand)',
             );
             setResult(
@@ -56,7 +64,8 @@ class ThemeScenario extends StatelessWidget {
           label: 'Preset 3 · Surface keys (background + link + nav-bar item)',
           onRun: (setResult) async {
             app.setActiveOctopusTheme(
-              surfaceOctopusTheme(app.logoBase64),
+              (brightness) =>
+                  surfaceOctopusTheme(app.logoBase64, brightness: brightness),
               'Custom (surface keys)',
             );
             setResult(
@@ -74,7 +83,8 @@ class ThemeScenario extends StatelessWidget {
           label: 'Preset 4 · Surface keys only (no primary colors)',
           onRun: (setResult) async {
             app.setActiveOctopusTheme(
-              surfaceOnlyOctopusTheme(),
+              // No primary colors at all, so nothing here depends on brightness.
+              (_) => surfaceOnlyOctopusTheme(),
               'Custom (surface keys only)',
             );
             setResult(
@@ -85,6 +95,25 @@ class ThemeScenario extends StatelessWidget {
               'default near-black primary that adapts to light/dark. A blue '
               'primary here is a bug: it means an unset color was substituted '
               'instead of forwarded as unset.',
+            );
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-theme-5',
+          label: 'Preset 5 · SDK default (no theme)',
+          onRun: (setResult) async {
+            // An explicit empty OctopusTheme, not null: null now falls back
+            // to the brand theme (preset 1), so reaching the SDK's own
+            // unthemed default — the near-black primary — needs a theme
+            // instance whose `toMap()` is empty, bypassing that fallback.
+            app.setActiveOctopusTheme(
+              (_) => const OctopusTheme(),
+              'SDK default (no theme)',
+            );
+            setResult(
+              'Embedded view → SDK default theme, nothing set at all. '
+              'Open the Community tab: primary renders the SDK\'s own '
+              'near-black, not the sample\'s brand color.',
             );
           },
         ),

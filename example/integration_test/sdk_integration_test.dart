@@ -20,7 +20,9 @@ import 'package:octopus_sdk_flutter_example/main.dart' as app;
 ///  1. We never `pumpAndSettle` on the **Community** tab — it hosts a native
 ///     PlatformView whose continuous compositing never reaches a settled frame,
 ///     which would hang `pumpAndSettle`. The shell-level tests stay on the
-///     pure-Flutter tabs (Home / Scenarios / Settings / Debug).
+///     pure-Flutter tabs (Home / Scenarios / Settings). Debug is not a tab
+///     (D1, cadrage report 07) — the Events log is a screen reached from
+///     Settings → Developer tools via `debug-open-button`.
 ///  2. Scenario presets are exercised for "does not throw / renders a result"
 ///     only — we assert the result panel appears, not its backend-dependent
 ///     text.
@@ -62,6 +64,17 @@ void main() {
             .descendant(of: config, matching: find.byType(Scrollable))
             .first,
       );
+      // `scrollUntilVisible` stops as soon as the button PARTIALLY enters the
+      // viewport. When no ProductionWarningBanner is shown — the case here,
+      // since integration runs pin the demo host and inject no
+      // --dart-define=OCTOPUS_INTERNAL=true (either one alone already hides
+      // it; this run has neither) — the route spans the full screen height
+      // and a half-visible button's center lands exactly on the screen edge —
+      // outside the render tree, so `tap()` misses with a non-fatal warning
+      // and the whole suite cascades. Bring it fully into view first
+      // (unconditional: harmless on a run where the banner does render).
+      await tester.ensureVisible(start);
+      await tester.pumpAndSettle();
       expect(start, findsOneWidget);
       await tester.tap(start);
       // start() sets the DemoConfig and the root rebuilds to the shell
@@ -71,17 +84,17 @@ void main() {
   }
 
   group('Sample shell', () {
-    testWidgets('Config → Start reveals all five bottom-nav tabs', (
+    testWidgets('Config → Start reveals all four bottom-nav tabs', (
       tester,
     ) async {
       await startToShell(tester);
 
-      // The five-tab shell (Home / Scenarios / Community / Settings / Debug).
+      // The four-tab shell, in order (D1, cadrage report 07): Home /
+      // Scenarios / Community / Settings. Debug is not a tab.
       expect(find.text('Home'), findsWidgets);
       expect(find.text('Scenarios'), findsWidgets);
       expect(find.text('Community'), findsWidgets);
       expect(find.text('Settings'), findsWidgets);
-      expect(find.text('Debug'), findsWidgets);
     });
 
     testWidgets('Scenarios tab lists the searchable scenario cards', (
@@ -176,44 +189,74 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
       // Assert a unique Settings *body* anchor — not the persistent bottom-nav
       // 'Settings' label (which is present on every tab and would make this a
-      // tautology). 'Reset configuration' only exists in the Settings body.
-      //
-      // It sits near the bottom of a lazy `ListView`, so scroll to it instead of
-      // expecting it in the first viewport: asserting on the initial build makes
-      // this test fail whenever a section is added above, which is a change in
-      // the list's length, not a rendering regression.
-      final resetTile = find.text('Reset configuration');
-      await tester.scrollUntilVisible(
-        resetTile,
-        200,
-        // Anchored on a widget known to be in the Settings list rather than
-        // `byType(Scrollable).first`, so this keeps targeting the right scroller
-        // if the Settings body ever nests one.
-        scrollable: find
-            .ancestor(
-              of: find.bySemanticsIdentifier('qa-toggle-unifiedProfileWired'),
-              matching: find.byType(Scrollable),
-            )
-            .first,
+      // tautology). Settings is now a pure summary of navigation rows, so the
+      // anchor is the Account entry that opens it; Reset data moved down into
+      // About, behind its own chevron.
+      expect(
+        find.bySemanticsIdentifier('settings-account-entry'),
+        findsOneWidget,
       );
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      expect(resetTile, findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier('settings-devtools-entry'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('Debug tab renders the live-state console', (tester) async {
+    testWidgets('Events log opens from Settings → Developer tools', (
+      tester,
+    ) async {
       await startToShell(tester);
-      await tester.tap(find.text('Debug').first);
+      await tester.tap(find.text('Settings').first);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      // The Debug tab's copy + clear affordances are always present.
-      expect(
-        find.bySemanticsIdentifier('debug-tab-copy-button'),
-        findsOneWidget,
-      );
-      expect(
-        find.bySemanticsIdentifier('debug-tab-clear-button'),
-        findsOneWidget,
-      );
+      // Developer tools is a Settings → Support row; the Events log lives
+      // one level under it, still behind `debug-open-button`.
+      final devTools = find.bySemanticsIdentifier('settings-devtools-entry');
+      await tester.ensureVisible(devTools);
+      await tester.pumpAndSettle();
+      await tester.tap(devTools);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      final openButton = find.bySemanticsIdentifier('debug-open-button');
+      expect(openButton, findsOneWidget);
+      await tester.tap(openButton);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // The log's copy + clear affordances are always present. Closing is now
+      // a plain route pop — the console modal (and its close button) is gone.
+      expect(find.bySemanticsIdentifier('debug-copy-button'), findsOneWidget);
+      expect(find.bySemanticsIdentifier('debug-clear-button'), findsOneWidget);
+      expect(find.bySemanticsIdentifier('debug-log-list'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle(const Duration(seconds: 1));
     });
+
+    testWidgets(
+      'Reset configuration lives in Settings, behind a confirmation',
+      (tester) async {
+        await startToShell(tester);
+        await tester.tap(find.text('Settings').first);
+        await tester.pumpAndSettle(const Duration(seconds: 2));
+
+        // Reset is the Support group's last, red row — it moved out of About
+        // when Config absorbed the per-setting screens (#324).
+        final resetTile = find.bySemanticsIdentifier('settings-reset-button');
+        await tester.ensureVisible(resetTile);
+        await tester.pumpAndSettle();
+        expect(resetTile, findsOneWidget);
+
+        // Open the confirmation and dismiss it — the destructive path itself is
+        // not exercised here, only the guard in front of it.
+        await tester.tap(resetTile);
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        expect(
+          find.bySemanticsIdentifier('settings-reset-confirm'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+      },
+    );
   });
 }

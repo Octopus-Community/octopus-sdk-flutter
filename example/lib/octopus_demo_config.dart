@@ -88,21 +88,72 @@ bool get hasInjectedSsoSecret => octopusSsoClientUserTokenSecret.isNotEmpty;
 
 /// The server the bundled native SDK talks to, declared at build time.
 ///
-/// Optional non-production API host, injected at build time via
-/// `--dart-define=OCTOPUS_API_HOST=…`. Empty (the default, and always the case
-/// on the public build) → the SDK's built-in production host.
+/// Optional non-production API host, injected via
+/// `--dart-define=OCTOPUS_API_HOST=…`. Empty (the default, and always the
+/// case on the public build) → the SDK's built-in production host.
 ///
 /// CRITICAL: the published `octopus-sdk` the plugin depends on targets
 /// **production** (`api.8pus.io`) and exposes no host setter — the Flutter
 /// sample therefore talks to PROD whenever this is empty, where every action
 /// (connect, follow, post) hits real client communities. Fail-safe: assume
-/// prod unless a build explicitly injects a non-production host here. The value
-/// is environment-specific and never committed.
+/// prod unless a build explicitly injects a non-production host here. The
+/// value is environment-specific and never committed — no private host
+/// literal lives in this file (`.github/sync/match.py`'s content guard
+/// rejects the internal demo host/env name on sight; see that file's
+/// "internal backend env / host" entry). A demo-by-default *experience* for
+/// internal contributors is provided by `scripts/run-sample.sh` (not
+/// mirrored), which already injects the demo host on every run unless
+/// `OCTOPUS_API_HOST` is overridden — report 11 §F1's "démo sauf mention
+/// contraire" intent is met there, not by a literal in this committed file.
 const String octopusApiHost = String.fromEnvironment('OCTOPUS_API_HOST');
 
-/// Whether the sample targets the default production backend (i.e. no custom
-/// host was injected). Fail-safe: prod unless an explicit host is set.
+/// The published production host — the one the SDK falls back to when no
+/// `ApiServer` is passed. A public literal (it is in the public docs), and the
+/// only host literal this file may carry.
+const String productionHost = 'api.8pus.io';
+
+/// The host the Config screen's **Demo** server environment resolves to.
+///
+/// Same injected value as [octopusApiHost], surfaced under the name the UI
+/// uses. Empty on a build that injects none (a bare `flutter run`, the public
+/// mirror, a store build) — in which case Demo resolves to the SDK default,
+/// i.e. production, and every label says so rather than pretending otherwise.
+String get octopusDemoApiHost => octopusApiHost.trim();
+
+/// Whether this build injected a demo host at all — gates the Config screen's
+/// helper text, never the availability of the Demo option (which stays the
+/// default so a fresh install can't land on Prod by omission).
+bool get hasInjectedDemoHost => octopusDemoApiHost.isNotEmpty;
+
+/// Whether the *build* carries no host opinion, so the SDK's production
+/// fail-safe applies unless the runtime config says otherwise. The runtime
+/// counterpart — which the production banner actually keys on now that the
+/// environment is switchable — is `DemoConfig.pointsAtProduction`.
 bool get octopusIsProdServer => octopusApiHost.trim().isEmpty;
+
+/// Whether this build is an *internal* Octopus build, injected via
+/// `--dart-define=OCTOPUS_INTERNAL=true` by internal run/QA tooling only.
+/// Always `false` on a public clone and on the store builds (nothing injects
+/// it there), which is the point: it gates internal-only affordances such as
+/// the production warning banner without leaking anything into the mirrored
+/// sources.
+const bool octopusIsInternalBuild = bool.fromEnvironment('OCTOPUS_INTERNAL');
+
+/// Whether the persistent production warning banner is shown (and the top
+/// inset handed to it — `octopusDemoAppBuilder` keys its `MediaQuery` padding
+/// removal on this same predicate, so keep the two in sync by construction).
+///
+/// The banner is an internal safety net ("you are about to test against
+/// something real — don't post"), not part of the sample's product surface: a
+/// client integrating the SDK nominally points it at production (or their own
+/// host) with their own sandbox or production key, so for them the banner
+/// would shout permanently on the only configuration they ever use. The API
+/// key is opaque — there is no way to tell a sandbox key from a production
+/// one client-side — so the gate is the build, not the key (decided
+/// 2026-08-26): internal builds warn on the prod fail-safe path, everyone
+/// else never sees it.
+bool get octopusShowsServerWarning =>
+    octopusIsInternalBuild && octopusIsProdServer;
 
 /// A real post id on the demo community, injected via
 /// `--dart-define=OCTOPUS_DEMO_POST_ID=…` (injected at build time by default).

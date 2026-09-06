@@ -45,6 +45,8 @@ class SwitchCommunityScenario extends StatelessWidget {
     final hasNamedKeys = injectedApiKeys.isNotEmpty;
     return ScenarioScaffold(
       title: 'Switch community',
+      api: 'switchCommunity',
+      verifyInCommunity: true,
       description: hasNamedKeys
           ? 'Re-target the SDK at a different community at runtime via '
                 'OctopusSDK.switchCommunity. The current API key, init flag, '

@@ -13,6 +13,12 @@ void main() {
       // the Start button (which this test never taps), so the
       // chip-fills-field contract can be exercised without the host
       // ChangeNotifier.
+      // The form is a ListView: give it a tall surface so the
+      // Authentication (SSO) section below the fold is built.
+      tester.view.physicalSize = const Size(1000, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
       await tester.pumpWidget(const MaterialApp(home: ConfigScreen()));
 
       // Pick a chip that is NOT the seed (which already pre-fills the
@@ -67,6 +73,13 @@ void main() {
         serverEnv: ServerEnv.prod,
       );
 
+      // The form is a ListView: fields below the fold are never built in the
+      // default 800x600 test viewport. Give it a tall surface so every
+      // section — including Authentication (SSO) — is present.
+      tester.view.physicalSize = const Size(1000, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
       await tester.pumpWidget(
         const MaterialApp(home: ConfigScreen(initialConfig: restored)),
       );
@@ -109,10 +122,9 @@ void main() {
         serverEnv: ServerEnv.prod,
       );
 
-      // Start is the last child of a ListView and falls outside the default
-      // 800x600 test viewport, so it is never built there. Give the test a
-      // tall surface rather than scrolling — the button's enabled state is
-      // what's under test, not the scrolling.
+      // The commit button is anchored outside the scroll view, but the form
+      // above it is tall; give the test a roomy surface so nothing overflows
+      // while the custom-key field is being filled.
       tester.view.physicalSize = const Size(1000, 3000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -125,13 +137,13 @@ void main() {
       // a MergeSemantics, which folds the identifier into the button's own
       // node, so a descendant-of-identifier finder comes back empty.
       FilledButton readStartButton() => tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Start'),
+        find.widgetWithText(FilledButton, 'Start SDK'),
       );
 
       expect(
         readStartButton().onPressed,
         isNull,
-        reason: 'no key pasted yet — Start must be inert',
+        reason: 'no key pasted yet — Start SDK must be inert',
       );
 
       final customField = find.ancestor(
@@ -145,4 +157,30 @@ void main() {
       expect(readStartButton().onPressed, isNotNull);
     },
   );
+
+  testWidgets('the server environment defaults to Demo, never production', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const MaterialApp(home: ConfigScreen()));
+
+    final selector = find.descendant(
+      of: find.bySemanticsIdentifier('config-serverEnv-select'),
+      matching: find.byType(SegmentedButton<ServerEnv>),
+    );
+    expect(selector, findsOneWidget);
+    expect(
+      tester.widget<SegmentedButton<ServerEnv>>(selector).selected,
+      {ServerEnv.demo},
+      reason: 'a fresh install must not land on the production server',
+    );
+    // And the picker is a real runtime control, not a build-time readout.
+    expect(
+      tester.widget<SegmentedButton<ServerEnv>>(selector).onSelectionChanged,
+      isNotNull,
+    );
+  });
 }

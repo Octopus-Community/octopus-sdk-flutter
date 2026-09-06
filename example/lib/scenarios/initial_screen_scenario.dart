@@ -405,6 +405,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Initial screen',
+      api: 'OctopusInitialScreen',
       description:
           'Mount the embedded community on a specific initial screen — main '
           'feed, a single post (bridge mode), a single group (bridge mode), '
@@ -908,7 +909,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-8',
+          testId: 'qa-preset-initialScreen-8',
           label: 'Preset 8 · Open member activity (by clientUserId)',
           onRun: (setResult) async {
             final clientUserId = _effectiveMemberClientUserId(app);
@@ -969,7 +970,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-9',
+          testId: 'qa-preset-initialScreen-9',
           label: 'Preset 9 · Open member activity (by profileId)',
           onRun: (setResult) async {
             // Resolve an Octopus profile id when QA has not pasted one: this is
@@ -1065,7 +1066,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-10',
+          testId: 'qa-preset-initialScreen-10',
           label: 'Preset 10 · Open member profile (OctopusProfileScreen)',
           onRun: (setResult) async {
             final clientUserId = _effectiveMemberClientUserId(app);
@@ -1111,7 +1112,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
           },
         ),
         ScenarioPreset(
-          testId: 'qa-preset-initial-screen-11',
+          testId: 'qa-preset-initialScreen-11',
           label: 'Preset 11 · Open my own profile (no id)',
           onRun: (setResult) async {
             try {

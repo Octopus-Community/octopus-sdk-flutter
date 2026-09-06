@@ -171,6 +171,7 @@ class ModalScenario extends StatelessWidget {
 
     return ScenarioScaffold(
       title: 'Modal',
+      api: 'fullscreenDialog',
       description:
           'Open the SDK as a full-screen modal — '
           'MaterialPageRoute(fullscreenDialog: true) hosting '

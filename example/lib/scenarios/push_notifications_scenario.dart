@@ -31,6 +31,7 @@ class _PushNotificationsScenarioState extends State<PushNotificationsScenario> {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Push Notifications',
+      api: 'isOctopusNotification / openNotification',
       description:
           'Replays the full push-tap path from a bundled sample payload — '
           'isOctopusNotification → getOctopusNotification → openNotification — '

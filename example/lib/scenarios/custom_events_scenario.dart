@@ -19,6 +19,7 @@ class CustomEventsScenario extends StatelessWidget {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Custom Events',
+      api: 'trackCustomEvent',
       description:
           'Track an analytics custom event, with and without properties.',
       resultTestId: 'customEvents-result',

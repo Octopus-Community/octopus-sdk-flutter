@@ -52,6 +52,7 @@ class ForceOctopusABTestsScenario extends StatelessWidget {
     final app = AppScope.of(context);
     return ScenarioScaffold(
       title: 'Force Octopus A/B Tests',
+      api: 'overrideCommunityAccess',
       description:
           'On some communities, Octopus runs internal A/B Tests to decide '
           'whether a user can access the community. This scenario uses '
