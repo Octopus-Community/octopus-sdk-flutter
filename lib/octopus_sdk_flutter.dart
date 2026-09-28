@@ -20,4 +20,5 @@ export 'src/sync_follow_group.dart';
 export 'src/octopus_sdk.dart';
 export 'src/octopus_home_screen.dart';
 export 'src/octopus_theme.dart';
+export 'src/octopus_icons.dart';
 export 'src/url_opening_strategy.dart';

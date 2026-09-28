@@ -4,12 +4,16 @@ import android.content.Context
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
@@ -24,6 +28,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import com.octopuscommunity.sdk.OctopusSDK
 import com.octopuscommunity.sdk.domain.model.ProfileField
 import com.octopuscommunity.sdk.ui.components.NavigationIconType
 import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
@@ -47,6 +52,7 @@ class OctopusEmbeddedView(
     private val fontFamily: String? = null,
     private val fontWeight: Int? = null,
     private val logoBase64: String? = null,
+    private val icons: Map<String, String> = emptyMap(),
     private val navBarTitle: String? = null,
     private val navBarPrimaryColor: Boolean = false,
     private val titleCentered: Boolean = false,
@@ -136,6 +142,7 @@ class OctopusEmbeddedView(
                     fontFamily = args["fontFamily"] as? String,
                     fontWeight = (args["fontWeight"] as? Number)?.toInt(),
                     logoBase64 = args["logoBase64"] as? String,
+                    icons = parseIconSources(args["icons"]),
                     navBarTitle = args["navBarTitle"] as? String,
                     navBarPrimaryColor = args["navBarPrimaryColor"] as? Boolean ?: false,
                     titleCentered = args["titleCentered"] as? Boolean ?: false,
@@ -176,6 +183,53 @@ class OctopusEmbeddedView(
                 isHorizontalScrollBarEnabled = false
 
                 setContent {
+                    // The SDK is initialised from Dart only (`OctopusSDK.initialize()`),
+                    // never at Application startup, so this PlatformView can be mounted
+                    // on an uninitialised SDK in two routine ways: a host that builds the
+                    // widget before `await OctopusSDK.initialize(...)` resolves, and
+                    // Android restoring the host activity in a fresh process (low-memory
+                    // kill, "Don't keep activities") before the Flutter engine has re-run
+                    // the host's initialisation. Composing then reached
+                    // `OctopusSDK.getKoinApp` and brought the process down with
+                    // `UninitializedPropertyAccessException`.
+                    //
+                    // Native SDK 1.13.4 closed most of that: `OctopusHomeScreen` and every
+                    // screen from `octopusComposables` wrap themselves in the native
+                    // `OctopusContent`, which carries the same guard. `OctopusHomeContent`
+                    // — the `showNavBar = false` branch below — does not: it resolves
+                    // `koinViewModel<OctopusHomeViewModel>()` directly, since the SDK
+                    // expects a host embedding it to supply the `OctopusContent` wrapper
+                    // itself. Gating here covers that branch and keeps the whole embedded
+                    // view's behaviour one thing rather than a function of which native
+                    // composable each option happens to mount.
+                    //
+                    // The gate is `isInitialised` rather than a `lateinit` check on
+                    // `koinApp`: `initialize()` assigns the container before announcing the
+                    // SDK as initialised, while `stop()` announces the stop before closing
+                    // a container that stays assigned — so a `lateinit` check would also
+                    // pass on a stopped SDK and hand composition a closed Koin scope.
+                    //
+                    // Collected as state rather than read once, so the view fills in on its
+                    // own as soon as `initialize()` completes, with no further recomposition
+                    // trigger and no host-side remount needed. Same shape as the guard
+                    // the native Android SDK carries in its own `OctopusContent`.
+                    val isInitialised by OctopusSDK.isInitialisedFlow.collectAsState()
+                    if (!isInitialised) {
+                        LaunchedEffect(Unit) {
+                            Log.w(
+                                "OctopusEmbeddedView",
+                                "The Octopus embedded view was mounted while the SDK is " +
+                                    "not initialised (OctopusSDK.initialize() has not " +
+                                    "completed yet, or stop() has been called since), so " +
+                                    "it rendered nothing. The community appears on its " +
+                                    "own once initialisation lands; await " +
+                                    "OctopusSDK.initialize() before showing Octopus UI " +
+                                    "to avoid the empty frame."
+                            )
+                        }
+                        Box(modifier = Modifier.fillMaxSize())
+                        return@setContent
+                    }
                     MaterialTheme {
                         OctopusHomeScreen(
                             modifier = Modifier
@@ -217,6 +271,7 @@ class OctopusEmbeddedView(
                             fontFamily = fontFamily,
                             fontWeight = fontWeight,
                             logoBase64 = logoBase64,
+                            icons = icons,
                             navBarTitle = navBarTitle,
                             navBarPrimaryColor = navBarPrimaryColor,
                             titleCentered = titleCentered,

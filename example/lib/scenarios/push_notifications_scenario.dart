@@ -7,7 +7,9 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
-import '../octopus_demo_config.dart';
+import '../config/config_screen.dart';
+import '../design.dart';
+import '../sample_fixtures.dart';
 import '../widgets/scenario_scaffold.dart';
 
 /// Push-notifications scenario — replays the full push-tap path
@@ -15,7 +17,7 @@ import '../widgets/scenario_scaffold.dart';
 /// a bundled sample payload, without needing an actual FCM/APNs push (which a
 /// simulator/emulator cannot easily deliver).
 ///
-/// The payload comes from [sampleOctopusNotificationPayload] and matches the
+/// The payload comes from [sampleFixtures.postNotificationPayload] and matches the
 /// shape `RemoteMessage.data` (Android FCM) / `userInfo` (iOS APNs) delivers.
 class PushNotificationsScenario extends StatefulWidget {
   const PushNotificationsScenario({super.key});
@@ -37,6 +39,16 @@ class _PushNotificationsScenarioState extends State<PushNotificationsScenario> {
           'isOctopusNotification → getOctopusNotification → openNotification — '
           'without an actual push.',
       resultTestId: 'pushNotifications-result',
+      // The not-initialised result below points at Config; a result string
+      // cannot carry a link, so the link sits here while it applies.
+      liveState: app.initialized
+          ? null
+          : SampleLink(
+              label: 'SDK not started · Open Config',
+              identifier: 'pushNotifications-config-link',
+              onTap: () =>
+                  openConfigScreen(context, anchor: ConfigSection.community),
+            ),
       presets: [
         ScenarioPreset(
           testId: 'qa-preset-pushNotifications-1',
@@ -58,7 +70,11 @@ class _PushNotificationsScenarioState extends State<PushNotificationsScenario> {
             }
             // Parse the bundled fixture through the exact host code path a
             // real FCM/APNs tap would take (see main.dart _handleNotification).
-            final payload = sampleOctopusNotificationPayload;
+            if (sampleFixtures.postText.trim().isEmpty) {
+              setResult('Skipped: post.text fixture is empty.', isError: true);
+              return;
+            }
+            final payload = sampleFixtures.postNotificationPayload;
             if (!OctopusSDK.isOctopusNotification(payload)) {
               setResult(
                 'Sample payload not recognised as an Octopus notification.',
@@ -79,10 +95,7 @@ class _PushNotificationsScenarioState extends State<PushNotificationsScenario> {
                 'linkPath': notification.linkPath,
                 'postId': notification.postId,
               });
-              final target = hasDemoPostId
-                  ? 'real post ${notification.postId}'
-                  : 'a not-found placeholder post (OCTOPUS_DEMO_POST_ID set '
-                        'empty — the SDK handles the stale link gracefully)';
+              final target = 'post ${notification.postId}';
               setResult(
                 'Opening Octopus via openNotification(linkPath='
                 '"${notification.linkPath}") → deep-links to $target.',

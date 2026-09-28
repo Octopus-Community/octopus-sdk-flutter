@@ -36,14 +36,19 @@ class DebugInfoScreen extends StatelessWidget {
             : (app.currentEntitlements.toList()..sort()).join(', '),
       ),
       ('Theme', app.activeThemeLabel),
-      ('Language', app.localeChoice.label),
+      ('Language', app.localeLabel),
+      // A bug report that omits these is a bug report twice: they change what
+      // the sample does, and they are the two facts nothing else on this screen
+      // records. Copied along with the rest by the Copy action above.
+      ('Feature toggles', app.featureToggles.summaryLine),
       ('Profile taps', app.unifiedProfileWired ? 'host' : 'SDK'),
+      ('exposeClientUserId', app.exposeClientUserIdSummary),
       ('Host callbacks', app.hostCallbacksSummary),
       ('Unseen notifications', app.notSeenCount?.toString() ?? '—'),
       ('Has access', app.hasAccess?.toString() ?? '—'),
     ];
 
-    return Scaffold(
+    return SampleScaffold(
       appBar: AppBar(
         title: const SampleAppBarTitle('Debug info'),
         actions: [
@@ -66,21 +71,27 @@ class DebugInfoScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Semantics(
-        identifier: 'debug-info-screen',
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            SampleSection(
-              title: 'Build & session',
-              child: Column(
-                children: [
-                  for (final (label, value) in rows)
-                    SampleKeyValue(label, value, mono: true),
-                ],
+      // A pushed route: nothing above it consumes the bottom system inset the
+      // way the app shell's own `SafeArea` does for the tabs. Without this the
+      // list scrolls under Android's gesture handle, which crosses whatever
+      // label rests there (#359, same defect as Account in #355).
+      body: SafeArea(
+        child: Semantics(
+          identifier: 'debug-info-screen',
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              SampleSection(
+                title: 'Build & session',
+                child: Column(
+                  children: [
+                    for (final (label, value) in rows)
+                      SampleKeyValue(label, value, mono: true),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

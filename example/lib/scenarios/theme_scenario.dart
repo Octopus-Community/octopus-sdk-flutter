@@ -117,6 +117,41 @@ class ThemeScenario extends StatelessWidget {
             );
           },
         ),
+        ScenarioPreset(
+          testId: 'qa-preset-theme-icons',
+          label: 'Preset 6 · Custom icons + activity + reactions',
+          onRun: (setResult) async {
+            final comment = await OctopusIconSource.asset(
+              'assets/icons/comment.png',
+            );
+            final more = await OctopusIconSource.asset('assets/icons/more.png');
+            final reaction = await OctopusIconSource.asset('assets/logo.png');
+            app.setActiveOctopusTheme(
+              (_) => OctopusTheme(
+                icons: OctopusIcons(
+                  screenStates: OctopusScreenStateIcons(emptyContent: reaction),
+                  common: OctopusCommonIcons(
+                    moreActions: more,
+                    activityButton: more,
+                  ),
+                  content: OctopusContentIcons(
+                    comment: OctopusCommentIcons(
+                      creation: OctopusCommentCreationIcons(open: comment),
+                    ),
+                    reaction: OctopusReactionIcons(heart: reaction),
+                  ),
+                ),
+              ),
+              'Custom icons',
+            );
+            setResult(
+              'Open Community: custom comment and overflow icons; the heart '
+              'reaction uses the full-color logo. The activity icon appears '
+              'when Unified Profile is active for a connected user. '
+              'Use SDK default to reset all icons.',
+            );
+          },
+        ),
       ],
     );
   }

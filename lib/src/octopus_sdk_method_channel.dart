@@ -372,6 +372,22 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }
 
   @override
+  Future<void> debugOverrideExposeClientUserId(bool? enabled) async {
+    // A null value inside the argument map is the "clear the override" case;
+    // both bridges read it as `Boolean?` / `Bool?`.
+    await methodChannel.invokeMethod('debugOverrideExposeClientUserId', {
+      'enabled': enabled,
+    });
+  }
+
+  @override
+  Future<Map<dynamic, dynamic>?> debugGetCommunityConfig() async {
+    return await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+      'debugGetCommunityConfig',
+    );
+  }
+
+  @override
   Future<void> trackCustomEvent(
       String name, Map<String, String> properties) async {
     await methodChannel.invokeMethod('trackCustomEvent', {

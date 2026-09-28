@@ -12,6 +12,8 @@
 /// Nothing here is localized: the sample is English-only by design.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 // ── Palette ────────────────────────────────────────────────────────────────
@@ -28,19 +30,93 @@ const Color sampleNavy = Color(0xFF0F1B2D);
 /// ink is [sampleAccentInk] (4.56:1), where white would be 3.50:1.
 const Color sampleAccentBlue = Color(0xFF1D88FE);
 
-/// The accent role on dark surfaces: text, icons and control fills alike.
-///
-/// A lighter step of the brand blue — [sampleAccentBlue] is almost never
-/// drawn on the dark page background; it lands on a raised container or on
-/// its own 12-15% tint, where it falls to 3.28-4.02:1. This value reads
-/// 7.21:1 on the dark page background and 4.74:1 over its own 15% navigation
-/// indicator, the worst path in the app.
-const Color sampleAccentDark = Color(0xFF6FB2FF);
+// Dark ladder, aligned on the octopuscommunity.com site: ink → navy →
+// navy-2, each step a bluish navy rather than a neutral grey, so depth reads
+// as depth instead of flat grey slabs.
+// Dark role → flat sRGB → OctopusTheme token (shell-only if absent).
+// Page / onPrimary → #070D17 (site `--ink`) → background / onPrimary.
+// Card → #0F1B2D (brand navy) → shell surface (SDK has no surface token).
+// Hairline → #1E2A3D (site `--line`) → shell outlineVariant (SDK has no
+// divider token).
+// Strong hairline → #243349 → shell only (current-configuration frame).
+// Elevated → #16243A (site `--navy-2`) → shell overlays (SDK has no elevated
+// token).
+// Hover / pressed → #1D2E48 → shell states (SDK has no hover token).
+// Heading → #F2F6FC → shell onSurface (SDK has no gray ramp).
+// Body → #E9F0FA → shell body text (SDK has no gray ramp).
+// Caption → #8C9AB0 → shell onSurfaceVariant (SDK has no gray ramp).
+// Accent → #66B0FF → primaryMain / link.
+// Tinted container → #16273C → primaryLowContrast.
+// Progress / focus → #8FC6FF → primaryHighContrast.
+//
+// Text ladder measured on page / card / elevated / hover: heading
+// 17.95 / 15.94 / 14.37 / 12.60:1, body 16.97 / 15.07 / 13.59 / 11.92:1,
+// caption 6.83 / 6.06 / 5.46 / 4.79:1 — the caption clears 4.5:1 on hover too.
+const Color sampleDarkSurface = Color(0xFF070D17);
+const Color sampleDarkCard = sampleNavy;
+// Decorative only (1.06–1.35:1 on the ladder) — never a control boundary.
+const Color sampleDarkDivider = Color(0xFF1E2A3D);
+// One step above [sampleDarkDivider], for a block that has to stand out from
+// its neighbours. Still decorative (1.22:1 on [sampleDarkElevated]).
+const Color sampleDarkBorderStrong = Color(0xFF243349);
+const Color sampleDarkElevated = Color(0xFF16243A);
+const Color sampleDarkHover = Color(0xFF1D2E48);
+const Color sampleDarkText = Color(0xFFF2F6FC);
+const Color sampleDarkBody = Color(0xFFE9F0FA);
+const Color sampleDarkSecondary = Color(0xFF8C9AB0);
+const Color sampleAccentDark = Color(0xFF66B0FF);
+const Color sampleDarkPrimaryLow = Color(0xFF16273C);
+const Color sampleDarkPrimaryHigh = Color(0xFF8FC6FF);
 
-/// The ink that reads on an accent fill, in both themes: 4.56:1 on
-/// [sampleAccentBlue], 7.21:1 on [sampleAccentDark], where white would be
-/// 3.50:1 and 2.21:1.
+// off-table: non-text control boundary ≥ 3:1 (WCAG 1.4.11)
+// 4.65:1 on page, 4.13:1 on card, 3.72:1 on elevated, 3.27:1 on hover —
+// the bluish hairlines above measure 1.06–1.52:1 and cannot carry this role.
+const Color sampleDarkControlOutline = Color(0xFF6A7D9B);
+
+// off-table: the light twin of [sampleDarkControlOutline], the Android
+// sample's light scheme `outline` (grey/500). 5.06:1 on the white card and
+// page — the light framed-block border is transparent ([sampleBorderFor]) and
+// cannot carry a control boundary.
+const Color sampleLightControlOutline = Color(0xFF6D6E78);
+
+// off-table: semantic error colour, AA on card and elevated
+const Color sampleDarkDanger = Color(0xFFFF6B8F);
+// off-table: Material semantic error foreground
+const Color sampleDarkError = Color(0xFFFFB4AB);
+// off-table: Material semantic ink on error
+const Color sampleDarkOnError = Color(0xFF690005);
+// off-table: semantic warning text
+const Color sampleDarkAmber = Color(0xFFF1D390);
+// off-table: semantic success text
+const Color sampleDarkGreen = Color(0xFF6FD98A);
+// off-table: semantic error band fill
+const Color sampleDarkDangerTint = Color(0xFF2A171C);
+// off-table: semantic error border
+const Color sampleDarkDangerBorder = Color(0xFF5E3038);
+// off-table: semantic warning band fill
+const Color sampleDarkAmberTint = Color(0xFF2A2216);
+// off-table: semantic warning border
+const Color sampleDarkAmberBorder = Color(0xFF5C4A24);
+// off-table: semantic success band fill
+const Color sampleDarkGreenTint = Color(0xFF16281B);
+// off-table: semantic success border
+const Color sampleDarkGreenBorder = Color(0xFF2E5537);
+
+/// Ink on the light theme's control fills; preserved for light-mode contrast.
 const Color sampleAccentInk = Color(0xFF142238);
+
+// off-table: translucent accent chip fill, 10% Signal blue
+Color get sampleDarkChipFill => sampleAccentDark.withValues(alpha: 0.10);
+// off-table: translucent accent badge border, 28% Signal blue. Decorative
+// (1.69–1.75:1 on the ladder): non-interactive badges only (platform badge,
+// API and source pills, the Custom marker). An interactive chip takes
+// [sampleControlOutlineFor], or [sampleAccentDark] when selected.
+Color get sampleDarkChipBorder => sampleAccentDark.withValues(alpha: 0.28);
+
+// off-table: the dark-theme radial halo, the brand blue at 12%. Flattens to
+// #0A1C33 over the page at its peak, where [sampleDarkSecondary] still reads
+// 6.0:1, and the app-bar title and icons ([sampleDarkText]) far more.
+Color get sampleDarkHalo => sampleAccentBlue.withValues(alpha: 0.12);
 
 /// Ground of a framed sample block (light mode). The charter's surfaces carry
 /// no tint of their own — this is the plain light surface.
@@ -65,6 +141,7 @@ const Color sampleAmberTint = Color(0xFFFFF7E6);
 /// from [sampleAmber]/[sampleAmberFor], which color the degraded-band body
 /// text and stay contrast-adjusted per brightness: same amber family, a
 /// different role that does not need the same adjustment.
+// off-table: semantic guest status dot
 const Color sampleGuestAmber = Color(0xFFD99A2B);
 
 /// Guest connection status **text** — `#8A5A00`, the darker member of the
@@ -72,23 +149,20 @@ const Color sampleGuestAmber = Color(0xFFD99A2B);
 /// and text in two different shades of the same hue (the dot stays the
 /// brighter `#D99A2B`, only the label text uses this darker one) rather than
 /// painting both the same color.
+// off-table: semantic guest status text
 const Color sampleGuestAmberText = Color(0xFF8A5A00);
 
 /// Success / connected.
+// off-table: semantic connected status
 const Color sampleGreen = Color(0xFF30B653);
-
-/// Dark-mode ground.
-const Color sampleDarkSurface = Color(0xFF0B1421);
 
 /// Ground of the `Result` code block on a scenario screen.
 const Color sampleCodeSurface = Color(0xFF0F1B2D);
 
 /// The accent as a **label**: nav-item accent, section-label and API-pill
 /// text, app-bar-adjacent text buttons, row icons, outline buttons. Navy in
-/// light theme, [sampleAccentDark] in dark — navy measures 1.08:1 on the dark
-/// surface, and [sampleAccentBlue] falls under the floor once it lands on a
-/// raised container (see [sampleAccentDark]'s doc). Never [sampleAccentBlue]
-/// directly: that value is fill-only, per the charter's contrast rule.
+/// light theme, [sampleAccentDark] in dark. The saturated [sampleAccentBlue]
+/// remains reserved for light-theme control fills.
 Color sampleAccent(Brightness brightness) =>
     brightness == Brightness.dark ? sampleAccentDark : sampleNavy;
 
@@ -100,48 +174,48 @@ Color sampleAccent(Brightness brightness) =>
 Color sampleControlAccent(Brightness brightness) =>
     brightness == Brightness.dark ? sampleAccentDark : sampleAccentBlue;
 
-/// The ink that reads on a [sampleAccent] fill (navy in light,
-/// [sampleAccentDark] in dark) — the primary pill's label — and on the
-/// switch thumb, which sits over [sampleControlAccent] but is a graphical
-/// control rather than text, so it answers to the 3:1 non-text floor, not
-/// 4.5:1. White in light theme (17.28:1 on navy; 3.50:1 is the thumb's
-/// figure over the light [sampleControlAccent] track, never used for actual
-/// text on that fill — see [sampleOnControlAccent]); [sampleAccentInk] in
-/// dark (7.21:1 on [sampleAccentDark], where white would be 2.21:1).
+/// Foreground on primary controls: white in light mode, Signal ink in dark.
 Color sampleOnAccentColor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleAccentInk : Colors.white;
+    brightness == Brightness.dark ? sampleDarkSurface : Colors.white;
 
-/// The ink that reads as **text** on a [sampleControlAccent] fill — e.g. a
-/// selected segmented-button label. [sampleAccentInk] in both themes:
-/// 4.56:1 on [sampleAccentBlue] (the light-theme fill), 7.21:1 on
-/// [sampleAccentDark] (the dark-theme fill) — white would be 3.50:1 in
-/// light, clearing only the 3:1 non-text floor [sampleOnAccentColor] relies
-/// on for the switch thumb, never the 4.5:1 a label needs.
-Color sampleOnControlAccent(Brightness _) => sampleAccentInk;
+/// Text on selected control fills, with the light theme's ink preserved.
+Color sampleOnControlAccent(Brightness brightness) =>
+    brightness == Brightness.dark ? sampleDarkSurface : sampleAccentInk;
 
-/// Ground of a framed block under [brightness] — the charter's plain surface
-/// color, not a tint: white in light, the dark card surface in dark.
+/// Ordinary card surface.
 Color sampleTintFor(Brightness brightness) =>
-    brightness == Brightness.dark ? const Color(0xFF142238) : sampleTint;
+    brightness == Brightness.dark ? sampleDarkCard : sampleTint;
 
-/// Border of a framed block under [brightness]. Charter surfaces are
-/// borderless in both brightnesses — the parameter is intentionally unused,
-/// kept so call sites read the same as every other `...For(brightness)`
-/// token and stay untouched if a future surface needs a real border back.
-Color sampleBorderFor(Brightness _) => Colors.transparent;
+/// Navy hairline in dark mode; light cards remain borderless.
+///
+/// Decorative only — framed blocks, clickable card frames, the non-interactive
+/// API pill. A card is identified by its title and content, so its frame is
+/// not the boundary WCAG 1.4.11 asks to hold 3:1. An unfilled control whose
+/// outline *is* its only boundary takes [sampleControlOutlineFor] instead.
+Color sampleBorderFor(Brightness brightness) =>
+    brightness == Brightness.dark ? sampleDarkDivider : Colors.transparent;
+
+/// Boundary of an unfilled control — outlined button or pill, unselected chip
+/// or segment — held to 3:1 against the surface in both themes (WCAG 1.4.11):
+/// [sampleDarkControlOutline] 3.27–4.65:1 on the dark ladder,
+/// [sampleLightControlOutline] 5.06:1 on white.
+Color sampleControlOutlineFor(Brightness brightness) =>
+    brightness == Brightness.dark
+    ? sampleDarkControlOutline
+    : sampleLightControlOutline;
 
 /// Danger color that holds contrast under [brightness] (the light-mode
 /// [sampleDanger] measures under 4.5:1 on the dark ground).
 Color sampleDangerFor(Brightness brightness) =>
-    brightness == Brightness.dark ? const Color(0xFFFF3366) : sampleDanger;
+    brightness == Brightness.dark ? sampleDarkDanger : sampleDanger;
 
 /// Amber that holds contrast under [brightness], same reason as above.
 Color sampleAmberFor(Brightness brightness) =>
-    brightness == Brightness.dark ? const Color(0xFFF1D390) : sampleAmber;
+    brightness == Brightness.dark ? sampleDarkAmber : sampleAmber;
 
 /// Success green that holds contrast under [brightness].
 Color sampleGreenFor(Brightness brightness) =>
-    brightness == Brightness.dark ? const Color(0xFF6FD98A) : sampleGreen;
+    brightness == Brightness.dark ? sampleDarkGreen : sampleGreen;
 
 /// The monospace family used by every code block and API pill. `monospace`
 /// resolves to the platform's own (Roboto Mono / Menlo) — no bundled font.
@@ -153,8 +227,7 @@ const String sampleMonoFamily = 'monospace';
 ///
 /// The badge is part of the *title*, not an action: it says which sample you
 /// are holding, which matters the moment three of them are installed on one
-/// device. Monochrome white glyph on a translucent white pill — never a
-/// multicolor platform logo, never a bare text chip.
+/// device. Signal blue in dark mode; translucent white in light mode.
 class SampleAppBarTitle extends StatelessWidget {
   const SampleAppBarTitle(this.title, {super.key});
 
@@ -180,21 +253,23 @@ class PlatformBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const fg = Color(0xD9FFFFFF); // white, .85
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final fg = dark ? sampleAccentDark : const Color(0xD9FFFFFF);
     return Semantics(
       identifier: 'platform-badge',
       label: 'Flutter',
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-          color: const Color(0x1FFFFFFF), // white .12
+          color: dark ? sampleDarkChipFill : const Color(0x1FFFFFFF),
+          border: dark ? Border.all(color: sampleDarkChipBorder) : null,
           borderRadius: BorderRadius.circular(99),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.flutter_dash, size: 13, color: fg),
-            SizedBox(width: 4),
+            const SizedBox(width: 4),
             Text(
               'Flutter',
               style: TextStyle(
@@ -222,6 +297,7 @@ class SampleSection extends StatelessWidget {
     this.trailing,
     this.tone = SampleTone.neutral,
     this.identifier,
+    this.borderColor,
   });
 
   final String title;
@@ -232,17 +308,24 @@ class SampleSection extends StatelessWidget {
   final SampleTone tone;
   final String? identifier;
 
+  /// Overrides the [tone]'s frame, for a block that has to stand out from its
+  /// neighbours (Home's `Current configuration` in dark theme). Null keeps the
+  /// tone's border.
+  final Color? borderColor;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final colors = tone.resolve(brightness);
+    final neutralDark =
+        brightness == Brightness.dark && tone == SampleTone.neutral;
     final section = Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: colors.background,
-        border: Border.all(color: colors.border),
+        border: Border.all(color: borderColor ?? colors.border),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -254,7 +337,9 @@ class SampleSection extends StatelessWidget {
                 child: Text(
                   title,
                   style: theme.textTheme.labelLarge?.copyWith(
-                    color: colors.foreground,
+                    // Dark theme: a neutral card's title is primary text, not
+                    // the accent, so it never reads as a link on the navy.
+                    color: neutralDark ? sampleDarkText : colors.foreground,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.2,
                   ),
@@ -303,18 +388,18 @@ extension SampleToneX on SampleTone {
         sampleAccent(brightness),
       ),
       SampleTone.danger => SampleToneColors(
-        dark ? const Color(0xFF2A171C) : sampleDangerTint,
-        dark ? const Color(0xFF5E3038) : sampleDangerBorder,
+        dark ? sampleDarkDangerTint : sampleDangerTint,
+        dark ? sampleDarkDangerBorder : sampleDangerBorder,
         sampleDangerFor(brightness),
       ),
       SampleTone.warning => SampleToneColors(
-        dark ? const Color(0xFF2A2216) : sampleAmberTint,
-        dark ? const Color(0xFF5C4A24) : sampleAmberBorder,
+        dark ? sampleDarkAmberTint : sampleAmberTint,
+        dark ? sampleDarkAmberBorder : sampleAmberBorder,
         sampleAmberFor(brightness),
       ),
       SampleTone.success => SampleToneColors(
-        dark ? const Color(0xFF16281B) : const Color(0xFFE7F6EA),
-        dark ? const Color(0xFF2E5537) : const Color(0xFFB7E2C2),
+        dark ? sampleDarkGreenTint : const Color(0xFFE7F6EA),
+        dark ? sampleDarkGreenBorder : const Color(0xFFB7E2C2),
         sampleGreenFor(brightness),
       ),
     };
@@ -352,6 +437,11 @@ class SampleKeyValue extends StatelessWidget {
               style: mono
                   ? theme.textTheme.bodySmall?.copyWith(
                       fontFamily: sampleMonoFamily,
+                      // bodySmall is the caption grey in dark theme; a value
+                      // is body text whatever its family.
+                      color: theme.brightness == Brightness.dark
+                          ? sampleDarkBody
+                          : null,
                     )
                   : theme.textTheme.bodyMedium,
             ),
@@ -376,8 +466,14 @@ class ApiPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: sampleTintFor(brightness),
-        border: Border.all(color: sampleBorderFor(brightness)),
+        color: brightness == Brightness.dark
+            ? sampleDarkChipFill
+            : sampleTintFor(brightness),
+        border: Border.all(
+          color: brightness == Brightness.dark
+              ? sampleDarkChipBorder
+              : sampleBorderFor(brightness),
+        ),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -468,7 +564,9 @@ class SampleCodeBlock extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: sampleCodeSurface,
+        color: Theme.of(context).brightness == Brightness.dark
+            ? sampleDarkCard
+            : sampleCodeSurface,
         borderRadius: BorderRadius.circular(10),
       ),
       // Wraps rather than scrolls sideways. Inside the scenario's vertical
@@ -478,13 +576,13 @@ class SampleCodeBlock extends StatelessWidget {
       // the payload into a ticket.
       child: SelectableText(
         text,
-        // White at 92% opacity, not a fixed hex — same ink the Android
-        // sample's `CodeResultBlock` uses on its own `CodeBlock` ground.
         style: TextStyle(
           fontFamily: sampleMonoFamily,
           fontSize: 12,
           height: 1.45,
-          color: Colors.white.withValues(alpha: 0.92),
+          color: Theme.of(context).brightness == Brightness.dark
+              ? sampleDarkText
+              : Colors.white.withValues(alpha: 0.92),
         ),
       ),
     );
@@ -503,6 +601,9 @@ class SampleBand extends StatelessWidget {
     required this.actionLabel,
     required this.onAction,
     this.identifier,
+    this.secondaryActionLabel,
+    this.onSecondaryAction,
+    this.secondaryActionIdentifier,
   });
 
   final SampleTone tone;
@@ -510,6 +611,12 @@ class SampleBand extends StatelessWidget {
   final String actionLabel;
   final VoidCallback onAction;
   final String? identifier;
+
+  /// Optional second action, rendered before the primary one — for a band
+  /// whose message names a place to go as well as something to retry.
+  final String? secondaryActionLabel;
+  final VoidCallback? onSecondaryAction;
+  final String? secondaryActionIdentifier;
 
   /// The band's cause, read at a glance — never a bare "APP" text badge: the
   /// grammar (spec 04/08) is an icon, not a source label.
@@ -540,6 +647,16 @@ class SampleBand extends StatelessWidget {
               ),
             ),
           ),
+          if (secondaryActionLabel case final label?
+              when onSecondaryAction != null)
+            _identified(
+              secondaryActionIdentifier,
+              TextButton(
+                onPressed: onSecondaryAction,
+                style: TextButton.styleFrom(foregroundColor: colors.foreground),
+                child: Text(label),
+              ),
+            ),
           TextButton(
             onPressed: onAction,
             style: TextButton.styleFrom(foregroundColor: colors.foreground),
@@ -553,6 +670,48 @@ class SampleBand extends StatelessWidget {
   }
 }
 
+Widget _identified(String? identifier, Widget child) => identifier == null
+    ? child
+    : Semantics(identifier: identifier, button: true, child: child);
+
+/// An in-app link: a short `label ›` in the accent colour, left-aligned, with
+/// a 48dp touch target so it survives a large font and a thumb.
+///
+/// For text that names a place in the app ("reconnect from Settings ›
+/// Account"): the pointer becomes the way there instead of directions to it.
+class SampleLink extends StatelessWidget {
+  const SampleLink({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.identifier,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final String? identifier;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: _identified(
+        identifier,
+        TextButton(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            minimumSize: const Size(0, 48),
+            foregroundColor: theme.colorScheme.primary,
+          ),
+          child: Text('$label ›'),
+        ),
+      ),
+    );
+  }
+}
+
 /// Style for a danger action: white pill, danger border, danger text.
 ButtonStyle sampleDangerButtonStyle(BuildContext context) {
   final brightness = Theme.of(context).brightness;
@@ -561,7 +720,7 @@ ButtonStyle sampleDangerButtonStyle(BuildContext context) {
     foregroundColor: danger,
     side: BorderSide(
       color: brightness == Brightness.dark
-          ? const Color(0xFF5E3038)
+          ? sampleDarkDangerBorder
           : sampleDangerBorder,
     ),
     minimumSize: const Size.fromHeight(48),
@@ -597,4 +756,141 @@ void showSampleSnackBar(
           : null,
     ),
   );
+}
+
+/// The [Scaffold] of every sample-owned screen: the page colour and, in dark
+/// theme only, the brand halo — a radial glow of [sampleDarkHalo] fading to
+/// transparent, centred on the top-right corner of the screen with a radius
+/// of the screen width (the design shared by the five samples).
+///
+/// The halo is painted around the [Scaffold], not inside its body, so it is
+/// fixed to the viewport and runs behind the [appBar] too: the scaffold is
+/// transparent and, in dark theme, so is the app bar — which also never tints
+/// on scroll — so the glow shows through the header with no hard edge or
+/// lighter band. Light theme renders as before (the page colour, the navy
+/// app bar).
+///
+/// Routes that embed the SDK's community view keep a plain [Scaffold]; the
+/// shell passes [halo] false on its Community tab, which keeps the tree shape
+/// (and so the scaffold's state) while painting only the page colour.
+class SampleScaffold extends StatelessWidget {
+  const SampleScaffold({
+    super.key,
+    this.halo = true,
+    this.appBar,
+    required this.body,
+    this.bottomNavigationBar,
+  });
+
+  /// Whether the dark-theme halo is painted. Light theme never paints it.
+  final bool halo;
+  final PreferredSizeWidget? appBar;
+  final Widget body;
+  final Widget? bottomNavigationBar;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return ColoredBox(
+      color: theme.scaffoldBackgroundColor,
+      child: CustomPaint(
+        painter: dark && halo ? SampleHaloPainter(sampleDarkHalo) : null,
+        child: Theme(
+          data: theme.copyWith(
+            scaffoldBackgroundColor: Colors.transparent,
+            appBarTheme: dark
+                ? theme.appBarTheme.copyWith(
+                    backgroundColor: Colors.transparent,
+                    scrolledUnderElevation: 0,
+                  )
+                : null,
+          ),
+          child: Scaffold(
+            appBar: appBar,
+            body: body,
+            bottomNavigationBar: bottomNavigationBar,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Paints the dark-theme halo of [SampleScaffold]. Public for tests only, so
+/// the geometry — centre, radius, colour stops — can be asserted rather than
+/// taken on trust.
+@visibleForTesting
+class SampleHaloPainter extends CustomPainter {
+  const SampleHaloPainter(this.color);
+
+  final Color color;
+
+  /// The gradient painted over a viewport of [size]: centred on the top-right
+  /// corner with a radius of the viewport width. [RadialGradient.radius] is a
+  /// fraction of the shorter side, hence the ratio. The end stop is the halo
+  /// colour at zero alpha, so the fade never interpolates through black.
+  RadialGradient gradientFor(Size size) => RadialGradient(
+    center: Alignment.topRight,
+    radius: size.width / math.min(size.width, size.height),
+    colors: [color, color.withValues(alpha: 0)],
+  );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()..shader = gradientFor(size).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(SampleHaloPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+/// Wraps the scrolling content that sits above a sample screen's bottom
+/// action area (Home's dock, Config's `Start SDK`, a scenario's `Run`).
+///
+/// Dark theme: the action area has no opaque band and no hairline — its
+/// buttons sit on the page and the halo — so the content scrolling out
+/// fades to transparent over its last [height] instead of being cut at a hard
+/// edge. It is a mask on the content, not a page-coloured overlay: whatever
+/// is behind shows through unchanged, including the halo where a wide window
+/// (tablet, landscape) lets it reach the bottom — an overlay ending on the
+/// opaque page colour left a faint step there. Light theme returns [child]
+/// untouched.
+class SampleDockFade extends StatelessWidget {
+  const SampleDockFade({super.key, required this.child});
+
+  final Widget child;
+
+  /// Height of the fade at the bottom of [child].
+  static const double height = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    if (Theme.of(context).brightness != Brightness.dark) return child;
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) =>
+          maskFor(bounds.size).createShader(Offset.zero & bounds.size),
+      child: child,
+    );
+  }
+
+  /// The alpha mask over content of [size]: opaque down to [height] above the
+  /// bottom, then linearly transparent. Public for tests only.
+  @visibleForTesting
+  static LinearGradient maskFor(Size size) {
+    final start = size.height <= height ? 0.0 : 1 - height / size.height;
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+      stops: [0, start, 1],
+    );
+  }
 }

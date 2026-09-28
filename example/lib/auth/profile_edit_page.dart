@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
+import '../design.dart';
 import '../octopus_demo_config.dart';
 import 'connect_user_result.dart';
 
@@ -89,7 +90,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return SampleScaffold(
       appBar: AppBar(
         title: Text(
           widget.fieldToEdit == null
@@ -103,40 +104,43 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (_showNickname)
-              TextFormField(
-                controller: _nicknameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nickname',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (_showNickname)
+                TextFormField(
+                  controller: _nicknameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nickname',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person),
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Enter a nickname'
+                      : null,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Enter a nickname' : null,
-              ),
-            if (_showNickname && _showBio) const SizedBox(height: 16),
-            if (_showBio)
-              TextFormField(
-                controller: _bioController,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Bio',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.description),
-                  alignLabelWithHint: true,
+              if (_showNickname && _showBio) const SizedBox(height: 16),
+              if (_showBio)
+                TextFormField(
+                  controller: _bioController,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Bio',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.description),
+                    alignLabelWithHint: true,
+                  ),
                 ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _busy ? null : _save,
+                child: Text(_busy ? 'Saving…' : 'Save'),
               ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _busy ? null : _save,
-              child: Text(_busy ? 'Saving…' : 'Save'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

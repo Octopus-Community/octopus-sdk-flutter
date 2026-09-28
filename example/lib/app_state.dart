@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,7 @@ import 'auth/client_user_token_signer.dart';
 import 'auth/connect_user_result.dart';
 import 'branding.dart';
 import 'config/api_key_registry.dart';
+import 'feature_toggles.dart';
 import 'octopus_demo_config.dart';
 import 'update/sample_update_checker.dart';
 
@@ -66,6 +68,27 @@ extension AppThemeChoiceX on AppThemeChoice {
     AppThemeChoice.system => 'System',
     AppThemeChoice.light => 'Light',
     AppThemeChoice.dark => 'Dark',
+  };
+}
+
+/// Config → Integration's "Unified Profile (exposeClientUserId)" tri-state:
+/// keep the backend's value, or force the flag locally through
+/// `OctopusSDK.debugOverrideExposeClientUserId` (debug/demo-only API). Mirrors
+/// the Android sample's `HostOverrides.exposeClientUserIdOverride`.
+enum ExposeClientUserIdOverride { backend, forceOn, forceOff }
+
+extension ExposeClientUserIdOverrideX on ExposeClientUserIdOverride {
+  /// The value handed to the SDK — `null` clears the override.
+  bool? get enabled => switch (this) {
+    ExposeClientUserIdOverride.backend => null,
+    ExposeClientUserIdOverride.forceOn => true,
+    ExposeClientUserIdOverride.forceOff => false,
+  };
+
+  String get label => switch (this) {
+    ExposeClientUserIdOverride.backend => 'Backend',
+    ExposeClientUserIdOverride.forceOn => 'Force on',
+    ExposeClientUserIdOverride.forceOff => 'Force off',
   };
 }
 
@@ -129,6 +152,14 @@ class DemoConfig {
   /// SDK's own default. A Theme scenario preset can still override it live.
   final bool octopusNavyTheme;
 
+  /// The two sample feature toggles (`Force login`, `Push registration`).
+  ///
+  /// They are operated from the header of their Scenarios section and **nowhere else** —
+  /// the Config screen deliberately carries no switch for them. They live on the persisted
+  /// config rather than in transient screen state because a tester who turns push
+  /// registration off expects it to still be off after a relaunch.
+  final FeatureToggles featureToggles;
+
   const DemoConfig({
     required this.apiKeySource,
     this.customApiKey = '',
@@ -138,6 +169,7 @@ class DemoConfig {
     required this.serverEnv,
     this.customHost = '',
     this.octopusNavyTheme = true,
+    this.featureToggles = FeatureToggles.defaults,
   }) : // Const-ctor asserts cannot call methods (`.trim()` would compile-fail
        // for the `const DemoConfig(…)` round-trip tests), so this is the
        // practical guard: non-empty. Callers are responsible for trimming —
@@ -155,14 +187,17 @@ class DemoConfig {
     ApiKeySource.demo => selectedInjectedKey?.key ?? octopusApiKey,
   };
 
-  /// Human-readable description of the key choice (Home dashboard).
+  /// Where the key comes from (Home dashboard, Debug info) — the source
+  /// kind, never a key label: the picked named key's label is already the
+  /// "Community" row, so repeating it here said nothing about the source.
   String get apiKeyLabel => switch (apiKeySource) {
     ApiKeySource.custom => 'Custom',
     ApiKeySource.demo =>
-      selectedInjectedKey?.label ??
-          (hasInjectedApiKey
-              ? 'Demo (--dart-define)'
-              : 'Demo (no key injected)'),
+      selectedInjectedKey != null
+          ? 'Named key (--dart-define)'
+          : (hasInjectedApiKey
+                ? 'Demo (--dart-define)'
+                : 'Demo (no key injected)'),
   };
 
   /// The host the SDK is actually routed to for this configuration — empty
@@ -207,6 +242,7 @@ class DemoConfig {
     ServerEnv? serverEnv,
     String? customHost,
     bool? octopusNavyTheme,
+    FeatureToggles? featureToggles,
   }) => DemoConfig(
     apiKeySource: apiKeySource ?? this.apiKeySource,
     customApiKey: customApiKey ?? this.customApiKey,
@@ -218,6 +254,7 @@ class DemoConfig {
     serverEnv: serverEnv ?? this.serverEnv,
     customHost: customHost ?? this.customHost,
     octopusNavyTheme: octopusNavyTheme ?? this.octopusNavyTheme,
+    featureToggles: featureToggles ?? this.featureToggles,
   );
 
   Brightness? get forcedBrightness => switch (theme) {
@@ -247,6 +284,7 @@ class DemoConfig {
     'serverEnv': serverEnv.name,
     'customHost': customHost,
     'octopusNavyTheme': octopusNavyTheme,
+    'featureToggles': featureToggles.toJson(),
   };
 
   /// Rebuilds a config from [toJson] output. Returns `null` on any schema
@@ -295,6 +333,11 @@ class DemoConfig {
             json['octopusNavyTheme'] as bool? ??
             json['octopusTealTheme'] as bool? ??
             true,
+        // Absent from every blob written before this landed; the defaults are
+        // deliberate (force-login off, push-registration on), so read leniently.
+        featureToggles: FeatureToggles.fromJson(
+          (json['featureToggles'] as Map?)?.cast<String, Object?>(),
+        ),
       );
     } catch (_) {
       return null;
@@ -732,6 +775,9 @@ class AppState extends ChangeNotifier {
       );
       _initialized = true;
       _activeApiKey = config.effectiveApiKey;
+      // The override is SDK-process state the native side only accepts once
+      // initialized: pose it now so the first Community mount already sees it.
+      await _applyExposeClientUserIdOverride();
       // Remember this config so the next launch auto-restores it (and so a
       // cold-start push can deep-link without a manual reconfigure).
       unawaited(_persistDemoConfig(config));
@@ -753,14 +799,14 @@ class AppState extends ChangeNotifier {
   }
 
   /// [start]'s branch for a Start reached with the SDK already mounted (a
-  /// "Back to Config" round-trip) — switches community live instead of
+  /// "Change Configuration" round-trip) — switches community live instead of
   /// re-`initialize()`-ing, via the existing [switchToCommunity].
   Future<void> _startViaSwitch(DemoConfig config) async {
     _config = config;
     _initError = null;
     notifyListeners();
     try {
-      demoLog.apiCall('switchCommunity (Back to Config → Start)', {
+      demoLog.apiCall('switchCommunity (Change Configuration → Start)', {
         'apiKey': _redactKey(config.effectiveApiKey),
       });
       // No explicit apiServer: [switchToCommunity] already defaults it to
@@ -984,6 +1030,9 @@ class AppState extends ChangeNotifier {
       apiServer: resolvedServer,
     );
     _activeApiKey = apiKey;
+    // A switch fetches the new community's config; re-pose the override on
+    // top of it rather than trusting the native side to carry it over.
+    await _applyExposeClientUserIdOverride();
     notifyListeners();
   }
 
@@ -1002,11 +1051,93 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The current state of the two feature toggles — [FeatureToggles.defaults] until a
+  /// config is loaded, so every read-only read-out has something truthful to show.
+  FeatureToggles get featureToggles =>
+      _config?.featureToggles ?? FeatureToggles.defaults;
+
+  /// Flips one feature toggle, from the header of its Scenarios section.
+  ///
+  /// The **only** writer. Ported iso from Android's `executeSetFeatureToggle`, including
+  /// the two behaviours that make the flip observable rather than merely stored:
+  /// - the SDK config is rebuilt and persisted, and the Debug console gets one line
+  ///   naming the toggle and what it now does, so a tester reading the log later can see
+  ///   why the app changed behaviour mid-session;
+  /// - turning **push registration on registers this device's token immediately**,
+  ///   through [onPushRegistrationEnabled], which also opens the notification
+  ///   permission gate if it has not fired yet. A toggle whose effect only shows up at
+  ///   the next launch is a toggle a tester flips twice and reports as broken.
+  Future<void> setFeatureToggle(FeatureToggle toggle, bool enabled) async {
+    final config = _config;
+    if (config == null || config.featureToggles[toggle] == enabled) return;
+    _config = config.copyWith(
+      featureToggles: config.featureToggles.withToggle(toggle, enabled),
+    );
+    unawaited(_persistDemoConfig(_config!));
+    demoLog.note('feature toggled → SDK config rebuilt', {
+      toggle.label: enabled ? 'on' : 'off',
+      'effect': toggle.effectLine(enabled),
+    });
+    notifyListeners();
+
+    if (toggle == FeatureToggle.pushRegistration && enabled) {
+      await onPushRegistrationEnabled?.call();
+    }
+  }
+
+  /// Registers this device's push token now and, the first time push registration is
+  /// on with the SDK initialised, asks for the OS notification permission (the toggle
+  /// lives on the post-init Scenarios tab, so this is the path for a config persisted
+  /// with it off). Set by `main.dart`, which owns the single registration funnel and
+  /// the permission gate; `null` in tests and on hosts without push.
+  Future<void> Function()? onPushRegistrationEnabled;
+
   /// Overrides the SDK UI locale (Locale scenario + Settings picker).
   Future<void> setLocale(LocaleChoice choice) async {
     demoLog.apiCall('overrideDefaultLocale', {'locale': choice.label});
     await octopus.overrideDefaultLocale(choice.locale);
     _localeChoice = choice;
+    _localeTagOverride = null;
+    notifyListeners();
+  }
+
+  /// A locale tag typed by hand in the Locale scenario's Customize editor, when
+  /// it is not one [LocaleChoice] can spell. `null` whenever [localeChoice] is
+  /// the whole truth.
+  ///
+  /// `overrideDefaultLocale` takes any tag; the enum only lists the two the
+  /// presets use. Keeping the typed value here rather than widening the enum
+  /// means every read-out shows what was actually sent — a screen claiming
+  /// "System" while the SDK renders in `de` is the one outcome worth avoiding.
+  String? _localeTagOverride;
+
+  /// What every locale read-out shows.
+  String get localeLabel => _localeTagOverride ?? _localeChoice.label;
+
+  /// The tag the Customize field starts from — `''` meaning the system locale.
+  String get localeTag =>
+      _localeTagOverride ??
+      (_localeChoice == LocaleChoice.system ? '' : _localeChoice.label);
+
+  /// Overrides the SDK locale with a raw BCP-47 tag; blank resets to system.
+  Future<void> setLocaleTag(String tag) async {
+    final trimmed = tag.trim();
+    final choice = switch (trimmed) {
+      '' => LocaleChoice.system,
+      'fr' => LocaleChoice.fr,
+      'en' => LocaleChoice.en,
+      _ => null,
+    };
+    if (choice != null) {
+      await setLocale(choice);
+      return;
+    }
+    demoLog.apiCall('overrideDefaultLocale', {'locale': trimmed});
+    await octopus.overrideDefaultLocale(Locale(trimmed));
+    // No enum member spells this one; [localeLabel] and [localeTag] read the
+    // override first, so nothing on screen falls back to "System".
+    _localeChoice = LocaleChoice.system;
+    _localeTagOverride = trimmed;
     notifyListeners();
   }
 
@@ -1034,6 +1165,81 @@ class AppState extends ChangeNotifier {
     if (_unifiedProfileWired == wired) return;
     _unifiedProfileWired = wired;
     notifyListeners();
+  }
+
+  /// The other half of the Unified Profile AND gate: the community flag
+  /// `exposeClientUserId`, set per community on the backend.
+  /// [ExposeClientUserIdOverride.backend] (the default) keeps the server value;
+  /// the two Force choices override it locally so the host profile can be
+  /// exercised on any community. In-memory, like [unifiedProfileWired].
+  ExposeClientUserIdOverride _exposeClientUserIdOverride =
+      ExposeClientUserIdOverride.backend;
+  ExposeClientUserIdOverride get exposeClientUserIdOverride =>
+      _exposeClientUserIdOverride;
+
+  /// Last effective community config read back from the SDK (server value
+  /// with any override applied), or `null` while unknown.
+  OctopusDebugCommunityConfig? _communityConfig;
+  OctopusDebugCommunityConfig? get communityConfig => _communityConfig;
+
+  /// `false` once the platform answered that it cannot read the config (iOS
+  /// through Swift Package Manager), so the UI can say so instead of "unknown".
+  bool _communityConfigReadable = true;
+  bool get communityConfigReadable => _communityConfigReadable;
+
+  /// Changes the override and, when the SDK is up, applies it right away.
+  Future<void> setExposeClientUserIdOverride(
+    ExposeClientUserIdOverride choice,
+  ) async {
+    if (_exposeClientUserIdOverride == choice) return;
+    _exposeClientUserIdOverride = choice;
+    notifyListeners();
+    await _applyExposeClientUserIdOverride();
+  }
+
+  Future<void> _applyExposeClientUserIdOverride() async {
+    if (!_initialized) return;
+    final enabled = _exposeClientUserIdOverride.enabled;
+    try {
+      demoLog.apiCall('debugOverrideExposeClientUserId', {
+        'enabled': '$enabled',
+      });
+      await octopus.debugOverrideExposeClientUserId(enabled);
+    } catch (e) {
+      demoLog.apiCall('debugOverrideExposeClientUserId failed', {
+        'error': '$e',
+      });
+    }
+    await refreshCommunityConfig();
+  }
+
+  /// Re-reads the effective community config for the read-outs that show it.
+  Future<void> refreshCommunityConfig() async {
+    if (!_initialized) return;
+    try {
+      _communityConfig = await octopus.debugGetCommunityConfig();
+      _communityConfigReadable = true;
+    } on PlatformException catch (e) {
+      _communityConfig = null;
+      _communityConfigReadable = e.code != 'UNSUPPORTED_PLATFORM';
+    } catch (_) {
+      // Any other failure is transient: "unknown", never "unreadable" — only
+      // UNSUPPORTED_PLATFORM means this integration path cannot read it at all.
+      // Resetting here keeps an earlier verdict from going stale.
+      _communityConfig = null;
+      _communityConfigReadable = true;
+    }
+    notifyListeners();
+  }
+
+  /// One-line read-out of the flag for Debug info and the scenario hint:
+  /// the effective value, then where it comes from.
+  String get exposeClientUserIdSummary {
+    final source = _exposeClientUserIdOverride.label;
+    if (!_communityConfigReadable) return 'unreadable here · $source';
+    final config = _communityConfig;
+    if (config == null) return 'unknown · $source';
+    return '${config.exposeClientUserId ? 'on' : 'off'} · $source';
   }
 
   /// The other 6 rows of Config → Host callbacks
@@ -1151,12 +1357,47 @@ class AppState extends ChangeNotifier {
   int _requestedTab = 0;
   int get requestedTab => _requestedTab;
 
+  /// The last place the tester was that was not part of the Settings tree —
+  /// "Scenarios › connection", "Community", "Home".
+  ///
+  /// Send feedback is opened from Settings, so without this the one field a
+  /// defect report cannot be reconstructed without would read "Settings" every
+  /// time.
+  String _lastContentBreadcrumb = 'Home';
+  String get lastContentBreadcrumb => _lastContentBreadcrumb;
+
+  /// Records [where] as the current content location. Deliberately does not
+  /// notify: it is read once, when the feedback sheet opens, and notifying
+  /// would rebuild the whole shell on every tab tap.
+  void noteBreadcrumb(String where) {
+    _lastContentBreadcrumb = where;
+  }
+
   /// Asks the shell to switch to [index] (canonical order: Home 0, Scenarios
   /// 1, Community 2, Settings 3).
   void requestTab(int index) {
     _requestedTab = index;
     _navEpoch++;
     notifyListeners();
+  }
+
+  String? _requestedScenariosSection;
+
+  /// Asks the shell to open the Scenarios tab on the section [sectionId]
+  /// (`scenarios-section-<id>`): unfolded and scrolled into view.
+  void requestScenariosSection(String sectionId) {
+    _requestedScenariosSection = sectionId;
+    requestTab(1);
+  }
+
+  /// Hands the section asked for by [requestScenariosSection] to the Scenarios
+  /// tab, and forgets it: a request is honoured once, so a later rebuild or a
+  /// return to the tab leaves the list where the user left it. Deliberately
+  /// does not notify — reading a request is not a state change anyone shows.
+  String? takeRequestedScenariosSection() {
+    final id = _requestedScenariosSection;
+    _requestedScenariosSection = null;
+    return id;
   }
 
   /// Asks the shell to switch to the Community tab, optionally deep-linked to
@@ -1210,14 +1451,16 @@ class AppState extends ChangeNotifier {
     _notSeenCount = null;
     _hasAccess = null;
     _currentEntitlements = const {};
+    _communityConfig = null;
+    _communityConfigReadable = true;
     // Forget the saved config so the next launch shows the first-launch flow.
     await _clearPersistedDemoConfig();
     notifyListeners();
   }
 
-  /// Non-destructive "Back to Config" (`settings-reconfigure-button`, D5,
-  /// cadrage report 07): returns to the Config screen *without* unmounting
-  /// the SDK.
+  /// Non-destructive "Change Configuration" (`settings-reconfigure-button`,
+  /// D5, cadrage report 07): returns to the Config screen *without*
+  /// unmounting the SDK.
   ///
   /// Mirrors the Android sample's own "Back to Config" exactly: there,
   /// `onNavigateToConfig` is a plain navigation call

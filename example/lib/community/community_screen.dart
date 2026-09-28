@@ -25,11 +25,7 @@ class CommunityTab extends StatelessWidget {
     final app = AppScope.of(context);
     final config = app.config;
     if (config == null) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const ConfigScreen(entry: ConfigEntry.revisit),
-        ),
-      );
+      await openConfigScreen(context, anchor: ConfigSection.community);
       return;
     }
     await app.start(config);
@@ -66,6 +62,13 @@ class CommunityTab extends StatelessWidget {
               actionLabel: 'Retry',
               onAction: () => _retry(context),
               identifier: 'community-band-blocked',
+              // The message names Config, so the band leads there too — on
+              // the Community section: the API key picker is the likelier
+              // cause, and the Server section follows right below it.
+              secondaryActionLabel: 'Config',
+              onSecondaryAction: () =>
+                  openConfigScreen(context, anchor: ConfigSection.community),
+              secondaryActionIdentifier: 'community-band-config',
             ),
           Expanded(
             child: Center(
@@ -108,7 +111,10 @@ class CommunityTab extends StatelessWidget {
       'community'
       '|${pending?.linkPath ?? 'root'}'
       '|${app.activeThemeLabel}'
-      '|${app.localeChoice.name}'
+      // The tag, not the enum name: a locale typed in the Locale scenario's
+      // Customize editor leaves `localeChoice` on `system`, so keying on the
+      // enum would neither remount for `de` nor tell `de` from `es`.
+      '|${app.localeTag}'
       // Include the resolved SDK theme mode so a Config-screen Light/Dark
       // change forces a fresh PlatformView (creationParams are read once
       // at mount). Today the host returns to Config to flip themes, so
@@ -118,7 +124,11 @@ class CommunityTab extends StatelessWidget {
       // The Unified Profile switch is mount-time (it rides in creationParams),
       // so flipping it must remount the PlatformView — otherwise the toggle
       // silently does nothing until the tab happens to rebuild.
-      '|${app.unifiedProfileWired ? 'profileWired' : 'profileNative'}',
+      '|${app.unifiedProfileWired ? 'profileWired' : 'profileNative'}'
+      // Same for the exposeClientUserId override: both natives observe the
+      // config reactively, but a remount guarantees no already-built profile
+      // screen keeps routing by the previous value.
+      '|expose:${app.exposeClientUserIdOverride.name}',
     );
 
     // Embedded mode: the SDK renders its own native top bar (the M3

@@ -205,7 +205,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
     }
 
-    // The three "debugOverride*" cases below call `OctopusSDK` members annotated
+    // The four "debugOverride*" cases below call `OctopusSDK` members annotated
     // `@InternalOctopusApi` (test-only affordances, not part of the supported
     // public API — see that annotation's KDoc). `onMethodCall` is their single
     // call site in this file, so the opt-in is scoped here rather than per-case.
@@ -499,6 +499,47 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 result.success(null)
             }
 
+            "debugOverrideExposeClientUserId" -> {
+                if (!OctopusSDK.isInitialised) {
+                    return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+                }
+                // `null` clears the override and restores the backend value. A native failure
+                // resolves as OVERRIDE_ERROR, like `overrideCommunityAccess` here and the React
+                // Native bridge, instead of escaping the method-call handler.
+                try {
+                    OctopusSDK.debugOverrideExposeClientUserId(call.argument<Boolean?>("enabled"))
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("OVERRIDE_ERROR", e.message, null)
+                }
+            }
+
+            "debugGetCommunityConfig" -> {
+                if (!OctopusSDK.isInitialised) {
+                    return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+                }
+                scope.launch {
+                    try {
+                        // `null` while no config has been fetched (or persisted) yet. Values
+                        // include any local `debugOverride*` — the config the SDK UI consumes.
+                        val config = OctopusSDK.communityConfigRepository.getCommunityConfig()
+                        result.success(
+                            config?.let {
+                                mapOf(
+                                    "exposeClientUserId" to it.exposeClientUserId,
+                                    "forceLoginOnStrongActions" to it.forceLoginOnStrongActions,
+                                    "displayAccountAge" to it.displayAccountAge,
+                                    "termsAcceptanceMode" to it.termsAcceptanceMode.name,
+                                )
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.e("OctopusSdkFlutter", "debugGetCommunityConfig failed", e)
+                        result.error("CONFIG_ERROR", e.message, null)
+                    }
+                }
+            }
+
             "fetchGroups" -> {
                 scope.launch {
                     try {
@@ -701,7 +742,10 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             val apiKey = call.argument<String>("apiKey")
                 ?: return result.error("INVALID_ARGS", "apiKey is required", null)
 
-            val connectionMode = ConnectionMode.SSO(appManagedFields = parseAppManagedFields(call))
+            val connectionMode = connectionModeFor(
+                octopusAuth = false,
+                appManagedFields = parseAppManagedFields(call),
+            )
 
             OctopusSDK.initialize(
                 context = context,
@@ -729,13 +773,13 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             val apiKey = call.argument<String>("apiKey")
                 ?: return result.error("INVALID_ARGS", "apiKey is required", null)
 
-            // For Octopus Auth, we don't use connectionMode - it's the default mode
-            // The deepLink will be handled automatically by the SDK if configured in the app
-
+            // Explicit on purpose: the native default is `ConnectionMode.SSO()`, so omitting
+            // the argument would start the SDK in SSO mode (#423). The Dart `deepLink` is not
+            // bridged on Android yet (native reads `deepLinksBasePaths` instead), see #437.
             OctopusSDK.initialize(
                 context = context,
                 apiKey = apiKey,
-                // No connectionMode = Octopus Auth by default
+                connectionMode = connectionModeFor(octopusAuth = true),
                 apiServer = parseApiServer(call)
             )
 
@@ -760,7 +804,10 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         val apiKey = call.argument<String>("apiKey")
             ?: return result.error("INVALID_ARGS", "apiKey is required", null)
 
-        val connectionMode = ConnectionMode.SSO(appManagedFields = parseAppManagedFields(call))
+        val connectionMode = connectionModeFor(
+            octopusAuth = false,
+            appManagedFields = parseAppManagedFields(call),
+        )
         val apiServer = try {
             parseApiServer(call)
         } catch (e: Exception) {
@@ -791,7 +838,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     }
 
     /// Switches to a different community in Octopus Auth mode. Mirrors
-    /// [initializeOctopusAuth] (no explicit connectionMode).
+    /// [initializeOctopusAuth].
     private fun switchCommunityOctopusAuth(call: MethodCall, result: Result) {
         val apiKey = call.argument<String>("apiKey")
             ?: return result.error("INVALID_ARGS", "apiKey is required", null)
@@ -807,7 +854,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 OctopusSDK.switchCommunity(
                     context = context,
                     apiKey = apiKey,
-                    // No connectionMode = Octopus Auth by default
+                    // Explicit: the native default is SSO, see initializeOctopusAuth (#423).
+                    connectionMode = connectionModeFor(octopusAuth = true),
                     apiServer = apiServer
                 )
                 isOctopusAuthMode = true // Octopus Auth mode
@@ -1024,17 +1072,24 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
      * create-post PlatformView creationParams (`prefilledPost`, theme, fonts).
      */
     private fun showCreatePostScreen(call: MethodCall, result: Result) {
-        @Suppress("UNCHECKED_CAST")
-        val args = call.arguments as? Map<String, Any?>
         // Match the iOS presenter: reject before initialize() instead of
         // starting an activity that would immediately finish itself (its
         // onCreate guard) — the Dart Future gets an error it can act on.
+        // Checked before anything else is read, so the guard never depends on
+        // the shape of the arguments.
         if (!OctopusSDK.isInitialised) {
             return result.error("NOT_INITIALIZED", "Call initialize() first", null)
         }
+        @Suppress("UNCHECKED_CAST")
+        val args = call.arguments as? Map<String, Any?>
         try {
             val intent = OctopusCreatePostActivity.newIntent(context, args)
-            context.startActivity(intent)
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                OctopusCreatePostActivity.cleanupIconFiles(intent)
+                throw e
+            }
             // We don't observe the activity's actual finish here (no
             // ActivityResultLauncher available to a plugin without a host
             // ActivityAware hook). The future resolves when the call returns —
@@ -1865,3 +1920,16 @@ private fun SyncFollowGroupStatus.toWireValue(): String = when (this) {
     SyncFollowGroupStatus.AlreadyUnfollowed -> "already_unfollowed"
     SyncFollowGroupStatus.UnknownError -> "unknown_error"
 }
+
+/**
+ * The native [ConnectionMode] for each of the two Dart entry points.
+ *
+ * Always pass the result explicitly: `OctopusSDK.initialize` and `OctopusSDK.switchCommunity`
+ * both default to `ConnectionMode.SSO()` on Android, so leaving the argument out selects SSO
+ * even on the Octopus Auth path (#423). iOS passes `.octopus(deepLink:)` there.
+ */
+internal fun connectionModeFor(
+    octopusAuth: Boolean,
+    appManagedFields: Set<ProfileField> = emptySet(),
+): ConnectionMode =
+    if (octopusAuth) ConnectionMode.OctopusAuth else ConnectionMode.SSO(appManagedFields = appManagedFields)

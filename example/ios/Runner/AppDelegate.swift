@@ -36,6 +36,8 @@ import UserNotifications
           let payload = self.pendingInitialNotification
           self.pendingInitialNotification = nil
           result(payload.map { AppDelegate.stringKeyed($0) })
+        case "requestAuthorization":
+          AppDelegate.requestAuthorization(application: UIApplication.shared) { result(nil) }
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -45,17 +47,9 @@ import UserNotifications
 
     UNUserNotificationCenter.current().delegate = self
 
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-      if let error = error {
-        NSLog("[Push] requestAuthorization error: \(error.localizedDescription)")
-      }
-      NSLog("[Push] authorization granted: \(granted)")
-      if granted {
-        DispatchQueue.main.async {
-          application.registerForRemoteNotifications()
-        }
-      }
-    }
+    // No authorization request here: it would prompt at cold start, before the
+    // Config screen's Start initialises the SDK. Dart sends `requestAuthorization`
+    // once the SDK is initialised, and APNs registration follows a grant from there.
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -99,6 +93,26 @@ import UserNotifications
     NSLog("[Push] notification tapped: \(userInfo)")
     pushChannel?.invokeMethod("notificationTapped", arguments: AppDelegate.stringKeyed(userInfo))
     completionHandler()
+  }
+
+  /// Shows the notification authorization prompt (it answers straight away once the
+  /// user has decided) and, on a grant, registers for remote notifications — the token
+  /// then reaches Dart through `apnsToken`, whose handler is set by now. Calls
+  /// `completion` on the main queue either way.
+  private static func requestAuthorization(
+    application: UIApplication,
+    completion: @escaping () -> Void
+  ) {
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+      if let error = error {
+        NSLog("[Push] requestAuthorization error: \(error.localizedDescription)")
+      }
+      NSLog("[Push] authorization granted: \(granted)")
+      DispatchQueue.main.async {
+        if granted { application.registerForRemoteNotifications() }
+        completion()
+      }
+    }
   }
 
   /// Convert `[AnyHashable: Any]` (APNs payload) to `[String: Any]` so Flutter's

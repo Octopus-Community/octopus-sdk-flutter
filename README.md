@@ -5,8 +5,8 @@ profiles — in your Flutter app with one Dart API over the native Android and i
 
 [![pub package](https://img.shields.io/pub/v/octopus_sdk_flutter.svg)](https://pub.dev/packages/octopus_sdk_flutter)
 [![Platforms](https://img.shields.io/badge/platforms-Android%2021%2B%20%7C%20iOS%2014%2B-blue.svg)](#requirements)
-[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.13.4-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
-[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.13.2-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
+[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.14.1-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
+[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.14.0-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
 [![License](https://img.shields.io/badge/license-Octopus%20Mobile%20SDK-lightgrey.svg)](LICENSE)
 
 <img src="https://raw.githubusercontent.com/Octopus-Community/octopus-sdk-android/main/docs/images/fullscreen.png" width="280" alt="The Octopus community feed, as rendered by the native Android SDK this package embeds">
@@ -27,7 +27,7 @@ profiles — in your Flutter app with one Dart API over the native Android and i
 
 | Package | Flutter | Dart | Android | iOS | Native SDKs (Android · iOS) |
 |---|---|---|---|---|---|
-| 1.13.x | 3.10+ (tested 3.44.5) | 3.0+ | `minSdk` 21, `compileSdk` 35 | 14.0+ | 1.13.4 · 1.13.2 |
+| 1.14.x | 3.10+ (tested 3.44.5) | 3.0+ | `minSdk` 21, `compileSdk` 35 | 14.0+ | 1.14.1 · 1.14.0 |
 
 On Android the plugin compiles with Kotlin 2.1.10 and a JVM target of 11; your app's Kotlin
 toolchain has to be able to consume that. CI builds and tests on the Flutter version named above.
@@ -46,7 +46,7 @@ or in `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.13.2
+  octopus_sdk_flutter: ^1.14.0
 ```
 
 Two one-time native steps: on Android, `MainActivity` must extend `FlutterFragmentActivity`
@@ -112,3 +112,9 @@ on [octopuscommunity.com](https://www.octopuscommunity.com) (also on the
 ## License
 
 Distributed under the **Octopus Community Mobile SDK License** — see [LICENSE](LICENSE).
+
+### Custom icons
+
+Use `OctopusTheme.icons` to customize the native icon set, activity button and
+reaction images. See the [icon customization guide](doc/theming.md) for Flutter
+asset loading and examples.

@@ -16,23 +16,74 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// Parked bridge token requests, keyed by the in-flight requestId. The
   /// `fetchOrCreateClientObjectRelatedPost` tokenProvider block stores its
   /// continuation here and awaits it; the Dart `provideBridgeToken` reply
-  /// resumes it. Accessed only on the main thread.
+  /// resumes it. Accessed on the main thread, plus the `deinit` drain, which
+  /// the comment on `deinit` shows cannot race with it.
   private var bridgeTokenContinuations: [String: CheckedContinuation<String?, Never>] = [:]
   /// Parked client-user-token requests, keyed by the in-flight requestId.
   /// `connectUserWithTokenProvider`'s closure registers a continuation here
   /// and awaits it; the Dart `provideClientUserToken` reply resumes it.
-  /// Accessed only on the main thread. The native SDK calls the closure
-  /// initially (on connect) and again on every refresh (e.g. when
-  /// `refreshEntitlements()` mints a new JWT) — each invocation gets a
-  /// fresh requestId so concurrent refreshes can't race.
+  /// Accessed on the main thread, plus the `deinit` drain (see there). The
+  /// native SDK calls the closure initially (on connect) and again on every
+  /// refresh (e.g. when `refreshEntitlements()` mints a new JWT) — each
+  /// invocation gets a fresh requestId so concurrent refreshes can't race.
   private var clientUserTokenContinuations: [String: CheckedContinuation<String, Never>] = [:]
   private var clientUserTokenRequestCounter: Int = 0
+  /// Invalidates connections awaiting profile pictures when a later session call arrives.
+  private var connectionGeneration = 0
   /// Active client-object-post observations, keyed by the Dart-supplied
   /// observationId (one per getClientObjectRelatedPostFlow subscription).
   private var clientObjectPostCancellables: [String: AnyCancellable] = [:]
   private var communityDataCancellables: [String: AnyCancellable] = [:]
   static var shared: OctopusSDKFlutterPlugin?
   static var sharedOctopus: OctopusSDK? { shared?.octopus }
+
+  /// Resumes every still-parked token continuation — client-user-token (#236)
+  /// and bridge-token (#388) alike — so deallocating the plugin can never leave
+  /// a native `await` hanging forever (a leaked continuation is a hard hang, not
+  /// an error).
+  ///
+  /// Every other resume path removes its entry from the map first, and all of
+  /// them are main-queue-confined. This one is not: `deinit` runs on whichever
+  /// thread released the last strong reference. It is still race-free, and the
+  /// reason is the *strong bind*, not merely that weak references read `nil`
+  /// here: a successful `guard let s = weakSelf` is itself a +1 retain held for
+  /// the whole block, and the tryRetain-versus-deallocating transition is a
+  /// single atomic step. So the two cases are mutually exclusive by
+  /// construction — either the bind succeeds, and `deinit` cannot begin until
+  /// that block returns, or it fails, and the block returns without touching
+  /// the map. There is no window where both are true. `requestBridgeToken`'s
+  /// park site takes the same shape (`DispatchQueue.main.async { [weak self] in
+  /// guard let self`), so the argument covers the bridge map unchanged. The
+  /// paths that run on implicit strong `self` instead (both replies and the
+  /// `disconnectUser` drain, all reached from `handle(_:result:)`) are excluded
+  /// for the same reason: the registrar retains the method-call delegate for
+  /// their duration.
+  ///
+  /// Reachability: `shared` and the registrar both hold this object, so in a
+  /// single-engine app `deinit` never runs — which is what #236 meant by "not
+  /// reachable from a live engine". It does run when a second `register`
+  /// overwrites `shared` and the previous engine is torn down (add-to-app
+  /// multi-engine, engine restart), and that is the case this drain covers.
+  ///
+  /// The values handed back are each map's existing convention: the empty token
+  /// the client-user-token timeout and disconnect paths already use (iOS
+  /// forwards it to the backend exchange rather than refusing locally, see
+  /// `connectUserWire`), and `nil` for a bridge token, which is what both of
+  /// that map's own resume sites — the `provideBridgeToken` reply with no
+  /// signature, and the defensive overwrite in `requestBridgeToken` — hand back
+  /// to mean "no signature available".
+  deinit {
+    let parkedClientUserTokens = clientUserTokenContinuations
+    clientUserTokenContinuations.removeAll()
+    for continuation in parkedClientUserTokens.values {
+      continuation.resume(returning: "")
+    }
+    let parkedBridgeTokens = bridgeTokenContinuations
+    bridgeTokenContinuations.removeAll()
+    for continuation in parkedBridgeTokens.values {
+      continuation.resume(returning: nil)
+    }
+  }
 
   static func triggerCallback(method: String, callbackId: String) {
     print("iOS Plugin: triggerCallback called: method=\(method), callbackId=\(callbackId)")
@@ -79,6 +130,111 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       ?? 443
     let apiServer = try OctopusSDK.Configuration.ApiServer(host: host, port: port)
     return OctopusSDK.Configuration(apiServer: apiServer)
+  }
+
+  /// Decodes a base64 profile picture the way the Android bridge does: unknown
+  /// characters are ignored, and the result must decode as an image.
+  ///
+  /// `.ignoreUnknownCharacters` is the exact counterpart of Android's
+  /// `Base64.DEFAULT`, whose decode table maps every byte outside the alphabet
+  /// to "skip" — not whitespace only. Without it, one host value produces a
+  /// picture on Android and none here: a line-wrapped payload (RFC 2045 wraps at
+  /// 76 columns) is the common case (#385).
+  ///
+  /// The `UIImage` check is what makes that leniency safe, and it is the other
+  /// half of the Android pair (`Base64.decode` then `BitmapFactory.decodeByteArray`,
+  /// which returns null for anything that is not an image). Ignoring unknown
+  /// characters means a string that is not base64 at all — a filesystem path,
+  /// say — stops failing to decode and starts decoding to garbage. Nothing
+  /// downstream would catch it: `ClientUser.Profile.picture` documents that the
+  /// data "will be transformed into an UIImage using `UIImage(data:)` so it must
+  /// be compatible", but `ImageResizer.resizeIfNeeded` returns data it cannot
+  /// decode unchanged, so those bytes would travel on. The URL branch already
+  /// applies this same check to what it downloads.
+  private static func decodeBase64Picture(_ encoded: String) -> Data? {
+    guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters) else {
+      NSLog("[OctopusSDK] Profile picture is not valid base64; connecting without a picture.")
+      return nil
+    }
+    guard UIImage(data: data) != nil else {
+      NSLog("[OctopusSDK] Profile picture base64 did not decode to a supported image; connecting without a picture.")
+      return nil
+    }
+    return data
+  }
+
+  /// Resolves raw base64, a data URI, or an HTTP(S) URL to native profile picture bytes.
+  /// URL download failures, timeouts and non-image responses are logged and ignored so the
+  /// user can still connect without a picture; so is a base64 payload that does not decode
+  /// to an image — see `decodeBase64Picture`.
+  /// The input is trimmed once up front, so surrounding whitespace does not change which
+  /// branch a value takes. The *download* is bounded by idle time and by total
+  /// transfer time, both on `profilePictureSession`; the size cap below bounds
+  /// what is decoded and forwarded, not what is received.
+  private static func resolveProfilePictureData(_ raw: String?) async -> Data? {
+    // Bind the trimmed value and use it throughout. Emptiness used to be tested
+    // on the trimmed string while the prefix checks, URL parsing and base64
+    // decoding all read the untrimmed one, so a padded `" https://…"` missed the
+    // http prefix, fell through to the base64 branch and silently yielded nil.
+    guard let raw else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    if trimmed.hasPrefix("data:") {
+      guard let commaIndex = trimmed.firstIndex(of: ",") else { return nil }
+      return decodeBase64Picture(String(trimmed[trimmed.index(after: commaIndex)...]))
+    }
+    let lowercased = trimmed.lowercased()
+    guard lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://") else {
+      return decodeBase64Picture(trimmed)
+    }
+    guard let url = URL(string: trimmed), let host = url.host, !host.isEmpty else {
+      NSLog("[OctopusSDK] Profile picture URL is invalid; connecting without a picture.")
+      return nil
+    }
+    do {
+      // `URLSession.data(from:)` is iOS 15+; the plugin's floor is iOS 14.0
+      // (podspec + Package.swift), so bridge the completion-handler API.
+      let (data, response): (Data, URLResponse) = try await withCheckedThrowingContinuation { continuation in
+        // Bound the download explicitly: the default request timeout is 60 s,
+        // and this download gates `connectUser`. The per-request interval is
+        // the *idle* bound; the total one comes from the session's
+        // `timeoutIntervalForResource` — see `profilePictureSession`.
+        let request = URLRequest(url: url, timeoutInterval: Self.profilePictureDownloadTimeout)
+        Self.profilePictureSession.dataTask(with: request) { data, response, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else if let data, let response {
+            continuation.resume(returning: (data, response))
+          } else {
+            continuation.resume(throwing: URLError(.badServerResponse))
+          }
+        }.resume()
+      }
+      guard let response = response as? HTTPURLResponse,
+            (200...299).contains(response.statusCode) else {
+        NSLog("[OctopusSDK] Profile picture download returned an unsuccessful response; connecting without a picture.")
+        return nil
+      }
+      // Cap what this bridge decodes and forwards. `expectedContentLength` is
+      // the declared Content-Length and is -1 when the server declares none
+      // (chunked), so the received count is checked too — that one is
+      // authoritative. Neither prevents the body being buffered first: the
+      // completion-handler API hands over a fully received `Data`. What bounds
+      // the transfer itself is the session's `timeoutIntervalForResource`.
+      guard response.expectedContentLength <= Self.profilePictureMaxBytes,
+            Int64(data.count) <= Self.profilePictureMaxBytes else {
+        NSLog("[OctopusSDK] Profile picture is larger than the bridge's \(Self.profilePictureMaxBytes)-byte cap; connecting without a picture.")
+        return nil
+      }
+      guard UIImage(data: data) != nil else {
+        NSLog("[OctopusSDK] Profile picture download did not contain a supported image; connecting without a picture.")
+        return nil
+      }
+      return data
+    } catch {
+      NSLog("[OctopusSDK] Profile picture download failed; connecting without a picture.")
+      return nil
+    }
   }
 
   /// The typed error returned for a `debugOverride*` call on an iOS integration path that cannot
@@ -174,12 +330,14 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         result(FlutterError(code: "SWITCH_COMMUNITY_ERROR", message: error.localizedDescription, details: nil))
       }
     case "reset":
+      connectionGeneration += 1
       // iOS has no native reset(); disconnect the user (best-effort match for
       // Android, which also clears local cache). No-op if uninitialized. The
       // SDK stays initialized.
       octopus?.disconnectUser()
       result(nil)
     case "stop":
+      connectionGeneration += 1
       // iOS has no native stop(); release the instance and tear down observers
       // so the SDK returns to an uninitialized state. No-op if already stopped.
       octopus?.disconnectUser()
@@ -193,6 +351,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       emitIsInitialised()
       result(nil)
     case "connectUser":
+      connectionGeneration += 1
       guard let octopus else {
         result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() or initializeOctopusAuth() first", details: nil))
         return
@@ -211,40 +370,22 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       let picture = args["picture"] as? String
 
 
-      // Convert picture string (URL or base64) to Data
-      let pictureData: Data? = {
-        guard let picture = picture else { return nil }
-        
-        // If it's a base64 string, decode it
-        if picture.hasPrefix("data:") {
-          if let commaIndex = picture.firstIndex(of: ",") {
-            let base64String = String(picture[picture.index(after: commaIndex)...])
-            return Data(base64Encoded: base64String)
-          }
-          return nil
-        } else if !picture.hasPrefix("http") {
-          // Assume it's base64 without data: prefix
-          return Data(base64Encoded: picture)
-        } else {
-          // It's a URL, but we can't download it synchronously here
-          // The SDK should handle URL pictures, so we'll skip this for now
-          return nil
-        }
-      }()
-
-      let profile = ClientUser.Profile(
-        nickname: nickname,
-        bio: bio,
-        picture: pictureData
-      )
-
-      let clientUser = ClientUser(userId: userId, profile: profile)
-
       // `await`ing selects the `async throws(OctopusConnectUserError)`
       // overload. Its non-throwing twin has an identical parameter list and
       // only debug-logs the refusal, so a plain call silently reports success
       // while the user stays anonymous.
+      weak var weakSelf = self
+      let generation = connectionGeneration
       Task {
+        let pictureData = await Self.resolveProfilePictureData(picture)
+        // A later connection or disconnect may finish while the picture downloads.
+        // Reject this stale request so it cannot restore or replace that session.
+        guard await MainActor.run(body: { weakSelf?.connectionGeneration }) == generation else {
+          result(["type": "failure", "kind": "statusError", "code": -1, "description": "connectUser superseded by a later connectUser or disconnectUser call before the profile picture finished downloading"])
+          return
+        }
+        let profile = ClientUser.Profile(nickname: nickname, bio: bio, picture: pictureData)
+        let clientUser = ClientUser(userId: userId, profile: profile)
         do {
           try await octopus.connectUser(clientUser) { @Sendable in
             return token
@@ -255,6 +396,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         }
       }
     case "connectUserWithTokenProvider":
+      connectionGeneration += 1
       // Persistent tokenProvider path — mirrors Android's
       // `OctopusSDK.connectUser(user, tokenProvider: suspend () -> String)`.
       // The native SDK calls the closure initially AND on every refresh
@@ -275,21 +417,6 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       let nickname = args["nickname"] as? String
       let bio = args["bio"] as? String
       let picture = args["picture"] as? String
-      let pictureData: Data? = {
-        guard let picture = picture else { return nil }
-        if picture.hasPrefix("data:") {
-          if let commaIndex = picture.firstIndex(of: ",") {
-            let base64String = String(picture[picture.index(after: commaIndex)...])
-            return Data(base64Encoded: base64String)
-          }
-          return nil
-        } else if !picture.hasPrefix("http") {
-          return Data(base64Encoded: picture)
-        }
-        return nil
-      }()
-      let profile = ClientUser.Profile(nickname: nickname, bio: bio, picture: pictureData)
-      let clientUser = ClientUser(userId: userId, profile: profile)
       // Capture `self` weakly outside the @Sendable closure (Swift forbids
       // a capture list inside the @Sendable attribute). The plugin's
       // lifetime is the app's, so the weak ref is effectively non-nil here,
@@ -297,7 +424,17 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       weak var weakSelf = self
       // See the `connectUser` case: `await` picks the typed-throws overload,
       // the non-throwing twin would swallow the refusal.
+      let generation = connectionGeneration
       Task {
+        let pictureData = await Self.resolveProfilePictureData(picture)
+        // A later connection or disconnect may finish while the picture downloads.
+        // Reject this stale request so it cannot restore or replace that session.
+        guard await MainActor.run(body: { weakSelf?.connectionGeneration }) == generation else {
+          result(["type": "failure", "kind": "statusError", "code": -1, "description": "connectUser superseded by a later connectUser or disconnectUser call before the profile picture finished downloading"])
+          return
+        }
+        let profile = ClientUser.Profile(nickname: nickname, bio: bio, picture: pictureData)
+        let clientUser = ClientUser(userId: userId, profile: profile)
         do {
           try await octopus.connectUser(clientUser) { @Sendable in
             // Each invocation gets a fresh requestId so concurrent refreshes
@@ -320,13 +457,16 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
                 // otherwise leave this continuation parked forever, and with
                 // it the caller's Future. Every path that resumes a
                 // continuation already in the map removes it first, on the main
-                // queue (the disconnect drain with `removeAll()`, the reply and
-                // this timeout with `removeValue(forKey:)`), so it is never
-                // resumed twice — the only other resume is the `weakSelf`-nil
-                // early return above, which never inserted one. It can still be
-                // resumed zero times: a plugin deallocated while a request is
-                // parked drops the continuation, which is not reachable from a
-                // live engine. The empty token handed back on timeout is not a
+                // queue. The three main-queue paths (the disconnect drain with
+                // `removeAll()`, the reply and this timeout with
+                // `removeValue(forKey:)`) are serialized against each other, and
+                // the `deinit` drain is excluded from them by the strong bind in
+                // `guard let s = weakSelf` — so it is never resumed twice. The
+                // only other resume is the `weakSelf`-nil early return above,
+                // which never inserted one. A plugin
+                // deallocated while a request is parked used to drop the
+                // continuation; `deinit` now drains the map, so no path leaves
+                // one unresumed. The empty token handed back on timeout is not a
                 // local refusal on this platform — iOS forwards it to the
                 // backend exchange, see `connectUserWire`.
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.clientUserTokenTimeout) {
@@ -358,6 +498,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       parked?.resume(returning: token)
       result(nil)
     case "disconnectUser":
+      connectionGeneration += 1
       guard let octopus else {
         result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() or initializeOctopusAuth() first", details: nil))
         return
@@ -712,7 +853,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       }
       octopus.overrideDefaultLocale(with: locale)
       result(nil)
-    // The three cases below delegate to `OctopusDebugOverridesBridge`
+    // The three `debugOverride*` cases below delegate to `OctopusDebugOverridesBridge`
     // (`DebugOverrides.swift`) rather than doing the native calls inline
     // here. That file is the only place that (conditionally) imports
     // `OctopusCore` — the types these overrides need (`ProfileFieldsLock` /
@@ -761,6 +902,36 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
           octopus, mode: args?["mode"] as? String
         )
         result(applied ? nil : Self.unsupportedDebugOverrideError(call.method))
+      }
+    // Supported on both iOS integration paths — a plain `Bool?` needs no `OctopusCore` type.
+    case "debugOverrideExposeClientUserId":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      // A null `enabled` clears the override and restores the backend value.
+      let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool
+      Task {
+        await OctopusDebugOverridesBridge.debugOverrideExposeClientUserId(octopus, enabled: enabled)
+        result(nil)
+      }
+    case "debugGetCommunityConfig":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      Task { @MainActor in
+        switch OctopusDebugOverridesBridge.debugGetCommunityConfig(octopus) {
+        case .config(let config):
+          result(config)
+        case .unsupported:
+          result(Self.unsupportedDebugOverrideError(call.method))
+        case .unreachable:
+          result(FlutterError(
+            code: "CONFIG_ERROR",
+            message: "Could not reach the native SDK core to read the community config",
+            details: nil))
+        }
       }
     case "registerPushNotificationToken":
       guard let octopus else {
@@ -919,6 +1090,42 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// Generous on purpose: the host's provider usually calls its own backend.
   /// Kept in step with Android's `CLIENT_USER_TOKEN_TIMEOUT_MS`.
   private static let clientUserTokenTimeout: TimeInterval = 60
+
+  /// How long this bridge waits for a profile picture URL to download before
+  /// giving up and connecting without a picture.
+  /// Deliberately much shorter than `clientUserTokenTimeout` and than
+  /// `URLSession`'s 60 s default: the download gates `connectUser`, so a slow
+  /// or blackholed picture host would otherwise stall the connection itself.
+  /// Losing an avatar is cheaper than delaying the session.
+  private static let profilePictureDownloadTimeout: TimeInterval = 10
+
+  /// Largest profile picture this bridge will forward to the native SDK.
+  /// An avatar is orders of magnitude smaller; the cap exists so a host URL
+  /// that answers with something else cannot push an arbitrary payload through
+  /// `UIImage(data:)` and into the profile upload.
+  private static let profilePictureMaxBytes: Int64 = 5 * 1024 * 1024
+
+  /// Dedicated session for profile-picture downloads.
+  ///
+  /// `URLSession.shared` cannot carry these bounds: its `configuration` is a
+  /// copy, so mutating it is silently lost. And the per-request
+  /// `timeoutInterval` — like `timeoutIntervalForRequest` — is an *idle*
+  /// timeout, reset on every byte received: a host trickling one byte every
+  /// 9 s satisfies it forever while `connectUser` stays open.
+  /// `timeoutIntervalForResource` is the only total bound, and it needs a
+  /// session of this bridge's own (#383). Both are set to
+  /// `profilePictureDownloadTimeout`: the constant already means "how long a
+  /// picture may delay the connection", which is a wall-clock budget.
+  ///
+  /// Everything else is `URLSessionConfiguration.default`, i.e. what
+  /// `URLSession.shared` applied before — same cache, cookie and credential
+  /// storage.
+  private static let profilePictureSession: URLSession = {
+    let configuration = URLSessionConfiguration.default
+    configuration.timeoutIntervalForRequest = OctopusSDKFlutterPlugin.profilePictureDownloadTimeout
+    configuration.timeoutIntervalForResource = OctopusSDKFlutterPlugin.profilePictureDownloadTimeout
+    return URLSession(configuration: configuration)
+  }()
 
   /// Encodes an `OctopusConnectUserError` into the shared `OctopusResult`
   /// failure wire shape, decoded on Dart by `ClientUserError.fromWire`.
@@ -1267,6 +1474,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// `defaultTypography.<slot>`, field by field.
   static func buildTheme(main: UIColor?, low: UIColor?, high: UIColor?, onPrimary: UIColor?,
                         background: UIColor? = nil, link: UIColor? = nil, logoBase64: String?,
+                        icons: [String: String]? = nil,
                         fontFamily: String? = nil, fontWeight: Int? = nil,
                         fontSizeTitle1: Int? = nil, fontSizeTitle2: Int? = nil, fontSizeBody1: Int? = nil,
                         fontSizeBody2: Int? = nil, fontSizeCaption1: Int? = nil, fontSizeCaption2: Int? = nil,
@@ -1330,8 +1538,28 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         )
       )
     )
-    if let logoBase64, let data = Data(base64Encoded: logoBase64), let image = UIImage(data: data) {
+    // Same leniency as the profile picture (#385); the `UIImage` check that makes
+    // it safe was already here.
+    if let logoBase64,
+       let data = Data(base64Encoded: logoBase64, options: .ignoreUnknownCharacters),
+       let image = UIImage(data: data) {
       theme = OctopusTheme(colors: theme.colors, fonts: theme.fonts, assets: .init(logo: image))
+    }
+    if let icons {
+      var images: [String: UIImage] = [:]
+      for (slot, source) in icons {
+        let payload = source.hasPrefix("data:")
+          ? source.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).dropFirst().first.map(String.init) ?? ""
+          : source
+        guard let data = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
+              let image = UIImage(data: data) else {
+          NSLog("[OctopusSDK] Icon %@ could not be decoded; keeping the native default.", slot)
+          continue
+        }
+        images[slot] = image
+      }
+      theme = OctopusTheme(colors: theme.colors, fonts: theme.fonts,
+                          assets: .init(logo: theme.assets.logo, icons: octopusIcons(from: images)))
     }
     return theme
   }
@@ -1417,6 +1645,13 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// instance and clears the observers before reinitializing, then re-attaches
   /// them.
   private func setup(apiKey: String, connectionMode: ConnectionMode, configuration: OctopusSDK.Configuration) throws {
+    // Invalidate every connect still awaiting its profile-picture download
+    // before the instance they captured is discarded below: without this bump
+    // such a connect passes the generation check and calls `connectUser` on the
+    // replaced `OctopusSDK`, reporting success to Dart while the live instance
+    // stays anonymous (#378). Same reason `reset`, `stop` and `disconnectUser`
+    // bump it.
+    connectionGeneration += 1
     // Always reset previous instance to avoid stale state.
     if let existing = octopus {
       existing.disconnectUser()
@@ -1483,6 +1718,11 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       }
       return
     }
+    // The cold-start branch above bumps the generation through `setup()`; this
+    // one keeps the instance, so bump it here. `switchCommunity` drops the
+    // connected user along with the cached data, so a connect still awaiting
+    // its picture download must not reconnect it onto the new community (#378).
+    connectionGeneration += 1
     Task {
       do {
         try await octopus.switchCommunity(
@@ -1819,7 +2059,10 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         }
         // Defensive: if a stale continuation is still parked for this id (the
         // SDK re-invoked the block within one call), resume it with nil before
-        // overwriting so it can never leak or hang.
+        // overwriting so it can never leak or hang. A plugin deallocated while
+        // a request is parked is covered by the `deinit` drain (#388); nothing
+        // bounds a Dart side that never replies at all, unlike the sibling
+        // client-user-token map — see #388's open timeout question.
         self.bridgeTokenContinuations[requestId]?.resume(returning: nil)
         self.bridgeTokenContinuations[requestId] = continuation
         self.sendEvent("bridgeTokenRequest", data: ["requestId": requestId, "fingerprint": fingerprint])

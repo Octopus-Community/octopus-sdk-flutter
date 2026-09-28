@@ -49,8 +49,38 @@ guide (including Swift Package Manager): the
   ```
 - On **Swift Package Manager** (the default since Flutter 3.44) the plugin and
   its native dependencies resolve automatically — no Podfile step needed.
-- On the **CocoaPods** path, run `cd ios && pod install`; if you hit a gRPC
-  conflict, add `pod 'gRPC-Swift', :modular_headers => true` to your `Podfile`.
+- On the **CocoaPods** path:
+  - **Link frameworks statically.** The native Octopus UI pod looks up its
+    images in its own resource bundle, which is only found with static
+    frameworks: with Flutter's default (dynamic) frameworks the app crashes on
+    the first Octopus screen (`Assets+Generated.swift` — `Fatal error`, image
+    not found). Static is the only linkage the plugin's example app and the
+    native SDK's CocoaPods validation app are built and tested with:
+    ```ruby
+    target 'Runner' do
+      use_frameworks! :linkage => :static
+      use_modular_headers!
+
+      flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+    end
+    ```
+    (`use_modular_headers!` mirrors the example app and is optional for
+    Octopus.) CocoaPods applies this setting to every pod of the target, so your other
+    pods (Firebase, ad or push SDKs…) are linked statically too. If one of them
+    cannot be, use the Swift Package Manager path above instead: it needs no
+    linkage setting.
+  - **gRPC conflict with Firebase Firestore** (or any other pod that depends on
+    `gRPC-Core`), which fails the link with `Undefined symbol: grpc_…` /
+    `gpr_…`: copy
+    [`gRPC-Swift.podspec.json`](https://github.com/Octopus-Community/octopus-sdk-swift/blob/main/CocoaPodsValidationApp/gRPC-Swift.podspec.json)
+    from the native SDK repository next to your `Podfile`, and add inside the
+    `Runner` target:
+    ```ruby
+    pod 'gRPC-Swift', :podspec => 'gRPC-Swift.podspec.json'
+    ```
+    The `pod 'gRPC-Swift', :modular_headers => true` line older versions of
+    this guide recommended does not fix this link error.
+  - Then run `cd ios && pod install`.
 
 ## Signing your users in
 
@@ -286,8 +316,15 @@ reference at [doc.octopuscommunity.com](https://doc.octopuscommunity.com):
 - **The community screen is blank or crashes on Android** — make sure
   `MainActivity` extends `FlutterFragmentActivity` (see [Platform setup](#platform-setup)).
 - **iOS build can't resolve the native pods** — set the deployment target to
-  `14.0` and run `cd ios && pod install --repo-update`; on a gRPC naming
-  conflict add `pod 'gRPC-Swift', :modular_headers => true`.
+  `14.0` and run `cd ios && pod install --repo-update`.
+- **iOS link fails with `Undefined symbol: grpc_…` / `gpr_…`** (CocoaPods, next
+  to Firebase Firestore or another `gRPC-Core` user) — use the
+  `gRPC-Swift.podspec.json` override described in
+  [Platform setup](#platform-setup).
+- **iOS crashes when the Octopus screen opens, in `Assets+Generated.swift`**
+  (CocoaPods) — the pods are linked as dynamic frameworks; switch to
+  `use_frameworks! :linkage => :static` (see [Platform setup](#platform-setup))
+  or to the Swift Package Manager path.
 - **"Invalid token" / authentication failures** — verify your API key and that
   your `tokenProvider` returns a valid, unexpired JWT signed with the shared
   secret. The SDK re-invokes it on every refresh (e.g. `refreshEntitlements()`).

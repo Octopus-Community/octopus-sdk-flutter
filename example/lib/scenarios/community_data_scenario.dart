@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../community/client_profile_page.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../sample_fixtures.dart';
 
 /// Unified Profile community-data scenario — reads a member's public Octopus
 /// stats so the **host** can render them on its own profile screen, instead of
@@ -43,6 +44,16 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
 
   StreamSubscription<OctopusCommunityData?>? _flowSub;
   Object? _flowError;
+
+  @override
+  void initState() {
+    super.initState();
+    // The hint below shows the *effective* flag; read it fresh on entry (a
+    // Config round-trip or a backend fetch may have changed it since).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(AppScope.of(context).refreshCommunityConfig());
+    });
+  }
 
   @override
   void dispose() {
@@ -87,18 +98,33 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
           'profileId or by your own clientUserId. Note that '
           'gamification.score is always null through this API — use level.',
       resultTestId: 'communityData-result',
-      liveState: KeyValueCard(
-        title: 'Live state',
-        rows: [
-          ('profile.clientUserId', app.profile?.clientUserId ?? '—'),
-          ('lookup clientUserId', _clientUserId(app)),
-          ('observing', _flowSub == null ? 'no' : 'yes'),
-          ('last value from', _source),
-          ('profileId', data?.profileId ?? '—'),
-          ('messageCount', data?.messageCount?.toString() ?? 'null'),
-          ('gamification.level', gamification?.level.toString() ?? 'null'),
-          ('gamification.score', gamification?.score?.toString() ?? 'null'),
-          if (_flowError != null) ('flow error', _flowError.toString()),
+      liveState: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            identifier: 'communityData-exposeClientUserId-hint',
+            container: true,
+            child: Text(
+              'Host profile needs exposeClientUserId on (Config → '
+              'Integration) — now: ${app.exposeClientUserIdSummary}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          const SizedBox(height: 8),
+          KeyValueCard(
+            title: 'Live state',
+            rows: [
+              ('profile.clientUserId', app.profile?.clientUserId ?? '—'),
+              ('lookup clientUserId', _clientUserId(app)),
+              ('observing', _flowSub == null ? 'no' : 'yes'),
+              ('last value from', _source),
+              ('profileId', data?.profileId ?? '—'),
+              ('messageCount', data?.messageCount?.toString() ?? 'null'),
+              ('gamification.level', gamification?.level.toString() ?? 'null'),
+              ('gamification.score', gamification?.score?.toString() ?? 'null'),
+              if (_flowError != null) ('flow error', _flowError.toString()),
+            ],
+          ),
         ],
       ),
       presets: [
@@ -267,6 +293,32 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
                 builder: (_) => ClientProfilePage(clientUserId: clientUserId),
               ),
             );
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-communityData-7',
+          label: 'Preset 7 · Fetch another member (user.other)',
+          onRun: (setResult) async {
+            final id = sampleFixtures.userOther.trim();
+            if (id.isEmpty) {
+              setResult('Skipped: user.other fixture is empty.', isError: true);
+              return;
+            }
+            try {
+              final data = await app.octopus.fetchCommunityData(profileId: id);
+              if (!mounted) return;
+              _record(data, 'fetch(user.other)');
+              setResult(
+                data == null
+                    ? 'user.other not found: $id'
+                    : 'Fetched user.other: $id',
+                isError: data == null,
+              );
+            } catch (e) {
+              if (mounted) {
+                setResult('fetch(user.other) failed: $e', isError: true);
+              }
+            }
           },
         ),
       ],

@@ -93,8 +93,9 @@ sealed class InitialScreenSpec {
     data class Group(val groupId: String) : InitialScreenSpec()
 
     /**
-     * Mount the posts-only activity screen of the member named by [member]
-     * (Unified Profile).
+     * Mount the activity screen of the member named by [member] (Unified
+     * Profile): their posts, plus a Comments tab when the community enables
+     * comments on other members' profiles.
      *
      * No tab index rides on the wire: the native `OctopusDestination.Activity`
      * only honours `selectedTabIndex` for the connected-user entry (the home

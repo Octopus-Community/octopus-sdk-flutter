@@ -10,8 +10,10 @@ import '../app_state.dart';
 import '../auth/bridge_token_signer.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
+import '../design.dart';
 import '../octopus_demo_config.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../sample_fixtures.dart';
 
 /// Initial-screen scenario — `OctopusInitialScreen` variants
 /// (`mainFeed` / `post` / `group` / `activity` / `profile` / `createPost`) plus
@@ -90,12 +92,6 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   static const String _defaultPrefillText =
       'A long enough prefill text from the host app demonstration scenario.';
 
-  /// Display name of the group the dropdown defaults to when QA has not picked
-  /// one yet — the stable open read+write group every demo community ships
-  /// (per the demo backend fixtures). Falls back to the
-  /// first available group when no group with this name is loaded.
-  static const String _defaultGroupName = 'General';
-
   late final TextEditingController _postIdCtrl;
   late final TextEditingController _prefillTextCtrl;
   late final TextEditingController _ctaLabelCtrl;
@@ -116,20 +112,17 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   @override
   void initState() {
     super.initState();
-    // Prefill the post-id field with the injected demo post id so presets 2 & 5
-    // open live content out of the box. `--dart-define` injects a stable demo
-    // post (OCTOPUS_DEMO_POST_ID) by default; a keyless / public build leaves
-    // it empty and the presets fall back to manual entry. See
-    // octopus_demo_config.dart.
-    _postIdCtrl = TextEditingController(text: octopusDemoPostId);
+    _postIdCtrl = TextEditingController(text: sampleFixtures.postText);
     _prefillTextCtrl = TextEditingController(text: _defaultPrefillText);
     _ctaLabelCtrl = TextEditingController();
     _ctaUrlCtrl = TextEditingController();
-    // Left empty on purpose: the member presets fall back to the connected
+    // The client-user-id input falls back to the connected
     // user's own ids (see [_effectiveMemberClientUserId]), which are not known
     // yet at initState time and change on every login / community switch.
     _memberClientUserIdCtrl = TextEditingController();
-    _memberProfileIdCtrl = TextEditingController();
+    _memberProfileIdCtrl = TextEditingController(
+      text: sampleFixtures.userOther,
+    );
   }
 
   @override
@@ -211,15 +204,11 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   }
 
   /// A sensible default group id picked from the live `app.groups` stream — the
-  /// stable open [_defaultGroupName] group when present, else the first loaded
+  /// catalog topic when present, then General, then the first loaded
   /// group. `null` only when the stream is still empty (no community selected /
   /// groups not fetched yet).
   String? _defaultGroupId(List<OctopusGroup> groups) {
-    if (groups.isEmpty) return null;
-    for (final g in groups) {
-      if (g.name == _defaultGroupName) return g.id;
-    }
-    return groups.first.id;
+    return sampleFixtures.defaultGroupId(groups);
   }
 
   /// The group id presets 3 & 4 act on: QA's explicit pick once they have
@@ -253,10 +242,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               decoration: const InputDecoration(
                 labelText: 'Post id (presets 2 & 5)',
                 helperText:
-                    'Prefilled from OCTOPUS_DEMO_POST_ID when injected '
-                    '(`--dart-define` injects a stable demo post by default). '
-                    'Plug your own post id to open it in bridge mode; empty on '
-                    'a keyless / public build.',
+                    'Prefilled from the shared post.text fixture. '
+                    'Enter another post id to retarget without rebuilding.',
                 border: OutlineInputBorder(),
               ),
               onChanged: (_) {
@@ -266,6 +253,9 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String?>(
+              dropdownColor: theme.brightness == Brightness.dark
+                  ? sampleDarkElevated
+                  : null,
               // Key the field on its effective value so a default seeded once
               // the groups stream loads (or a later explicit pick) is reflected
               // in the displayed selection — DropdownButtonFormField only reads
@@ -385,7 +375,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               decoration: const InputDecoration(
                 labelText: 'Member Octopus profileId (preset 9)',
                 helperText:
-                    'Empty is fine: preset 9 resolves one with '
+                    'Prefilled from user.other. If cleared, resolves with '
                     'fetchCommunityData(clientUserId:) and writes it back here.',
                 border: OutlineInputBorder(),
               ),
@@ -1088,8 +1078,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 'member. This is what a Unified Profile host pushes from its '
                 'own profile page once onNavigateToProfile made the SDK stop '
                 'showing profiles itself (the Community tab does exactly that: '
-                'turn the Settings toggle on, tap a member, then use the '
-                'buttons at the bottom of the host page).',
+                'turn the Config › Host callbacks toggle on, tap a member, '
+                'then use the buttons at the bottom of the host page).',
               );
               await _openRoute(
                 context,

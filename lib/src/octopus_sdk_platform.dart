@@ -259,6 +259,20 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     );
   }
 
+  Future<void> debugOverrideExposeClientUserId(bool? enabled) {
+    throw UnimplementedError(
+      'debugOverrideExposeClientUserId() has not been implemented.',
+    );
+  }
+
+  /// Raw wire map of the native community config, or `null` when none has
+  /// been fetched yet. Decoded by [OctopusSDK.debugGetCommunityConfig].
+  Future<Map<dynamic, dynamic>?> debugGetCommunityConfig() {
+    throw UnimplementedError(
+      'debugGetCommunityConfig() has not been implemented.',
+    );
+  }
+
   Future<void> trackCustomEvent(String name, Map<String, String> properties) {
     throw UnimplementedError(
       'trackCustomEvent() has not been implemented.',

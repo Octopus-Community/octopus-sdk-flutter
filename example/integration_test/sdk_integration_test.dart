@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:octopus_sdk_flutter_example/main.dart' as app;
@@ -37,6 +37,34 @@ void main() {
   /// the same integration_test session lands directly on the shell — the
   /// Config screen never re-appears. Tap-through only when it's actually
   /// there, otherwise the harness is already on the bottom-nav shell.
+  /// Opens a Scenarios section by its header, so the cards inside it are laid
+  /// out and reachable by finder.
+  ///
+  /// Every section now starts **collapsed** — that is the ported behaviour: the
+  /// screen opens on the six headers, which is the map of the sample, instead
+  /// of on one section's contents. Before the port the `sso` section happened
+  /// to be expanded on first paint, and these tests reached its cards without
+  /// asking. Searching still force-expands, which is why the search test needs
+  /// no call here.
+  /// Opens a Scenarios section if it is closed — and leaves it alone if it is
+  /// already open. The expansion map is process-wide state, not widget state:
+  /// `app.main()` rebuilds the tree between tests but the map survives, so a
+  /// section opened by an earlier test is still open here and a blind tap
+  /// would close it again (measured on CI: test 2 opens `sso`, test 4 failed).
+  Future<void> openScenarioSection(WidgetTester tester, String id) async {
+    final header = find.bySemanticsIdentifier('scenarios-section-$id');
+    await tester.ensureVisible(header);
+    await tester.pumpAndSettle();
+    final closed = find.descendant(
+      of: header,
+      matching: find.byIcon(Icons.expand_more),
+    );
+    if (closed.evaluate().isNotEmpty) {
+      await tester.tap(header);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+    }
+  }
+
   Future<void> startToShell(WidgetTester tester) async {
     app.main();
     await tester.pumpAndSettle(const Duration(seconds: 5));
@@ -110,7 +138,9 @@ void main() {
         findsOneWidget,
       );
       // A pre-existing card (top of the list) + a chunk #14/#17 card further
-      // down — proving the new scenarios are registered.
+      // down — proving the new scenarios are registered. `connection` sits in
+      // the `sso` section, which now opens collapsed like every other one.
+      await openScenarioSection(tester, 'sso');
       expect(
         find.bySemanticsIdentifier('scenarios-connection-card'),
         findsOneWidget,
@@ -147,7 +177,11 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // Connection is a pure-Flutter scenario (no PlatformView) so it settles.
-      await tester.tap(find.bySemanticsIdentifier('scenarios-connection-card'));
+      await openScenarioSection(tester, 'sso');
+      final card = find.bySemanticsIdentifier('scenarios-connection-card');
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // ScenarioScaffold renders the result panel for the catalog id at the
@@ -224,7 +258,16 @@ void main() {
 
       // The log's copy + clear affordances are always present. Closing is now
       // a plain route pop — the console modal (and its close button) is gone.
-      expect(find.bySemanticsIdentifier('debug-copy-button'), findsOneWidget);
+      //
+      // The copy button is `events-*`, not `debug-*`, because it belongs to the
+      // Events log *screen* rather than to the Debug console sheet — two
+      // surfaces that keep separate identifier families. It also copies plain
+      // text now, not JSON, which is what renamed it away from
+      // `events-copy-json-button`.
+      expect(
+        find.bySemanticsIdentifier('events-copy-log-button'),
+        findsOneWidget,
+      );
       expect(find.bySemanticsIdentifier('debug-clear-button'), findsOneWidget);
       expect(find.bySemanticsIdentifier('debug-log-list'), findsOneWidget);
 

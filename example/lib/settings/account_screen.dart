@@ -141,235 +141,242 @@ class _AccountScreenState extends State<AccountScreen> {
             .toList()
           ..sort());
 
-    return Scaffold(
+    return SampleScaffold(
       appBar: AppBar(title: const SampleAppBarTitle('Account')),
-      body: Semantics(
-        identifier: 'account-screen',
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // ── Identity ────────────────────────────────────────────────
-            SampleSection(
-              title: connected ? 'Connected user' : 'Identity',
-              tone: connected ? SampleTone.success : SampleTone.neutral,
-              identifier: 'account-identity',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      _Avatar(url: app.testAvatarUrl, name: app.displayName),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              app.displayName,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                if (connected) ...[
-                                  SampleDot(sampleGreenFor(theme.brightness)),
-                                  const SizedBox(width: 6),
-                                ],
-                                Expanded(
-                                  child: Text(
-                                    connected
-                                        ? 'Connected · ${app.effectiveUserId}'
-                                        : 'Not connected · '
-                                              '${app.effectiveUserId}',
-                                    style: theme.textTheme.bodySmall,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Semantics(
-                    identifier: 'account-nickname-input',
-                    container: true,
-                    child: TextField(
-                      controller: _nickname,
-                      decoration: const InputDecoration(
-                        labelText: 'Nickname',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setState(_pushProfile),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Semantics(
-                    identifier: 'account-avatar-input',
-                    container: true,
-                    child: TextField(
-                      controller: _avatar,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Avatar URL',
-                        hintText: 'Leave empty to show initials',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setState(_pushProfile),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Semantics(
-                    identifier: 'account-bio-input',
-                    container: true,
-                    child: TextField(
-                      controller: _bio,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Bio',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setState(_pushProfile),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Entitlements ────────────────────────────────────────────
-            SampleSection(
-              title: 'Entitlements',
-              identifier: 'account-entitlements',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final (value, label) in _standardEntitlements)
-                    Semantics(
-                      identifier:
-                          'account-entitlement-${value.split(':').last}',
-                      child: SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(label),
-                        subtitle: Text(
-                          value,
-                          style: const TextStyle(
-                            fontFamily: sampleMonoFamily,
-                            fontSize: 12,
-                          ),
-                        ),
-                        value: _entitlements.contains(value),
-                        onChanged: (on) => _toggle(value, on),
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Semantics(
-                          identifier: 'account-custom-entitlement-input',
-                          container: true,
-                          child: TextField(
-                            controller: _customEntitlement,
-                            autocorrect: false,
-                            decoration: const InputDecoration(
-                              labelText: 'Custom entitlement',
-                              hintText: 'customer:beta',
-                              border: OutlineInputBorder(),
-                            ),
-                            onSubmitted: (_) => _addCustomEntitlement(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Semantics(
-                        identifier: 'account-custom-entitlement-add',
-                        button: true,
-                        child: IconButton.filled(
-                          tooltip: 'Add entitlement',
-                          onPressed: _addCustomEntitlement,
-                          icon: const Icon(Icons.add),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (custom.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
+      // A pushed route: nothing above it consumes the bottom system inset the
+      // way the app shell's own `SafeArea` does. Without this, the last action
+      // of the list — "Connect SSO User" / "Reconnect", or "Disconnect" once
+      // connected — renders under Android's gesture handle, which crosses the
+      // label and reads as a strikethrough (#355).
+      body: SafeArea(
+        child: Semantics(
+          identifier: 'account-screen',
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // ── Identity ────────────────────────────────────────────────
+              SampleSection(
+                title: connected ? 'Connected user' : 'Identity',
+                tone: connected ? SampleTone.success : SampleTone.neutral,
+                identifier: 'account-identity',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        for (final value in custom)
-                          Semantics(
-                            identifier: 'account-entitlement-chip-$value',
-                            child: InputChip(
-                              label: Text(value),
-                              onDeleted: () => _toggle(value, false),
-                            ),
+                        _Avatar(url: app.testAvatarUrl, name: app.displayName),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                app.displayName,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  if (connected) ...[
+                                    SampleDot(sampleGreenFor(theme.brightness)),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Expanded(
+                                    child: Text(
+                                      connected
+                                          ? 'Connected · ${app.effectiveUserId}'
+                                          : 'Not connected · '
+                                                '${app.effectiveUserId}',
+                                      style: theme.textTheme.bodySmall,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
+                        ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    Semantics(
+                      identifier: 'account-nickname-input',
+                      container: true,
+                      child: TextField(
+                        controller: _nickname,
+                        decoration: const InputDecoration(
+                          labelText: 'Nickname',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setState(_pushProfile),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Semantics(
+                      identifier: 'account-avatar-input',
+                      container: true,
+                      child: TextField(
+                        controller: _avatar,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Avatar URL',
+                          hintText: 'Leave empty to show initials',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setState(_pushProfile),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Semantics(
+                      identifier: 'account-bio-input',
+                      container: true,
+                      child: TextField(
+                        controller: _bio,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Bio',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setState(_pushProfile),
+                      ),
+                    ),
                   ],
-                  const SizedBox(height: 6),
-                  Text(
-                    'The entitlements the forged JWT will carry. The community '
-                    'backend resolves them — the SDK profile reports what it '
-                    'granted.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            // ── Session ─────────────────────────────────────────────────
-            SampleSection(
-              title: 'Session',
-              identifier: 'account-session',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _Action(
-                    label: connected ? 'Reconnect' : 'Connect SSO User',
-                    help: connected
-                        ? 'Re-creates the Octopus session with the updated '
-                              'entitlements.'
-                        : 'Forges a local JWT with these values and calls '
-                              'connectUser. No real identity server is '
-                              'contacted.',
-                    identifier: 'account-connect-button',
-                    onPressed: _busy ? null : _connect,
-                  ),
-                  if (connected) ...[
-                    const SizedBox(height: 12),
-                    _Action(
-                      label: 'Refresh entitlements',
-                      help: 'Lighter SDK-side refresh, keeps the session.',
-                      identifier: 'account-refresh-button',
-                      filled: false,
-                      onPressed: _busy ? null : _refresh,
+              // ── Entitlements ────────────────────────────────────────────
+              SampleSection(
+                title: 'Entitlements',
+                identifier: 'account-entitlements',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final (value, label) in _standardEntitlements)
+                      Semantics(
+                        identifier:
+                            'account-entitlement-${value.split(':').last}',
+                        child: SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(label),
+                          subtitle: Text(
+                            value,
+                            style: const TextStyle(
+                              fontFamily: sampleMonoFamily,
+                              fontSize: 12,
+                            ),
+                          ),
+                          value: _entitlements.contains(value),
+                          onChanged: (on) => _toggle(value, on),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Semantics(
+                            identifier: 'account-custom-entitlement-input',
+                            container: true,
+                            child: TextField(
+                              controller: _customEntitlement,
+                              autocorrect: false,
+                              decoration: const InputDecoration(
+                                labelText: 'Custom entitlement',
+                                hintText: 'customer:beta',
+                                border: OutlineInputBorder(),
+                              ),
+                              onSubmitted: (_) => _addCustomEntitlement(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Semantics(
+                          identifier: 'account-custom-entitlement-add',
+                          button: true,
+                          child: IconButton.filled(
+                            tooltip: 'Add entitlement',
+                            onPressed: _addCustomEntitlement,
+                            icon: const Icon(Icons.add),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    _Action(
-                      label: 'Disconnect',
-                      help:
-                          'Ends the Octopus session. The SDK falls back to a '
-                          'read-only guest.',
-                      identifier: 'account-disconnect-button',
-                      filled: false,
-                      danger: true,
-                      onPressed: _busy ? null : _disconnect,
+                    if (custom.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          for (final value in custom)
+                            Semantics(
+                              identifier: 'account-entitlement-chip-$value',
+                              child: InputChip(
+                                label: Text(value),
+                                onDeleted: () => _toggle(value, false),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Text(
+                      'The entitlements the forged JWT will carry. The community '
+                      'backend resolves them — the SDK profile reports what it '
+                      'granted.',
+                      style: theme.textTheme.bodySmall,
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+
+              // ── Session ─────────────────────────────────────────────────
+              SampleSection(
+                title: 'Session',
+                identifier: 'account-session',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Action(
+                      label: connected ? 'Reconnect' : 'Connect SSO User',
+                      help: connected
+                          ? 'Re-creates the Octopus session with the updated '
+                                'entitlements.'
+                          : 'Forges a local JWT with these values and calls '
+                                'connectUser. No real identity server is '
+                                'contacted.',
+                      identifier: 'account-connect-button',
+                      onPressed: _busy ? null : _connect,
+                    ),
+                    if (connected) ...[
+                      const SizedBox(height: 12),
+                      _Action(
+                        label: 'Refresh entitlements',
+                        help: 'Lighter SDK-side refresh, keeps the session.',
+                        identifier: 'account-refresh-button',
+                        filled: false,
+                        onPressed: _busy ? null : _refresh,
+                      ),
+                      const SizedBox(height: 12),
+                      _Action(
+                        label: 'Disconnect',
+                        help:
+                            'Ends the Octopus session. The SDK falls back to a '
+                            'read-only guest.',
+                        identifier: 'account-disconnect-button',
+                        filled: false,
+                        danger: true,
+                        onPressed: _busy ? null : _disconnect,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

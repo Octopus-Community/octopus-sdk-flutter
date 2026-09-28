@@ -5,7 +5,7 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
-import '../octopus_demo_config.dart';
+import '../sample_fixtures.dart';
 import '../widgets/scenario_scaffold.dart';
 
 /// Sheet scenario — host integration mode where the SDK's
@@ -85,7 +85,7 @@ class SheetScenario extends StatelessWidget {
         ).viewPadding.bottom;
         final notification = deepLink
             ? OctopusSDK.getOctopusNotification(
-                sampleOctopusNotificationPayload,
+                sampleFixtures.postNotificationPayload,
               )
             : app.pendingCommunityNotification;
         setResult(

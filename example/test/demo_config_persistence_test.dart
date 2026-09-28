@@ -1,10 +1,15 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:octopus_sdk_flutter_example/app_state.dart';
 import 'package:octopus_sdk_flutter_example/config/api_key_registry.dart';
 import 'package:octopus_sdk_flutter_example/octopus_demo_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// Test-only access to the plugin's backend; declared under `dev_dependencies`
+// in example/pubspec.yaml, not a production dependency (#377).
+import 'package:shared_preferences_platform_interface/method_channel_shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 /// Locks the persistence contract behind config save/restore (see
 /// `AppState.bootstrap` / `start`). A `DemoConfig` is serialised to prefs on
@@ -94,6 +99,10 @@ void main() {
       final json = config.toJson();
       expect(json['selectedInjectedKeyId'], 'slot-a');
       expect(json.values, isNot(contains('k-a')));
+      // Home's "API key source" names the source kind; the slot label is
+      // already its "Community" row (#430).
+      expect(config.apiKeyLabel, 'Named key (--dart-define)');
+      expect(config.apiKeyLabel, isNot(contains(slot.label)));
     });
 
     test('legacy blob carrying a plaintext custom key → key ignored', () {
@@ -242,6 +251,71 @@ void main() {
       );
     });
 
+    test('keeps a valid stored blob when the prefs read fails', () async {
+      const config = DemoConfig(
+        apiKeySource: ApiKeySource.custom,
+        userId: 'qa-tester-1',
+        theme: AppThemeChoice.dark,
+        serverEnv: ServerEnv.prod,
+      );
+      final blob = jsonEncode(config.toJson());
+      const storageKey = 'flutter.$demoConfigPrefsKey';
+      final disk = <String, Object>{storageKey: blob};
+      final calls = <String>[];
+      var failNextRead = true;
+      const channel = MethodChannel('plugins.flutter.io/shared_preferences');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final previousStore = SharedPreferencesStorePlatform.instance;
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(channel, null);
+        SharedPreferences.resetStatic();
+        SharedPreferencesStorePlatform.instance = previousStore;
+      });
+
+      // setMockInitialValues bypasses the channel. Reset the cached instance
+      // and explicitly select the channel backend, regardless of test order.
+      SharedPreferences.resetStatic();
+      SharedPreferencesStorePlatform.instance =
+          MethodChannelSharedPreferencesStore();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        switch (call.method) {
+          case 'getAll':
+            // Fail once: an erroneous cleanup must be able to read and remove
+            // the blob, otherwise a persistent failure would mask that bug.
+            if (failNextRead) {
+              failNextRead = false;
+              throw PlatformException(code: 'transient_read_failure');
+            }
+            return Map<String, Object>.from(disk);
+          case 'remove':
+            disk.remove((call.arguments as Map)['key']);
+            return true;
+          case 'clear':
+            disk.clear();
+            return true;
+          default:
+            throw StateError('Unexpected prefs call: ${call.method}');
+        }
+      });
+
+      expect(await loadPersistedDemoConfig(), isNull);
+      expect(calls, [
+        'getAll',
+      ], reason: 'a read failure must not trigger cleanup');
+      expect(disk[storageKey], blob);
+
+      // The retry reads the same backing store, without resetting or reseeding.
+      final prefs = await SharedPreferences.getInstance();
+      expect(calls, ['getAll', 'getAll']);
+      expect(prefs.getString(demoConfigPrefsKey), blob);
+      final restored = await loadPersistedDemoConfig();
+      expect(restored, isNotNull);
+      expect(restored!.userId, config.userId);
+      expect(restored.theme, config.theme);
+    });
+
     test('leaves a blob written by this build untouched', () async {
       const config = DemoConfig(
         apiKeySource: ApiKeySource.custom,
@@ -250,7 +324,14 @@ void main() {
         theme: AppThemeChoice.dark,
         serverEnv: ServerEnv.prod,
       );
-      final blob = jsonEncode(config.toJson());
+      // Equivalent JSON with reversed key order makes a toJson rewrite visible,
+      // even when it would preserve every configuration value.
+      final blob = jsonEncode(
+        Map<String, dynamic>.fromEntries(
+          config.toJson().entries.toList().reversed,
+        ),
+      );
+      expect(blob, isNot(jsonEncode(config.toJson())));
       SharedPreferences.setMockInitialValues({demoConfigPrefsKey: blob});
 
       final restored = await loadPersistedDemoConfig();

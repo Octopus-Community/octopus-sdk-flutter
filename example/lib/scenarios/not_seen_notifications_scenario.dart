@@ -5,6 +5,7 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
+import '../design.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
 import '../widgets/key_value_card.dart';
@@ -137,6 +138,12 @@ class _NotSeenNotificationsScenarioState
               button: true,
               child: Badge.count(
                 count: count,
+                backgroundColor: Theme.of(context).brightness == Brightness.dark
+                    ? sampleDarkDanger
+                    : null,
+                textColor: Theme.of(context).brightness == Brightness.dark
+                    ? sampleDarkSurface
+                    : null,
                 isLabelVisible: count > 0,
                 child: OutlinedButton.icon(
                   onPressed: () => _openOctopus(context),

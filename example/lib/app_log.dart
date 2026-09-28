@@ -13,6 +13,13 @@
 abstract class DemoLogSink {
   /// Records an SDK API call made by the sample (method name + payload).
   void apiCall(String method, [Map<String, Object?> args = const {}]);
+
+  /// Records something the *host app* did that changed SDK behaviour — a feature
+  /// toggle flip, not an SDK call.
+  ///
+  /// It lives on this seam rather than on the recorder so the public half can write to
+  /// the Debug console without importing `debug/` directly.
+  void note(String label, [Map<String, Object?> details = const {}]);
 }
 
 /// No-op sink used until the bootstrap installs the real recorder.
@@ -21,6 +28,9 @@ class _NoopLogSink implements DemoLogSink {
 
   @override
   void apiCall(String method, [Map<String, Object?> args = const {}]) {}
+
+  @override
+  void note(String label, [Map<String, Object?> details = const {}]) {}
 }
 
 /// The active log sink. Set to the real recorder ([debugLog]) by the app

@@ -30,89 +30,110 @@ class HomeTab extends StatelessWidget {
     return Column(
       children: [
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            children: [
-              _SdkCard(app: app),
-              const SizedBox(height: 16),
-              SampleSection(
-                title: 'Current configuration',
-                identifier: 'home-configuration',
-                trailing: TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ConfigScreen(
-                        initialConfig: config,
-                        entry: ConfigEntry.revisit,
+          child: SampleDockFade(
+            child: ListView(
+              // 16 + the trailing 8dp gap = 24dp clear of the dark dock fade at
+              // scroll end, the clearance of the Config and scenario pages.
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              children: [
+                _SdkCard(app: app),
+                const SizedBox(height: 16),
+                SampleSection(
+                  title: 'Current configuration',
+                  identifier: 'home-configuration',
+                  // The strong hairline frames it in dark theme; light keeps the
+                  // neutral section frame.
+                  borderColor: brightness == Brightness.dark
+                      ? sampleDarkBorderStrong
+                      : null,
+                  trailing: TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ConfigScreen(
+                          initialConfig: config,
+                          entry: ConfigEntry.revisit,
+                        ),
                       ),
                     ),
+                    child: const Text('Edit'),
                   ),
-                  child: const Text('Edit'),
+                  child: Column(
+                    children: [
+                      SampleKeyValue(
+                        'Server environment',
+                        config?.serverEnv.label ?? '—',
+                      ),
+                      SampleKeyValue(
+                        'Host',
+                        config?.hostLabel ?? '—',
+                        mono: true,
+                      ),
+                      SampleKeyValue(
+                        'Community',
+                        config?.selectedInjectedKey?.label ??
+                            (config == null ? '—' : 'Default community'),
+                      ),
+                      // The source kind — "Demo (--dart-define)", "Named key
+                      // (--dart-define)" or "Custom", see
+                      // [DemoConfig.apiKeyLabel]. Never the key, nor its label
+                      // (that is the Community row above).
+                      SampleKeyValue(
+                        'API key source',
+                        config?.apiKeyLabel ?? '—',
+                      ),
+                      SampleKeyValue(
+                        'SSO user',
+                        app.effectiveUserId,
+                        mono: true,
+                      ),
+                      SampleKeyValue(
+                        'Entitlements',
+                        app.currentEntitlements.isEmpty
+                            ? 'None'
+                            : (app.currentEntitlements.toList()..sort()).join(
+                                ', ',
+                              ),
+                      ),
+                      SampleKeyValue('Theme', app.activeThemeLabel),
+                      SampleKeyValue('Language', app.localeLabel),
+                    ],
+                  ),
                 ),
-                child: Column(
-                  children: [
-                    SampleKeyValue(
-                      'Server environment',
-                      config?.serverEnv.label ?? '—',
-                    ),
-                    SampleKeyValue(
-                      'Host',
-                      config?.hostLabel ?? '—',
-                      mono: true,
-                    ),
-                    SampleKeyValue(
-                      'Community',
-                      config?.selectedInjectedKey?.label ??
-                          (config == null ? '—' : 'Default community'),
-                    ),
-                    // "Demo (--dart-define)" / "Custom" / the picked named-key
-                    // label — see [DemoConfig.apiKeyLabel]. Never the key.
-                    SampleKeyValue(
-                      'API key source',
-                      config?.apiKeyLabel ?? '—',
-                    ),
-                    SampleKeyValue('SSO user', app.effectiveUserId, mono: true),
-                    SampleKeyValue(
-                      'Entitlements',
-                      app.currentEntitlements.isEmpty
-                          ? 'None'
-                          : (app.currentEntitlements.toList()..sort()).join(
-                              ', ',
-                            ),
-                    ),
-                    SampleKeyValue('Theme', app.activeThemeLabel),
-                    SampleKeyValue('Language', app.localeChoice.label),
-                  ],
+                const SizedBox(height: 16),
+                _ConnectionCard(app: app),
+                const SizedBox(height: 16),
+                SampleSection(
+                  title: 'App',
+                  identifier: 'home-app',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (app.sampleVersionLabel != null)
+                        SampleKeyValue(
+                          'Sample version',
+                          app.sampleVersionLabel!,
+                        ),
+                      // Android-only in practice: on iOS the card renders
+                      // nothing, because TestFlight prompts for a newer build in
+                      // the OS before the app even runs.
+                      UpdateCard(checker: app.updateChecker),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              _ConnectionCard(app: app),
-              const SizedBox(height: 16),
-              SampleSection(
-                title: 'App',
-                identifier: 'home-app',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (app.sampleVersionLabel != null)
-                      SampleKeyValue('Sample version', app.sampleVersionLabel!),
-                    // Android-only in practice: on iOS the card renders
-                    // nothing, because TestFlight prompts for a newer build in
-                    // the OS before the app even runs.
-                    UpdateCard(checker: app.updateChecker),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
         // ── Dock ────────────────────────────────────────────────────────
         // Anchored, always reachable: the sample's whole point is opening the
         // community, and it should never take a scroll to get there.
+        // No hairline and no band: light cards are borderless, and in dark
+        // theme [SampleDockFade] fades the list out above it instead. The
+        // transparent side only keeps the dock's 1dp of spacing.
         Container(
-          decoration: BoxDecoration(
-            border: Border(top: BorderSide(color: sampleBorderFor(brightness))),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Colors.transparent)),
           ),
           child: SafeArea(
             top: false,

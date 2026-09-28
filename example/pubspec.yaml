@@ -18,7 +18,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  octopus_sdk_flutter: ^1.13.2
+  octopus_sdk_flutter: ^1.14.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -55,6 +55,26 @@ dependencies:
   # and could silently drift from it — see `octopus_demo_config.dart` history.
   package_info_plus: ^8.1.2
   in_app_update: ^4.2.5
+  # Outbound links (Send feedback, About → Design reference, the Community tab's
+  # mailto: shortcut) go through `widgets/open_url.dart`, which falls back to the
+  # clipboard when nothing on the device claims the URL.
+  url_launcher: ^6.3.2
+  # PINNED, and not by preference — `url_launcher_android` 6.3.30 declares
+  # `androidx.core:core:1.17.0`, which refuses to build under an Android Gradle
+  # plugin older than 8.9.1. This sample pins AGP **8.7.3**
+  # (`android/settings.gradle.kts`), so letting the platform implementation float
+  # fails `flutter build apk` outright — not at runtime, at Gradle configuration:
+  #
+  #   Dependency 'androidx.core:core:1.17.0' requires Android Gradle plugin
+  #   8.9.1 or higher. This build currently uses Android Gradle plugin 8.7.3.
+  #
+  # 6.3.23 is the newest release still on `androidx.core:core:1.13.1`. Pinned
+  # here rather than bumping AGP because the AGP version is shared with the
+  # release pipeline and belongs to its own change, not to a sample-UI one.
+  #
+  # ⚠ Unpin — delete these two lines — as soon as AGP moves to >= 8.9.1. Leaving
+  # the pin behind would silently hold the sample on a stale url_launcher.
+  url_launcher_android: 6.3.23
 
 dev_dependencies:
   integration_test:
@@ -68,6 +88,17 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+  # Declared for `test/demo_config_persistence_test.dart`, which mocks the
+  # `plugins.flutter.io/shared_preferences` channel directly to simulate a
+  # transient read failure. It resolves transitively through
+  # `shared_preferences` anyway -- and `^2.4.0` is no tighter than what that
+  # package already requires -- but the test imports
+  # `MethodChannelSharedPreferencesStore` and is coupled to its `getAll`/
+  # `remove` channel shape. Declaring the import keeps
+  # `depend_on_referenced_packages` guarding it, and keeps the test resolving
+  # if `shared_preferences` ever drops that transitive edge (#377).
+  shared_preferences_platform_interface: ^2.4.0
 
   # Generates iOS Assets.xcassets + Android mipmap-* icons from
   # `assets/icon/app_icon_flutter.png`. Run
@@ -93,6 +124,10 @@ flutter_launcher_icons:
   # crop to circle / squircle / teardrop, over a flat white background.
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/icon/app_icon_flutter_foreground.png"
+  # The foreground PNG is already padded by the shared generator (68% canvas, same
+  # as Android and React Native); the plugin default of 16% would pad it twice and
+  # shrink the mark by a third compared with the sibling samples.
+  adaptive_icon_foreground_inset: 0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -106,6 +141,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/icons/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

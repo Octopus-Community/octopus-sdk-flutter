@@ -6,29 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import 'design.dart';
-
-/// Platform-slot hue for the in-app platform badge on Home (cadrage report
-/// 24 §3.2/§3.3) — Flutter's slot color from the shared launcher-icon
-/// generator palette (`PALETTE['Flutter']`). Reserved for the platform
-/// badge and, eventually, the launcher icon pill — never used on a semantic
-/// element, exactly like the badge/icon-only rule for [sampleNavy] and
-/// [sampleAccentBlue].
-const Color octopusPlatformSlotColor = Color(0xFF02569B);
-
-/// Dark-mode variant of [octopusPlatformSlotColor] — Flutter's own light blue,
-/// the lighter half of the same brand pair.
-///
-/// The slot hue is a *brand* color, picked to read on the light surface it was
-/// drawn on: as badge text over its own 15% tint on `#141414` it measures
-/// 2.26:1, under the 4.5:1 floor. This variant measures 7.07:1 on that same
-/// fill (9.40:1 on the bare dark surface). Same split, and same reason, as
-/// [navAccentColor].
-const Color octopusPlatformSlotColorDark = Color(0xFF54C5F8);
-
-/// The platform-slot hue to draw the Home badge in for [brightness].
-Color platformSlotColor(Brightness brightness) => brightness == Brightness.dark
-    ? octopusPlatformSlotColorDark
-    : octopusPlatformSlotColor;
+import 'widgets/sample_system_bars.dart';
 
 /// Accent used for the selected nav-bar destination and every active control
 /// drawn as a **label**.
@@ -51,32 +29,36 @@ Color navAccentColor(Brightness brightness) => sampleAccent(brightness);
 /// `DarkColorScheme`), the one already-complete, Figma-annotated source for
 /// this palette.
 ThemeData buildAppTheme(Brightness brightness) {
-  final scheme = brightness == Brightness.dark
+  final dark = brightness == Brightness.dark;
+  final scheme = dark
       ? const ColorScheme.dark(
           primary: sampleAccentDark,
-          onPrimary: sampleAccentInk,
-          primaryContainer: Color(0xFF1B2C46), // Android DarkSurfaceLow
-          onPrimaryContainer: Color(0xFFDCE9FC),
+          onPrimary: sampleDarkSurface,
+          primaryContainer: sampleDarkPrimaryLow,
+          onPrimaryContainer: sampleDarkText,
           secondary: sampleAccentDark,
-          onSecondary: sampleAccentInk,
-          secondaryContainer: Color(0xFF223353), // Android DarkSurfaceHigh
-          onSecondaryContainer: Color(0xFFDCE9FC),
-          tertiary: Color(0xFF8FB6E8),
-          onTertiary: Color(0xFF0A1220), // Android OctopusNavyDeep
-          tertiaryContainer: Color(0xFF1F3A5E),
-          onTertiaryContainer: Color(0xFFCFE0F7),
-          surface: sampleDarkSurface, // shared identity dark ground
-          onSurface: Colors.white, // Figma: grey/900 dark
-          surfaceContainerHighest: Color(0xFF4D4D5A), // Figma: grey/300 dark
-          onSurfaceVariant: Color(0xFF9AA7B8), // charter dark secondary text
-          outline: Color(0xFF9AA7B8), // charter dark secondary text
-          outlineVariant: Color(0xFF4D4D5A), // Figma: grey/300 dark
-          error: Color(0xFFFFB4AB),
-          onError: Color(0xFF690005),
+          onSecondary: sampleDarkSurface,
+          secondaryContainer: sampleDarkPrimaryLow,
+          onSecondaryContainer: sampleDarkText,
+          tertiary: sampleDarkPrimaryHigh,
+          onTertiary: sampleDarkSurface,
+          tertiaryContainer: sampleDarkPrimaryLow,
+          onTertiaryContainer: sampleDarkText,
+          surface: sampleDarkSurface,
+          onSurface: sampleDarkText,
+          surfaceTint: Colors.transparent,
+          surfaceDim: sampleDarkSurface,
+          surfaceBright: sampleDarkCard,
+          surfaceContainerHighest: sampleDarkCard,
+          onSurfaceVariant: sampleDarkSecondary,
+          outline: sampleDarkControlOutline,
+          outlineVariant: sampleDarkDivider,
+          error: sampleDarkError,
+          onError: sampleDarkOnError,
           surfaceContainerLowest: sampleDarkSurface,
-          surfaceContainerLow: sampleDarkSurface,
-          surfaceContainer: sampleDarkSurface,
-          surfaceContainerHigh: Color(0xFF223353), // Android DarkSurfaceHigh
+          surfaceContainerLow: sampleDarkCard,
+          surfaceContainer: sampleDarkCard,
+          surfaceContainerHigh: sampleDarkCard,
         )
       : const ColorScheme.light(
           primary: sampleNavy,
@@ -118,29 +100,27 @@ ThemeData buildAppTheme(Brightness brightness) {
         ? sampleControlAccent(brightness)
         : null,
   );
-  return ThemeData(
+  final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    // Navy app bar in both brightnesses: the platform badge pill and its
-    // white glyph are drawn for a dark, saturated ground, and a sample that
-    // changes chrome color with the OS setting stops being recognisable.
-    appBarTheme: const AppBarTheme(
-      backgroundColor: sampleNavy,
-      foregroundColor: Colors.white,
+    appBarTheme: AppBarTheme(
+      backgroundColor: dark ? sampleDarkSurface : sampleNavy,
+      systemOverlayStyle: sampleSystemBarStyle(
+        dark ? sampleDarkSurface : sampleNavy,
+      ),
+      foregroundColor: dark ? sampleDarkText : Colors.white,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       titleTextStyle: TextStyle(
-        color: Colors.white,
+        color: dark ? sampleDarkText : Colors.white,
         fontSize: 20,
         fontWeight: FontWeight.w600,
       ),
-      iconTheme: IconThemeData(color: Colors.white),
-      actionsIconTheme: IconThemeData(color: Colors.white),
+      iconTheme: IconThemeData(color: dark ? sampleDarkText : Colors.white),
+      actionsIconTheme: IconThemeData(
+        color: dark ? sampleDarkText : Colors.white,
+      ),
     ),
-    // Primary buttons swap navy (light) / accent blue (dark) — the charter's
-    // `.btn` rule. The app bar stays navy-family in both brightnesses (just
-    // above); primary buttons are the one role that follows `accent` into
-    // the bright blue on a dark ground, same as every other active control.
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: accent,
@@ -152,16 +132,14 @@ ThemeData buildAppTheme(Brightness brightness) {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: accent,
-        side: BorderSide(color: sampleBorderFor(brightness)),
+        // The outline is the pill's only boundary, so it takes the control
+        // outline (3:1+) in both themes, never the decorative card border.
+        side: BorderSide(color: sampleControlOutlineFor(brightness)),
         minimumSize: const Size.fromHeight(48),
         shape: const StadiumBorder(),
       ),
     ),
     switchTheme: SwitchThemeData(
-      // The thumb follows the track's ink rather than being white in both
-      // themes: white on the dark-theme track collapses to 2.21:1, under the
-      // 3:1 a control boundary needs. [sampleOnAccentColor] reads 7.21:1
-      // there.
       thumbColor: WidgetStateProperty.resolveWith(
         (states) =>
             states.contains(WidgetState.selected) ? onAccent : scheme.outline,
@@ -194,9 +172,24 @@ ThemeData buildAppTheme(Brightness brightness) {
               : scheme.onSurfaceVariant,
         ),
         side: WidgetStatePropertyAll(
-          BorderSide(color: sampleBorderFor(brightness)),
+          BorderSide(color: sampleControlOutlineFor(brightness)),
         ),
       ),
+    ),
+    // An interactive chip (action, input, unselected choice/filter) is
+    // identified by its outline, so the outline holds 3:1: the control outline
+    // in both themes. A selected dark chip takes the accent itself (6.00–8.54:1)
+    // so selected and unselected differ by more than the check mark; a selected
+    // light chip keeps the Material default over its container fill. Goes one
+    // step past the Android sample's `SampleChipColors`, whose unselected
+    // light chips still sit under 3:1.
+    chipTheme: ChipThemeData(
+      side: WidgetStateBorderSide.resolveWith((states) {
+        if (!states.contains(WidgetState.selected)) {
+          return BorderSide(color: sampleControlOutlineFor(brightness));
+        }
+        return dark ? const BorderSide(color: sampleAccentDark) : null;
+      }),
     ),
     // The selected nav-item accent is navy in light theme, [sampleAccentDark]
     // in dark (same split as [ApiPill] and section labels) — never a fixed
@@ -204,6 +197,10 @@ ThemeData buildAppTheme(Brightness brightness) {
     // color. The indicator is that same accent at 15% alpha over the bar's
     // own container, posed explicitly rather than left to a hand-picked hex.
     navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: dark ? sampleDarkCard : Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      // off-table: selected navigation indicator, 15% accent overlay
       indicatorColor: accent.withValues(alpha: 0.15),
       labelTextStyle: WidgetStateProperty.resolveWith(
         (states) => TextStyle(
@@ -220,6 +217,62 @@ ThemeData buildAppTheme(Brightness brightness) {
               : scheme.onSurfaceVariant,
         ),
       ),
+    ),
+  );
+  if (!dark) return theme;
+  final text = theme.textTheme.apply(
+    bodyColor: sampleDarkText,
+    displayColor: sampleDarkText,
+  );
+  return theme.copyWith(
+    textTheme: text.copyWith(
+      bodyLarge: text.bodyLarge?.copyWith(color: sampleDarkBody),
+      bodyMedium: text.bodyMedium?.copyWith(color: sampleDarkBody),
+      bodySmall: text.bodySmall?.copyWith(color: sampleDarkSecondary),
+      labelSmall: text.labelSmall?.copyWith(color: sampleDarkSecondary),
+    ),
+    hoverColor: sampleDarkHover,
+    highlightColor: sampleDarkHover,
+    splashColor: sampleDarkHover,
+    dividerColor: sampleDarkDivider,
+    cardTheme: const CardThemeData(
+      color: sampleDarkCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        side: BorderSide(color: sampleDarkDivider, width: 1),
+      ),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: sampleDarkElevated,
+      modalBackgroundColor: sampleDarkElevated,
+      surfaceTintColor: Colors.transparent,
+    ),
+    dialogTheme: const DialogThemeData(
+      backgroundColor: sampleDarkElevated,
+      surfaceTintColor: Colors.transparent,
+    ),
+    snackBarTheme: const SnackBarThemeData(
+      backgroundColor: sampleDarkElevated,
+      contentTextStyle: TextStyle(color: sampleDarkBody),
+      actionTextColor: sampleAccentDark,
+    ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: sampleDarkElevated,
+      surfaceTintColor: Colors.transparent,
+    ),
+    menuTheme: const MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(sampleDarkElevated),
+        surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+      ),
+    ),
+    chipTheme: theme.chipTheme.copyWith(
+      backgroundColor: sampleDarkChipFill,
+      selectedColor: sampleDarkChipFill,
+      labelStyle: const TextStyle(color: sampleAccentDark),
+      secondaryLabelStyle: const TextStyle(color: sampleAccentDark),
+      checkmarkColor: sampleAccentDark,
+      deleteIconColor: sampleAccentDark,
     ),
   );
 }
@@ -243,28 +296,12 @@ typedef OctopusThemeBuilder = OctopusTheme Function(Brightness? brightness);
 /// 01). Sample-only repaint: the SDK's own default palette (the "SDK
 /// default" preset, an unset [OctopusTheme]) is untouched.
 ///
-/// The dark-mode primary is [sampleAccentDark] (`#6FB2FF`), not
-/// `sampleAccentBlue` (`#1D88FE`) — navy doesn't contrast on a dark surface,
-/// and `sampleAccentBlue` itself is a light-theme fill only: it falls under
-/// the 4.5:1 floor once it lands on a raised container (see
-/// [sampleAccentDark]'s doc in `design.dart`). `onPrimary` on that dark fill
-/// is [sampleAccentInk] (`#142238`, the dark surface color), not white — the
-/// same ink/fill pairing every other dark-theme control in this file uses.
-/// The low/high-contrast companions on both brightnesses follow the same
-/// sheet (`.bn.active .bic` for the low tint, `.sect`/`.m`/code-token colors
-/// for the high one) rather than a stray leftover teal/cyan: the SDK CTAs
-/// ("See more", "Write a post") and the Account "yumies" progress bar read
-/// from these two, so a mismatched hue there showed up as teal/cyan even
-/// though the primary itself had already been repainted.
+/// Dark colors share the Signal constants with the shell; see `design.dart`
+/// for the mapping and the roles the Flutter SDK cannot override.
 const Color _sdkPrimaryMainLight = Color(0xFF0F1B2D);
 const Color _sdkPrimaryLowLight = Color(0xFFDCE9FC);
 const Color _sdkPrimaryHighLight = Color(0xFF1D88FE);
 const Color _sdkOnPrimaryLight = Colors.white;
-
-const Color _sdkPrimaryMainDark = sampleAccentDark;
-const Color _sdkPrimaryLowDark = sampleAccentInk;
-const Color _sdkPrimaryHighDark = Color(0xFFDCE9FC);
-const Color _sdkOnPrimaryDark = sampleAccentInk;
 
 /// Builds the custom [OctopusTheme] showcased by the Theme scenario:
 /// brand colors + the bundled logo.
@@ -288,10 +325,12 @@ OctopusTheme brandOctopusTheme(String? logoBase64, {Brightness? brightness}) {
       (brightness ?? PlatformDispatcher.instance.platformBrightness) ==
       Brightness.dark;
   return OctopusTheme(
-    primaryMain: isDark ? _sdkPrimaryMainDark : _sdkPrimaryMainLight,
-    primaryLowContrast: isDark ? _sdkPrimaryLowDark : _sdkPrimaryLowLight,
-    primaryHighContrast: isDark ? _sdkPrimaryHighDark : _sdkPrimaryHighLight,
-    onPrimary: isDark ? _sdkOnPrimaryDark : _sdkOnPrimaryLight,
+    primaryMain: isDark ? sampleAccentDark : _sdkPrimaryMainLight,
+    primaryLowContrast: isDark ? sampleDarkPrimaryLow : _sdkPrimaryLowLight,
+    primaryHighContrast: isDark ? sampleDarkPrimaryHigh : _sdkPrimaryHighLight,
+    onPrimary: isDark ? sampleDarkSurface : _sdkOnPrimaryLight,
+    background: isDark ? sampleDarkSurface : null,
+    link: isDark ? sampleAccentDark : null,
     logoBase64: logoBase64,
   );
 }
@@ -299,9 +338,11 @@ OctopusTheme brandOctopusTheme(String? logoBase64, {Brightness? brightness}) {
 /// Deliberately loud surface color for the [OctopusTheme.background] preset —
 /// nothing in the SDK default palette looks like it, so a preset that failed to
 /// reach the native theme is visible at a glance instead of plausible.
+// off-table: deliberate SDK background override for the theme scenario
 const Color _sampleBackground = Color(0xFF1B1035);
 
 /// Deliberately loud link color, same reasoning as [_sampleBackground].
+// off-table: deliberate SDK link override for the theme scenario
 const Color _sampleLink = Color(0xFFFFC857);
 
 /// Builds the [OctopusTheme] showcased by the Theme scenario's surface preset:

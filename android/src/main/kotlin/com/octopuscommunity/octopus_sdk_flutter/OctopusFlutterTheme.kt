@@ -1,7 +1,5 @@
 package com.octopuscommunity.octopus_sdk_flutter
 
-import android.graphics.BitmapFactory
-import android.util.Base64
 import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +37,8 @@ fun OctopusFlutterTheme(
     fontFamily: String?,
     fontWeight: Int?,
     logoBase64: String?,
+    icons: Map<String, String> = emptyMap(),
+    iconPaths: Map<String, String> = emptyMap(),
     navBarTitle: String?,
     navBarPrimaryColor: Boolean,
     fontSizeTitle1: Int?,
@@ -198,6 +198,14 @@ fun OctopusFlutterTheme(
         null
     }
 
+    val iconPainters = remember(icons, iconPaths) {
+        icons.mapNotNull { (slot, source) ->
+            decodeIconSource(slot, source)?.asImageBitmap()?.let { slot to BitmapPainter(it) }
+        }.toMap() + iconPaths.mapNotNull { (slot, path) ->
+            decodeIconFile(slot, path)?.asImageBitmap()?.let { slot to BitmapPainter(it) }
+        }.toMap()
+    }
+    val resolvedIcons = remember(iconPainters) { octopusIconsWithOverrides(iconPainters) }
     OctopusTheme(
         topAppBar = OctopusTopAppBarDefaults.topAppBar(
             title = OctopusTopAppBarDefaults.title(
@@ -225,6 +233,7 @@ fun OctopusFlutterTheme(
         colorScheme = resolvedScheme,
         typography = resolvedTypography,
         images = OctopusImagesDefaults.images(
+            icons = resolvedIcons,
             logo = logoBase64?.base64ToPainter()?.let { painter -> @Composable { painter } }
         ),
         content = content
@@ -260,18 +269,5 @@ private fun String.toColor() = Color(toColorInt())
 
 @Composable
 fun String?.base64ToPainter() = remember(this) {
-    if (isNullOrBlank()) return@remember null
-
-    try {
-        val bytes = Base64.decode(
-            // Remove data: prefix if present
-            if (startsWith("data:")) substringAfter(",") else this,
-            Base64.DEFAULT
-        )
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?.asImageBitmap()?.let { BitmapPainter(it) }
-    } catch (e: Exception) {
-        print(e.stackTrace)
-        null
-    }
+    this?.let { decodeIconSource("logo", it)?.asImageBitmap()?.let(::BitmapPainter) }
 }

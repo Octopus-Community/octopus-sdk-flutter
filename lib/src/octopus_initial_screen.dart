@@ -46,8 +46,8 @@ sealed class OctopusInitialScreen {
   const factory OctopusInitialScreen.group(GroupScreenInfo info) =
       OctopusInitialScreenGroup;
 
-  /// Open the posts-only screen listing one member's Octopus posts
-  /// (Unified Profile).
+  /// Open the activity screen listing one member's Octopus posts — and, when
+  /// the community enables it, their comments (Unified Profile).
   ///
   /// Open it from your own profile screen — typically the one you show after
   /// intercepting a profile tap via [OctopusHomeScreen.onNavigateToProfile] —
@@ -55,9 +55,13 @@ sealed class OctopusInitialScreen {
   /// [ActivityScreenInfo.clientUserId] (your app's own id) or
   /// [ActivityScreenInfo.profileId] (their Octopus profile id).
   ///
-  /// The screen lists the member's posts under a "{author}'s Posts" title, with
-  /// no profile header and no tabs. When the id resolves to the **connected
-  /// user's own**, both platforms open their two-tab activity screen instead.
+  /// The screen has no profile header. By default it lists the member's posts
+  /// under a "{author}'s Posts" title, with no tabs. Since the 1.14 native SDKs,
+  /// when the community enables comments on other members' profiles, it shows
+  /// **Posts** and **Comments** tabs under a "{author}'s Activity" title
+  /// instead. When the id resolves to the **connected user's own**, both
+  /// platforms open their tabbed activity screen, where the Comments tab is
+  /// always shown.
   ///
   /// This entry point does not depend on Unified Profile being active — that
   /// only governs the in-community floating-button switch.
@@ -203,10 +207,10 @@ class OctopusInitialScreenGroup extends OctopusInitialScreen {
   String toString() => 'OctopusInitialScreen.group($info)';
 }
 
-/// One member's posts-only activity screen. See
-/// [OctopusInitialScreen.activity].
+/// One member's activity screen (posts, plus comments when the community
+/// enables them). See [OctopusInitialScreen.activity].
 class OctopusInitialScreenActivity extends OctopusInitialScreen {
-  /// The member whose posts to display.
+  /// The member whose activity to display.
   final ActivityScreenInfo info;
 
   const OctopusInitialScreenActivity(this.info);
@@ -316,7 +320,8 @@ class PostScreenInfo {
   String toString() => 'PostScreenInfo(postId: $postId)';
 }
 
-/// Info needed to display one member's posts-only activity screen.
+/// Info needed to display one member's activity screen (posts, plus comments
+/// when the community enables them).
 ///
 /// Mirrors the iOS `OctopusInitialScreen.ActivityScreenInfo` struct: the member
 /// is identified **either** by the host app's own id

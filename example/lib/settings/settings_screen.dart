@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../config/config_screen.dart';
 import '../design.dart';
+import '../octopus_demo_config.dart';
+import '../sample_feedback.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
 import 'developer_tools_screen.dart';
@@ -68,6 +70,7 @@ class SettingsTab extends StatelessWidget {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     final config = app.config;
+    final feedbackOpener = sampleFeedbackOpener;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -118,28 +121,64 @@ class SettingsTab extends StatelessWidget {
               SampleNavTile(
                 icon: Icons.code,
                 title: 'Developer tools',
-                subtitle: 'Events log · Debug info',
+                subtitle: 'Events log · Debug info · Debug console',
                 identifier: 'settings-devtools-entry',
                 onTap: () => _push(context, const DeveloperToolsScreen()),
               ),
+              // Internal builds only, and only once a destination repository
+              // has been configured — `sampleFeedbackOpener` is null in every
+              // other build, which is what keeps this row (and the code behind
+              // it) out of the public sample. The one row here that acts
+              // instead of navigating, which is why it opens a sheet listing
+              // what it is about to send rather than sending it.
+              if (feedbackOpener != null)
+                SampleNavTile(
+                  icon: Icons.feedback_outlined,
+                  title: 'Send feedback',
+                  subtitle: 'Pre-filled GitHub issue · internal builds only',
+                  identifier: 'settings-feedback-entry',
+                  onTap: () => feedbackOpener(
+                    context,
+                    FeedbackContext(
+                      where: app.lastContentBreadcrumb,
+                      environment: config?.serverEnv.label ?? '—',
+                      togglesSummary: app.featureToggles.summaryLine,
+                      platform: Theme.of(context).platform.name,
+                      versions: app.sampleVersionLabel ?? 'Sample',
+                    ),
+                  ),
+                ),
               SampleNavTile(
                 icon: Icons.info_outline,
                 title: 'About',
-                subtitle: app.sampleVersionLabel ?? 'Sample',
+                subtitle: octopusDesignReferenceUrl.isEmpty
+                    ? (app.sampleVersionLabel ?? 'Sample')
+                    : '${app.sampleVersionLabel ?? 'Sample'} · '
+                          'Design reference',
                 identifier: 'settings-about-entry',
                 onTap: () => _push(context, const AboutScreen()),
               ),
-              SampleNavTile(
-                icon: Icons.restart_alt,
-                title: 'Reset Configuration',
-                subtitle:
-                    'Local demo setup only — nothing is deleted on the '
-                    'server',
-                danger: true,
-                identifier: 'settings-reset-button',
-                onTap: () => _confirmReset(context),
-              ),
             ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Its own group, red, last on screen. A destructive action that shares
+        // a group with About is a destructive action one mis-tap away from the
+        // row above it.
+        SampleSection(
+          title: 'Reset',
+          identifier: 'settings-group-reset',
+          child: SampleNavTile(
+            icon: Icons.delete_forever,
+            title: 'Reset Configuration',
+            // Answers the question a destructive row provokes — "what am I
+            // about to lose?" — before the dialog does, and the answer is the
+            // reassuring half: the blast radius stops at this device.
+            subtitle:
+                'Local demo setup only — nothing is deleted on the server',
+            danger: true,
+            identifier: 'settings-reset-button',
+            onTap: () => _confirmReset(context),
           ),
         ),
         const SizedBox(height: 20),

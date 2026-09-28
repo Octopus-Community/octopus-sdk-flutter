@@ -16,6 +16,7 @@ import 'create_post_screen_info.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_community_data.dart';
 import 'octopus_connection_state.dart';
+import 'octopus_debug_community_config.dart';
 import 'octopus_event.dart';
 import 'octopus_group.dart';
 import 'octopus_initial_screen.dart';
@@ -47,6 +48,7 @@ export 'octopus_community_data.dart';
 export 'create_post_screen_info.dart';
 export 'group_follow_unfollow_error.dart';
 export 'octopus_connection_state.dart';
+export 'octopus_debug_community_config.dart';
 export 'octopus_group.dart';
 export 'octopus_notification.dart';
 export 'octopus_post.dart';
@@ -140,6 +142,36 @@ String? _createPostBridgeTokenRequestId;
 final Map<String, Future<String> Function()> _clientUserTokenProviders =
     <String, Future<String> Function()>{};
 int _clientUserTokenProviderCounter = 0;
+
+// How many native `clientUserTokenRequest`s are currently awaiting their Dart
+// provider, keyed by providerId. A superseded provider is released only once
+// this drops back to zero, so a refresh that is already running against an
+// earlier registration still gets a real token (#375).
+final Map<String, int> _clientUserTokenRequestsInFlight = <String, int>{};
+
+// Providers superseded by a later connectUser that are being kept alive only
+// until their last in-flight request has been answered.
+final Set<String> _supersededClientUserTokenProviders = <String>{};
+
+// Providers whose own `connectUser` platform call has not resolved yet. Such a
+// registration is idle by definition — native has not invoked it — so the
+// idle-and-superseded release path would drop it, while native takes its
+// reference only once that call resolves (iOS's SSO path waits several seconds
+// and a logout round trip first). Dropping it would leave native holding a
+// providerId Dart no longer has: an empty token on every later refresh, for the
+// rest of the session (#375).
+final Set<String> _connectingClientUserTokenProviders = <String>{};
+
+// Hard ceiling on how many registrations can be alive at once — current,
+// superseded-but-busy, and any whose own connect has not resolved yet. Enforced
+// both when a provider is registered and when earlier ones are retired, so that
+// neither a host tokenProvider whose future never completes nor a platform call
+// that never resolves can bring back the unbounded growth of #237. Both native
+// bridges give up on a request after 60s (`CLIENT_USER_TOKEN_TIMEOUT_MS` /
+// `clientUserTokenTimeout`), and a host does not have several connects and
+// refreshes genuinely outstanding at once, so reaching this means the host is
+// misbehaving and the oldest registration is the safest thing to drop.
+const int _maxRetainedClientUserTokenProviders = 8;
 
 // Monotonic counter for client-object-post observation ids. Each
 // getClientObjectRelatedPostFlow subscription gets its own id so that two
@@ -251,6 +283,13 @@ class OctopusSDK {
     final requestId = map['requestId'];
     if (providerId is! String || requestId is! String) return;
     final provider = _clientUserTokenProviders[providerId];
+    if (provider != null) {
+      _clientUserTokenRequestsInFlight.update(
+        providerId,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
     unawaited(() async {
       String token = '';
       if (provider != null) {
@@ -259,6 +298,8 @@ class OctopusSDK {
         } catch (e) {
           debugPrint('OctopusSDK: clientUser tokenProvider threw: $e');
           token = '';
+        } finally {
+          _releaseClientUserTokenRequest(providerId);
         }
       }
       try {
@@ -270,6 +311,85 @@ class OctopusSDK {
         debugPrint('OctopusSDK: provideClientUserToken failed: $e');
       }
     }());
+  }
+
+  /// Books one in-flight `clientUserTokenRequest` for [providerId] as answered
+  /// and, if that was the last one and the provider has since been superseded
+  /// by a later [connectUser], releases it (#375).
+  static void _releaseClientUserTokenRequest(String providerId) {
+    final remaining = (_clientUserTokenRequestsInFlight[providerId] ?? 1) - 1;
+    if (remaining > 0) {
+      _clientUserTokenRequestsInFlight[providerId] = remaining;
+      return;
+    }
+    _clientUserTokenRequestsInFlight.remove(providerId);
+    if (_supersededClientUserTokenProviders.remove(providerId)) {
+      _clientUserTokenProviders.remove(providerId);
+    }
+  }
+
+  /// Releases every client-user tokenProvider other than [currentProviderId],
+  /// keeping any whose refresh is still in flight until that refresh has been
+  /// answered (#375).
+  ///
+  /// Called once the new `connectUser` platform call has **resolved**, never
+  /// before it is issued: the native SDKs do not necessarily reassign their
+  /// single tokenProvider reference at the start of a connect — iOS's SSO path
+  /// waits several seconds and logs the previous session out first — so an
+  /// earlier registration can still be invoked while the call is in progress.
+  /// Trimming by generation count instead would drop it and answer that
+  /// refresh an empty token, which is the failure #237 exists to avoid.
+  /// Retires only registrations **strictly older** than [currentProviderId],
+  /// and does nothing if [currentProviderId] has itself already been retired by
+  /// a later connect. Nothing newer is touched: `connectUser` is not serialized,
+  /// so a second call can be parked in its own platform call right now, and
+  /// dropping its registration would leave native holding a reference Dart no
+  /// longer has — an empty token on every later refresh, for the session.
+  /// An *older* connect can be parked the same way and resolve after this one,
+  /// with the same consequence, so a registration whose own platform call has
+  /// not resolved yet is skipped as well — see
+  /// [_connectingClientUserTokenProviders].
+  static void _retireSupersededClientUserTokenProviders(
+    String currentProviderId,
+  ) {
+    if (!_clientUserTokenProviders.containsKey(currentProviderId)) return;
+    for (final providerId in _clientUserTokenProviders.keys.toList()) {
+      // Insertion order is registration order (providerIds are unique, so no
+      // key is ever re-inserted at its old position): everything from
+      // currentProviderId on is itself or newer.
+      if (providerId == currentProviderId) break;
+      // An older connect can still be parked in its own platform call. Its
+      // registration is idle only because native has not reached it yet, and
+      // native takes its reference when that call resolves — dropping it here
+      // is the same desynchronization seen from the other side.
+      if (_connectingClientUserTokenProviders.contains(providerId)) continue;
+      if ((_clientUserTokenRequestsInFlight[providerId] ?? 0) > 0) {
+        _supersededClientUserTokenProviders.add(providerId);
+      } else {
+        _supersededClientUserTokenProviders.remove(providerId);
+        _clientUserTokenProviders.remove(providerId);
+      }
+    }
+    _enforceClientUserTokenProviderCeiling();
+  }
+
+  /// Drops the oldest registrations once more than
+  /// [_maxRetainedClientUserTokenProviders] are alive. Last resort only: every
+  /// other release path waits for the registration to be both superseded and
+  /// idle, and this one does not, so it is reachable only from a host that
+  /// leaves connects or token futures permanently outstanding.
+  static void _enforceClientUserTokenProviderCeiling() {
+    final excess =
+        _clientUserTokenProviders.length - _maxRetainedClientUserTokenProviders;
+    if (excess <= 0) return;
+    // Oldest first — `_clientUserTokenProviders` is insertion-ordered.
+    for (final providerId
+        in _clientUserTokenProviders.keys.take(excess).toList()) {
+      _supersededClientUserTokenProviders.remove(providerId);
+      _connectingClientUserTokenProviders.remove(providerId);
+      _clientUserTokenRequestsInFlight.remove(providerId);
+      _clientUserTokenProviders.remove(providerId);
+    }
   }
 
   static Stream<Map<String, dynamic>> get eventStream {
@@ -895,16 +1015,22 @@ class OctopusSDK {
   /// iOS, and is what lets [refreshEntitlements] succeed. The provider is
   /// unregistered automatically by [disconnectUser]. Connecting again makes the
   /// new provider the one the native SDK uses (it holds a single callback), but
-  /// the Dart side keeps every prior registration reachable until
-  /// [disconnectUser] clears them, so a native refresh still targeting an
-  /// earlier registration gets answered instead of receiving an empty token.
+  /// the Dart side keeps an earlier registration reachable for as long as a
+  /// native refresh is still running against it, so that refresh gets answered
+  /// instead of receiving an empty token. Each earlier registration is released
+  /// once a later connect has resolved and its own refreshes have replied — up
+  /// to a small bounded number of them, past which the oldest is dropped
+  /// regardless. [disconnectUser] clears them all.
   ///
   /// [userId] - Unique identifier for the user.
   /// [tokenProvider] - Async callback returning a freshly-signed JWT (get it
   ///   from your backend). The SDK may call it more than once.
   /// [nickname] - User's display name (optional).
   /// [bio] - User's bio (optional).
-  /// [picture] - User's profile picture URL or base64 (optional).
+  /// [picture] - User's profile picture as an `https` URL, or base64 (raw or
+  ///   `data:` URI), optional. On iOS the URL is downloaded by the bridge before
+  ///   connecting; a failed download or non-image response connects without a
+  ///   picture. Plain `http` needs an App Transport Security exception in your app.
   /// [token] - **Deprecated.** A pre-minted static JWT. Prefer [tokenProvider]:
   ///   a static token cannot be re-minted when the SDK re-authenticates the
   ///   user (e.g. [refreshEntitlements]), so it fails once the JWT expires. To
@@ -1038,6 +1164,11 @@ class OctopusSDK {
   /// provider under a unique `providerId` (so the native side can round-trip
   /// back to Dart on every refresh) and connects via the platform. Rolls the
   /// registration back if the platform call throws.
+  /// Earlier registrations are released rather than accumulating for the
+  /// lifetime of the process (#237), but only once this call has resolved and
+  /// only once nothing is still running against them — see
+  /// [_retireSupersededClientUserTokenProviders] for why the release cannot be
+  /// done up front or by generation count (#375).
   Future<OctopusResult<void, ClientUserError>> _connectUserWithTokenProvider({
     required String userId,
     required Future<String> Function() tokenProvider,
@@ -1050,26 +1181,46 @@ class OctopusSDK {
     final providerId =
         'clientUserTokenProvider_${_clientUserTokenProviderCounter}_$userId';
     _clientUserTokenProviders[providerId] = tokenProvider;
+    // Protected from retirement until this call resolves, whichever way it
+    // goes: another connect resolving first must not drop a registration
+    // native has not taken its reference to yet (#375).
+    _connectingClientUserTokenProviders.add(providerId);
+    // Retirement only runs when a connect *resolves*, so the ceiling has to be
+    // applied here too: N connects parked in the platform call hold N
+    // registrations, and one that never resolves would hold its own forever.
+    _enforceClientUserTokenProviderCeiling();
     try {
-      final result =
-          await OctopusSDKPlatform.instance.connectUserWithTokenProvider(
-        userId: userId,
-        providerId: providerId,
-        nickname: nickname,
-        bio: bio,
-        picture: picture,
-      );
+      final OctopusResult<void, ClientUserError> result;
+      try {
+        result = await OctopusSDKPlatform.instance.connectUserWithTokenProvider(
+          userId: userId,
+          providerId: providerId,
+          nickname: nickname,
+          bio: bio,
+          picture: picture,
+        );
+      } finally {
+        _connectingClientUserTokenProviders.remove(providerId);
+      }
       // The provider is deliberately kept registered whatever the outcome —
-      // it is dropped only by disconnectUser(), or below if the platform call
-      // itself throws. Both native SDKs assign their own tokenProvider
-      // reference *before* attempting the connection, never clear it on
-      // failure, and re-invoke it on every later refresh, so a Dart-side drop
-      // here would desynchronize the two: the next native round-trip would
-      // answer an empty token, permanently. A refusal is not a reason to
-      // unregister either — several are raised with the user already
+      // until a LATER connect resolves and finds it idle, disconnectUser(), or
+      // below if the platform call itself throws. Neither native SDK clears its
+      // own tokenProvider reference on failure, and both re-invoke it on every
+      // later refresh, so a Dart-side drop here would desynchronize the two:
+      // the next native round-trip would answer an empty token, permanently.
+      // (#368 also claimed both assign that reference *before* attempting the
+      // connection. They do not — iOS's SSO path waits and logs out first —
+      // which is the whole reason retirement moved below the platform call;
+      // see #375.) A refusal is not
+      // a reason to unregister either — several are raised with the user already
       // connected (Android returns `checkProfileUpdates` *after* saving the
       // session, so a rejected nickname surfaces as a profile error on a live
       // connection) and iOS folds transient failures into the same branch.
+      //
+      // Earlier registrations are released here — after the platform call has
+      // resolved, so native has certainly taken the new reference — and only
+      // once their own refreshes have been answered (#237, #375).
+      _retireSupersededClientUserTokenProviders(providerId);
       return result;
     } catch (_) {
       _clientUserTokenProviders.remove(providerId);
@@ -1084,6 +1235,9 @@ class OctopusSDK {
     // SDK side detaches its own provider on disconnect; this just keeps
     // Dart's map in sync.
     _clientUserTokenProviders.clear();
+    _clientUserTokenRequestsInFlight.clear();
+    _supersededClientUserTokenProviders.clear();
+    _connectingClientUserTokenProviders.clear();
     await OctopusSDKPlatform.instance.disconnectUser();
   }
 
@@ -1839,11 +1993,12 @@ class OctopusSDK {
   /// a backend serves it. **Not part of the supported public API** — it may
   /// change or be removed at any time.
   ///
-  /// iOS support: pending. `ProfileFieldsLock` lives in the native SDK's
-  /// `OctopusCore` module, which `octopus-sdk-swift`'s `Package.swift` does
-  /// not expose as a library product, so this plugin cannot construct it —
-  /// calling this on iOS resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException]. Android is fully supported.
+  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
+  /// iOS via **Swift Package Manager**: `ProfileFieldsLock` lives in
+  /// `octopus-sdk-swift`'s `OctopusCore` target, which that package does not
+  /// expose as an SPM product, so the plugin cannot construct it on that
+  /// integration path — the call resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException] there.
   ///
   /// [lock] - the lock to apply, or `null` to restore the backend-provided
   /// config.
@@ -1862,11 +2017,12 @@ class OctopusSDK {
   /// gating before a backend serves it. **Not part of the supported public
   /// API** — it may change or be removed at any time.
   ///
-  /// iOS support: pending. `ContentOptions` lives in the native SDK's
-  /// `OctopusCore` module, which `octopus-sdk-swift`'s `Package.swift` does
-  /// not expose as a library product, so this plugin cannot construct it —
-  /// calling this on iOS resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException]. Android is fully supported.
+  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
+  /// iOS via **Swift Package Manager**: `ContentOptions` lives in
+  /// `octopus-sdk-swift`'s `OctopusCore` target, which that package does not
+  /// expose as an SPM product, so the plugin cannot construct it on that
+  /// integration path — the call resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException] there.
   ///
   /// [options] - the content options to apply, or `null` to restore the
   /// backend-provided config.
@@ -1885,16 +2041,76 @@ class OctopusSDK {
   /// **Not part of the supported public API** — it may change or be removed
   /// at any time.
   ///
-  /// iOS support: pending. `TermsAcceptanceMode` lives in the native SDK's
-  /// `OctopusCore` module, which `octopus-sdk-swift`'s `Package.swift` does
-  /// not expose as a library product, so this plugin cannot construct it —
-  /// calling this on iOS resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException]. Android is fully supported.
+  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
+  /// iOS via **Swift Package Manager**: `TermsAcceptanceMode` lives in
+  /// `octopus-sdk-swift`'s `OctopusCore` target, which that package does not
+  /// expose as an SPM product, so the plugin cannot construct it on that
+  /// integration path — the call resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException] there.
   ///
   /// [mode] - the mode to force, or `null` to restore the backend-provided
   /// config.
   Future<void> debugOverrideTermsAcceptanceMode(TermsAcceptanceMode? mode) {
     return OctopusSDKPlatform.instance.debugOverrideTermsAcceptanceMode(mode);
+  }
+
+  /// Internal test affordance: locally forces the `exposeClientUserId`
+  /// community flag — the **Unified Profile** activation flag — overriding the
+  /// backend-provided community config. Pass `null` to clear the override and
+  /// fall back to the backend value.
+  ///
+  /// The flag is only half of the activation contract: Unified Profile
+  /// routing also needs the host to handle profile taps
+  /// (`onNavigateToProfile` on [OctopusHomeScreen]). With both in place, a tap
+  /// on a member's avatar inside the SDK UI reaches the host instead of the
+  /// SDK's own profile screen.
+  ///
+  /// Mirrors the native SDKs' debug-only `debugOverrideExposeClientUserId`
+  /// (Android `@InternalOctopusApi`, iOS `@_spi(OctopusInternalTesting)`) and
+  /// the React Native SDK's function of the same name, used by the sample
+  /// apps to demo Unified Profile on a community whose backend flag is off.
+  /// **Debug/demo only, not part of the supported public API** — it may
+  /// change or be removed at any time. Never ship a production build that
+  /// calls it.
+  ///
+  /// Supported on Android and on both iOS integration paths (CocoaPods and
+  /// Swift Package Manager): unlike the other `debugOverride*` members, its
+  /// parameter is a plain boolean, so no `OctopusCore` type is involved.
+  /// Resolves with a `NOT_INITIALIZED` [PlatformException] before
+  /// [initialize]; on Android, a native failure resolves with an
+  /// `OVERRIDE_ERROR` [PlatformException].
+  ///
+  /// [enabled] - the value to force, or `null` to restore the
+  /// backend-provided config.
+  Future<void> debugOverrideExposeClientUserId(bool? enabled) {
+    return OctopusSDKPlatform.instance.debugOverrideExposeClientUserId(enabled);
+  }
+
+  /// Internal test affordance: reads the community config the native SDK
+  /// currently holds, including any local `debugOverride*` — the same
+  /// effective config the SDK UI consumes. Lets a test app show whether
+  /// Unified Profile (`exposeClientUserId`) is actually on.
+  ///
+  /// Resolves `null` while no config is available yet. Both native SDKs also
+  /// serve the config persisted by a previous run (Android as soon as it is
+  /// read from its cache, iOS once its asynchronous replay lands) — treat a
+  /// value as "the last config the SDK fetched", not as proof of a round-trip
+  /// in this session.
+  ///
+  /// Mirrors the React Native SDK's `debugGetCommunityConfig`. **Debug/demo
+  /// only, not part of the supported public API** — it may change or be
+  /// removed at any time.
+  ///
+  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
+  /// iOS via **Swift Package Manager** — the config type lives in
+  /// `octopus-sdk-swift`'s `OctopusCore` target, which is not an SPM product —
+  /// where the call resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException]. Resolves with a `NOT_INITIALIZED`
+  /// [PlatformException] before [initialize], and with a `CONFIG_ERROR`
+  /// [PlatformException] when the native read itself fails.
+  Future<OctopusDebugCommunityConfig?> debugGetCommunityConfig() async {
+    final wire = await OctopusSDKPlatform.instance.debugGetCommunityConfig();
+    return wire == null ? null : OctopusDebugCommunityConfig.fromWire(wire);
   }
 
   /// Track a custom event for analytics.
@@ -2012,25 +2228,33 @@ class OctopusSDK {
   ///
   /// ## Getting notified when the user leaves — [onBack]
   ///
-  /// [onBack] is a **notification, not a delegation**. The route pops itself
-  /// when the SDK's root leading icon is tapped — today's behaviour, and it is
-  /// unchanged whether or not you pass a callback. When [onBack] is given it
-  /// is invoked **before** the pop; it does not have to pop the route itself.
-  /// This helper owns the route it pushed, so it can never let a host that
-  /// registered no callback — or one whose handler throws — strand the user
-  /// inside the community. (A callback that throws is reported through
-  /// [FlutterError.reportError] and the route still pops.) It is the same
-  /// choice, for the same reason, as the React Native wrapper's
+  /// [onBack] is a **notification, not a delegation**. Tapping the SDK's
+  /// root leading icon still pops the route — today's behaviour, unchanged
+  /// whether or not you pass a callback — but only once the route is still
+  /// found to be current after the callback (if any) has run; see the guard
+  /// below for what "has run" means for an `async` handler. When [onBack] is
+  /// given it is invoked **before** the pop; it does not have to pop the
+  /// route itself. This helper owns the route it pushed, so it can never let
+  /// a host that registered no callback — or one whose handler throws —
+  /// strand the user inside the community. (A callback that throws is
+  /// reported through [FlutterError.reportError] and the route still pops.)
+  /// It is the same choice, for the same reason, as the React Native
+  /// wrapper's
   /// `openUI({ onBackRequested })`.
   ///
   /// **If your callback navigates itself, the helper leaves the stack alone.**
-  /// The pop is guarded on this helper's own route still being the current one
-  /// when the callback returns. So a callback that pops the route is not
-  /// double-popped, and one that pushes something (a dialog, a confirmation
-  /// page) keeps what it pushed instead of having it closed from under it — in
-  /// that case the SDK route stays underneath it, and dismissing it is yours
-  /// to do. A callback that only does bookkeeping — the intended use — leaves
-  /// the pop exactly as it was.
+  /// The pop is guarded on this helper's own route still being the current
+  /// one immediately after the callback function *returns* — not after an
+  /// `async` handler's `Future` completes. [onBack] is a [VoidCallback], so
+  /// an `async` handler's returned `Future` is never awaited here: the guard
+  /// is checked synchronously, right after the call, so only work the
+  /// handler does before its first `await` can affect it. So a callback that
+  /// pops the route synchronously is not double-popped, and one that
+  /// synchronously pushes something (a dialog, a confirmation page) keeps
+  /// what it pushed instead of having it closed from under it — in that case
+  /// the SDK route stays underneath it, and dismissing it is yours to do. A
+  /// callback that only does bookkeeping — the intended use, sync or async —
+  /// leaves the pop exactly as it was.
   ///
   /// Use it for host-side bookkeeping — analytics, restoring a bottom bar,
   /// refreshing a badge count. To run code on **every** dismissal path
@@ -2298,6 +2522,13 @@ class OctopusSDK {
   ///
   /// Supply [info] to prefill the editor (text / image bytes / target group /
   /// invisible CTA); omit it to open an empty editor.
+  ///
+  /// **Requires an initialized SDK.** Called before [initialize] has completed,
+  /// the returned [Future] fails on both platforms with a [PlatformException]
+  /// whose `code` is `NOT_INITIALIZED` and whose `message` is
+  /// `Call initialize() first` — no editor is presented. `await` the
+  /// [initialize] call (or watch [isInitialised]) before offering the entry
+  /// point.
   ///
   /// **Future completion (platform note).** On iOS the returned [Future]
   /// completes when the modal is actually dismissed (publish or cancel). On

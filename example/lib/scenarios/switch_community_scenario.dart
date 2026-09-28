@@ -4,6 +4,8 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import '../app_log.dart';
 import '../app_state.dart';
 import '../config/api_key_registry.dart';
+import '../config/config_screen.dart';
+import '../design.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
 
@@ -61,12 +63,25 @@ class SwitchCommunityScenario extends StatelessWidget {
                 'nothing to switch to. The build-time --dart-define injection '
                 'launcher fills the named-key set from your secrets.',
       resultTestId: 'lifecycle-result',
-      liveState: KeyValueCard(
-        title: 'Live state',
-        rows: [
-          ('Current API key', _redactKey(currentKey)),
-          ('isInitialised', app.isInitialised.toString()),
-          ('Connection state', _connectionLabel(app.connectionState)),
+      liveState: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          KeyValueCard(
+            title: 'Live state',
+            rows: [
+              ('Current API key', _redactKey(currentKey)),
+              ('isInitialised', app.isInitialised.toString()),
+              ('Connection state', _connectionLabel(app.connectionState)),
+            ],
+          ),
+          // The description names the Config picker; this is the way there.
+          if (hasNamedKeys)
+            SampleLink(
+              label: 'Named keys: Config › Community',
+              identifier: 'lifecycle-config-link',
+              onTap: () =>
+                  openConfigScreen(context, anchor: ConfigSection.community),
+            ),
         ],
       ),
       presets: [

@@ -38,9 +38,22 @@ import Foundation
 import OctopusCore
 #endif
 
-/// Bridges the three `debugOverride*` QA affordances to the native SPI. Isolated to this file so it
-/// is the only place conditionally importing `OctopusCore` — see the file-level comment above for
-/// why the import itself must stay conditional, and note also that `OctopusCore` declares its own
+/// Outcome of `OctopusDebugOverridesBridge.debugGetCommunityConfig`, mapped to the channel reply by
+/// the plugin: a config map (or `nil` before the first fetch), an unsupported integration path, or a
+/// supported path whose native core could not be reached.
+enum OctopusDebugCommunityConfigRead {
+  /// The effective config as a wire map, or `nil` while none has been fetched yet.
+  case config([String: Any]?)
+  /// This integration path cannot read the config (Swift Package Manager).
+  case unsupported
+  /// CocoaPods, but the `Mirror` lookup of the SDK core failed (a native release renamed it).
+  case unreachable
+}
+
+/// Bridges the `debugOverride*` QA affordances and the `debugGetCommunityConfig` read to the native
+/// SPI. Isolated to this file so it is the only place conditionally importing `OctopusCore` — see
+/// the file-level comment above for why the import itself must stay conditional, and note also
+/// that `OctopusCore` declares its own
 /// `ConnectionMode` / `ClientPost` / `CustomEvent` (and likely others) that collide by *name* with
 /// the public `Octopus` module's types of the same name, which `OctopusSDKFlutterPlugin.swift`
 /// references unqualified everywhere. A Swift `import` is file-scoped, so confining it here also
@@ -72,6 +85,40 @@ enum OctopusDebugOverridesBridge {
   static func debugOverrideTermsAcceptanceMode(_ octopus: OctopusSDK, mode: String?) async -> Bool {
     await octopus.debugOverrideTermsAcceptanceMode(parseTermsAcceptanceMode(mode))
     return true
+  }
+
+  /// Reads the community config the native SDK currently holds (backend GetConfig + any local
+  /// `debugOverride*`), as the wire map `OctopusDebugCommunityConfig.fromWire` decodes. `config` is
+  /// `nil` while no config has been fetched yet.
+  ///
+  /// `OctopusSDK.core` is `package`-visible (reserved for the native UI lib), so the read goes
+  /// through `Mirror` — the same route the React Native bridge takes. Acceptable for a debug
+  /// affordance, never for shipping API. The read is `.unreachable` if a native release renames
+  /// the stored property, so the caller surfaces a typed error instead of a silent `nil`.
+  @MainActor
+  static func debugGetCommunityConfig(_ octopus: OctopusSDK) -> OctopusDebugCommunityConfigRead {
+    guard
+      let core = Mirror(reflecting: octopus).children
+        .first(where: { $0.label == "core" })?.value as? OctopusSDKCore
+    else {
+      NSLog("[OctopusSDK] debugGetCommunityConfig: could not reach the SDK core through Mirror.")
+      return .unreachable
+    }
+    guard let config = core.configRepository.communityConfig else { return .config(nil) }
+    // The Android enum spelling, so both bridges send one wire format (the inverse of
+    // `parseTermsAcceptanceMode` below).
+    let mode: String
+    switch config.termsAcceptanceMode {
+    case .implicit: mode = "IMPLICIT"
+    case .explicitMultiCheckbox: mode = "EXPLICIT_MULTI_CHECKBOX"
+    case .explicitSingleCheckbox: mode = "EXPLICIT_SINGLE_CHECKBOX"
+    }
+    return .config([
+      "exposeClientUserId": config.exposeClientUserId,
+      "forceLoginOnStrongActions": config.forceLoginOnStrongActions,
+      "displayAccountAge": config.displayAccountAge,
+      "termsAcceptanceMode": mode,
+    ])
   }
 
   /// Parses the `lock` wire map into a native `ProfileFieldsLock`. `nil` clears the override.
@@ -162,5 +209,18 @@ enum OctopusDebugOverridesBridge {
   static func debugOverrideTermsAcceptanceMode(_ octopus: OctopusSDK, mode: String?) async -> Bool {
     false
   }
+
+  @MainActor
+  static func debugGetCommunityConfig(_ octopus: OctopusSDK) -> OctopusDebugCommunityConfigRead {
+    .unsupported
+  }
 #endif
+
+  /// Applies (or clears, with `nil`) the `debugOverrideExposeClientUserId` override — the Unified
+  /// Profile activation flag. Outside the `#if` on purpose: its parameter is a plain `Bool?`, so it
+  /// needs no `OctopusCore` type and is supported on both integration paths (CocoaPods and SPM).
+  /// It still lives in this file because the `@_spi(OctopusInternalTesting)` import it needs is here.
+  static func debugOverrideExposeClientUserId(_ octopus: OctopusSDK, enabled: Bool?) async {
+    await octopus.debugOverrideExposeClientUserId(enabled)
+  }
 }

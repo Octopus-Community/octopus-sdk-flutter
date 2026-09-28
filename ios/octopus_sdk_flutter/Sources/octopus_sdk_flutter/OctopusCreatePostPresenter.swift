@@ -164,6 +164,7 @@ enum OctopusCreatePostPresenter {
     let link = (dict["link"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
     let fontFamily = dict["fontFamily"] as? String
     let fontWeight = (dict["fontWeight"] as? NSNumber)?.intValue
+    let icons = dict["icons"] as? [String: String]
     let logoBase64 = dict["logoBase64"] as? String
     let themeMode = dict["themeMode"] as? String
     // All seven font slots stay optional, like the colors: `nil` is how a slot
@@ -179,7 +180,7 @@ enum OctopusCreatePostPresenter {
     // A plain presence test over every slot — `background`, `link`,
     // `fontFamily`, `fontWeight` and `navBarItem` included, since a host that
     // sets only one of them must still get a theme.
-    let hasTheme = main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil ||
+    let hasTheme = main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil || icons != nil ||
       background != nil || link != nil || fontFamily != nil || fontWeight != nil ||
       navBarItem != nil || themeMode != nil ||
       f1 != nil || f2 != nil || f3 != nil || f4 != nil || f5 != nil || f6 != nil
@@ -195,6 +196,7 @@ enum OctopusCreatePostPresenter {
       background: background,
       link: link,
       logoBase64: logoBase64,
+      icons: icons,
       fontFamily: fontFamily,
       fontWeight: fontWeight,
       fontSizeTitle1: f1, fontSizeTitle2: f2, fontSizeBody1: f3,

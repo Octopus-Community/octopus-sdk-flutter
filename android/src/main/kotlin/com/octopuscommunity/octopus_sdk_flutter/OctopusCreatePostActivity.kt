@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
+import androidx.activity.SystemBarStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,12 +14,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,6 +36,7 @@ import com.octopuscommunity.sdk.domain.model.ProfileField
 import com.octopuscommunity.sdk.ui.components.OctopusNavigationHandler
 import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
 import com.octopuscommunity.sdk.ui.octopusComposables
+import com.octopuscommunity.sdk.ui.OctopusTheme
 import com.octopuscommunity.sdk.ui.posts.create.OctopusCreatePostScreen as NativeOctopusCreatePostScreen
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -116,6 +122,9 @@ class OctopusCreatePostActivity : ComponentActivity() {
                     fontFamily = fontFamily,
                     fontWeight = fontWeight,
                     logoBase64 = logoBase64,
+                    iconPaths = intent.getBundleExtra(EXTRA_ICONS)?.let { bundle ->
+                        bundle.keySet().mapNotNull { key -> bundle.getString(key)?.let { key to it } }.toMap()
+                    } ?: emptyMap(),
                     navBarTitle = null,
                     navBarPrimaryColor = false,
                     fontSizeTitle1 = intent.getIntExtraOrNull(EXTRA_FONT_TITLE1),
@@ -125,6 +134,23 @@ class OctopusCreatePostActivity : ComponentActivity() {
                     fontSizeCaption1 = intent.getIntExtraOrNull(EXTRA_FONT_CAPTION1),
                     fontSizeCaption2 = intent.getIntExtraOrNull(EXTRA_FONT_CAPTION2)
                 ) {
+                    // Read the same resolved surface as the editor, including forced
+                    // Light/Dark and a host-provided background override.
+                    val barSurface = OctopusTheme.colorScheme.background
+                    SideEffect {
+                        val darkSurface = barSurface.luminance() <= 0.179f
+                        val style = SystemBarStyle.auto(
+                            lightScrim = barSurface.toArgb(),
+                            // Before API 26 navigation icons can only be white.
+                            darkScrim = if (darkSurface) barSurface.toArgb() else android.graphics.Color.BLACK,
+                            detectDarkMode = { darkSurface }
+                        )
+                        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            window.isNavigationBarContrastEnforced = false
+                            window.isStatusBarContrastEnforced = false
+                        }
+                    }
                     val navController = rememberNavController()
                     OctopusNavigationHandler(
                         onNavigateToLogin = {
@@ -228,6 +254,12 @@ class OctopusCreatePostActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        // Keep files through rotation; final dismissal releases this editor's images.
+        if (isFinishing) cleanupIconFiles(intent)
+        super.onDestroy()
+    }
+
     private fun buildInfoFromIntent(intent: Intent): CreatePostScreenInfo {
         // Computed up-front so it rides whichever info we return (prefilled,
         // empty, or the catch fallback). The native create-post screen wires it
@@ -263,7 +295,7 @@ class OctopusCreatePostActivity : ComponentActivity() {
                 bridgeShareTokenProvider = bridgeShareTokenProvider
             )
         } catch (e: Exception) {
-            Log.w("OctopusSdkFlutter", "Invalid prefill — opening empty editor", e)
+            Log.w(TAG, "Invalid prefill — opening empty editor", e)
             CreatePostScreenInfo(bridgeShareTokenProvider = bridgeShareTokenProvider)
         }
     }
@@ -306,6 +338,7 @@ class OctopusCreatePostActivity : ComponentActivity() {
         private const val EXTRA_FONT_FAMILY = "octopus.fontFamily"
         private const val EXTRA_FONT_WEIGHT = "octopus.fontWeight"
         private const val EXTRA_LOGO = "octopus.logo"
+        private const val EXTRA_ICONS = "octopus.icons"
         private const val EXTRA_FONT_TITLE1 = "octopus.fontTitle1"
         private const val EXTRA_FONT_TITLE2 = "octopus.fontTitle2"
         private const val EXTRA_FONT_BODY1 = "octopus.fontBody1"
@@ -357,6 +390,15 @@ class OctopusCreatePostActivity : ComponentActivity() {
             (args["fontFamily"] as? String)?.let { intent.putExtra(EXTRA_FONT_FAMILY, it) }
             (args["fontWeight"] as? Number)?.let { intent.putExtra(EXTRA_FONT_WEIGHT, it.toInt()) }
             (args["logoBase64"] as? String)?.let { intent.putExtra(EXTRA_LOGO, it) }
+            val iconBundle = android.os.Bundle()
+            parseIconSources(args["icons"]).forEach { (slot, source) ->
+                iconOrDefault(slot) {
+                    iconBytes(slot, source)?.let { bytes ->
+                        materializeImage(context, bytes, "octopus_icon_")
+                    }
+                }?.let { path -> iconBundle.putString(slot, path) }
+            }
+            intent.putExtra(EXTRA_ICONS, iconBundle)
             (args["fontSizeTitle1"] as? Int)?.let { intent.putExtra(EXTRA_FONT_TITLE1, it) }
             (args["fontSizeTitle2"] as? Int)?.let { intent.putExtra(EXTRA_FONT_TITLE2, it) }
             (args["fontSizeBody1"] as? Int)?.let { intent.putExtra(EXTRA_FONT_BODY1, it) }
@@ -370,10 +412,25 @@ class OctopusCreatePostActivity : ComponentActivity() {
             return intent
         }
 
-        private fun materializeImage(context: Context, bytes: ByteArray): String {
+        internal fun cleanupIconFiles(intent: Intent) {
+            intent.getBundleExtra(EXTRA_ICONS)?.let { bundle ->
+                bundle.keySet().forEach { slot ->
+                    bundle.getString(slot)?.let { path ->
+                        if (!File(path).delete()) Log.w(TAG, "Could not remove cached icon $slot")
+                    }
+                }
+            }
+        }
+
+        private fun materializeImage(context: Context, bytes: ByteArray, prefix: String = "octopus_prefilled_image"): String {
             val ext = imageExtensionFor(bytes)
-            val tempFile = File.createTempFile("octopus_prefilled_image", ext, context.cacheDir)
-            tempFile.writeBytes(bytes)
+            val tempFile = File.createTempFile(prefix, ext, context.cacheDir)
+            try {
+                tempFile.writeBytes(bytes)
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
+            }
             return tempFile.absolutePath
         }
 

@@ -24,12 +24,15 @@ PARITY_MATRIX.md
 PARITY_VERIFICATION_*.md
 HANDOFF_*.md
 doc/superpowers/
+# Port inventories name private repos and internal tooling — mirror denylist covers
+# GitHub, this line covers pub.dev (two channels, told independently).
+doc/ports/
 
 # Session state
 SESSION_STATE.md
 
 # Contributor guide — internal by construction: it names the self-hosted runner
-# pool, the pm-tools secrets file, the private release workflows and the store
+# pool, the internal secrets file, the private release workflows and the store
 # upload lanes. A pub.dev consumer can act on none of it. The public mirror
 # already withholds it by default-deny (it is absent from the allowlist), but the
 # tarball is a separate channel and has to be told separately — same reason

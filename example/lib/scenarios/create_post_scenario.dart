@@ -7,8 +7,10 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/bridge_token_signer.dart';
+import '../design.dart';
 import '../octopus_demo_config.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../sample_fixtures.dart';
 
 /// Create Post (Bridge Share) scenario — open the Octopus post editor as a
 /// standalone entry point, prefilled with a payload the host app builds.
@@ -65,11 +67,6 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
   /// the app keeps those presets a single tap — no system media picker to drive.
   static const String _imageAsset = 'assets/logo.png';
 
-  /// Display name of the group the dropdown defaults to when nothing has been
-  /// picked yet — the open read+write group every demo community ships. Falls
-  /// back to the first available group.
-  static const String _defaultGroupName = 'General';
-
   late final TextEditingController _textCtrl;
   late final TextEditingController _ctaLabelCtrl;
   late final TextEditingController _ctaUrlCtrl;
@@ -106,11 +103,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
       if (selected == null) return null;
       return groups.any((g) => g.id == selected) ? selected : null;
     }
-    if (groups.isEmpty) return null;
-    for (final group in groups) {
-      if (group.name == _defaultGroupName) return group.id;
-    }
-    return groups.first.id;
+    return sampleFixtures.defaultGroupId(groups);
   }
 
   Future<Uint8List?> _loadBundledImage(ScenarioResultSink setResult) async {
@@ -279,6 +272,9 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String?>(
+              dropdownColor: theme.brightness == Brightness.dark
+                  ? sampleDarkElevated
+                  : null,
               // Keyed on the effective value so a default seeded once the
               // groups stream loads is reflected in the displayed selection.
               key: ValueKey<String>('group-dd-${effectiveSelected ?? 'none'}'),
@@ -287,7 +283,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
               decoration: const InputDecoration(
                 labelText: 'Target group (all presets)',
                 helperText:
-                    'Defaults to the "General" group (or the first available) '
+                    'Prefers topic.default, then "General" (or the first available) '
                     'from the live groups stream. Pick "— (none)" to make the '
                     'editor ask the member for a group instead. Empty only '
                     'while no community is selected or no groups have loaded.',

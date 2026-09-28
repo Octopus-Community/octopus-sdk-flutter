@@ -32,8 +32,9 @@ enum TermsAcceptanceMode {
   ///
   /// Wire format mirrors the native enum names: `IMPLICIT`,
   /// `EXPLICIT_MULTI_CHECKBOX`, `EXPLICIT_SINGLE_CHECKBOX`. These strings
-  /// must match the keys handled by the Android Kotlin bridge, which
-  /// silently drops any value it does not recognize.
+  /// must match the keys handled by the Android Kotlin and iOS Swift
+  /// bridges, which both drop any value they do not recognize (no override
+  /// applied) rather than defaulting it.
   String toNativeValue() {
     switch (this) {
       case TermsAcceptanceMode.implicit:

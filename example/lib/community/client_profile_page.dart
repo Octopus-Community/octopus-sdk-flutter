@@ -3,6 +3,7 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
+import '../design.dart';
 
 /// A **host-app** profile page enriched with the member's Octopus community
 /// stats — the point of the Unified Profile read API.
@@ -88,7 +89,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
+    return SampleScaffold(
       appBar: AppBar(
         title: const Text('Client profile (host app)'),
         leading: IconButton(

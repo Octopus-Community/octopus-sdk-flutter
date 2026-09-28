@@ -1,3 +1,286 @@
+## 1.14.0
+
+### New Features
+- **Icon customization:** `OctopusTheme.icons` exposes the native icon set,
+  Unified Profile activity button and six full-color reaction images with the
+  slot names of iOS `OctopusTheme.Assets.Icons`, including the four
+  `screenStates` illustrations. Load Flutter assets with
+  `OctopusIconSource.asset`, or supply image bytes/base64. Unset or unreadable
+  images retain native defaults; on/off pairs require both images. Available
+  in embedded UI and standalone post creation. The Theme sample includes an
+  icon preset. Android bounds decoded images and uses cached icon files for
+  standalone post creation; base64 data URIs work on both platforms. Native rendering limitations are documented in `doc/theming.md`.
+- **`debugOverrideExposeClientUserId(bool?)` and `debugGetCommunityConfig()`**
+  (debug/demo only, not supported public API) — force the Unified Profile
+  activation flag `exposeClientUserId` locally (`null` restores the backend
+  value), and read back the effective community config as an
+  `OctopusDebugCommunityConfig`. Mirrors the Android and React Native SDKs.
+  The override works on Android and both iOS integration paths; the config
+  read throws `UNSUPPORTED_PLATFORM` on iOS through Swift Package Manager.
+  On Android a native failure of the override resolves with an
+  `OVERRIDE_ERROR` `PlatformException`, like `overrideCommunityAccess`.
+  Additive, no change to existing APIs.
+
+### Bug Fixes
+- **Android:** `OctopusSDK.initializeOctopusAuth` and `switchCommunityOctopusAuth` now start the
+  native SDK in Octopus Auth mode. They omitted `connectionMode`, and the native Android default
+  is SSO, so the Octopus Auth entry point behaved as SSO on Android (#423). iOS was not affected.
+- **Android:** the post composer's status and navigation bars now follow the
+  resolved SDK theme (`themeMode`, `background`) instead of the system dark mode.
+- **iOS: re-initializing or switching community could leave the session
+  anonymous.** A `connectUser` still waiting on its profile-picture download was
+  invalidated by `reset`, `stop`, a later `connectUser` and `disconnectUser`, but
+  not by `initialize`, `initializeOctopusAuth` or `switchCommunity` — which also
+  end the session, by replacing or re-pointing the native instance. Such a
+  connect reported success to the caller while connecting the user on the
+  discarded instance, leaving the live one anonymous. Every session-ending entry
+  point now invalidates an in-flight connect.
+- **iOS: a profile picture supplied as an `https` URL was silently dropped.** The
+  bridge only converted base64 into the bytes the native SDK takes; it now downloads
+  the URL before connecting, at parity with Android. Base64 (raw or `data:` URI) is
+  kept on its own path (next bullet); a failed download connects without a picture.
+  The download runs on the bridge's own `URLSession`, bounded to 10 s of total
+  transfer (not just 10 s of silence), so a slow or trickling picture host cannot
+  delay the connection; a response over 5 MiB is discarded once received instead of
+  being forwarded, so an oversized picture never reaches the profile.
+- **The persistent client-user token providers grew without bound.** Repeated
+  `connectUser(tokenProvider:)` calls with no intervening `disconnectUser` kept
+  every registration alive for the lifetime of the process. An earlier
+  registration is now released once a later `connectUser` call has resolved and
+  nothing is outstanding against it any more — neither a refresh nor its own
+  connect, which may still be parked in the platform call when a later one
+  overtakes it. Not by generation count, which could drop a provider the native
+  side was still refreshing through (iOS's SSO path takes its time before
+  taking the new reference) and answer it an empty token. A
+  small ceiling still applies, so a host that never settles a token future or a
+  connect cannot grow the set without bound (#237, #375).
+- **iOS: tearing down a Flutter engine could leave a token request hanging.** A
+  client-user-token or bridge-token request still waiting on its Dart reply when
+  the plugin was released — a second engine registering the plugin in an
+  add-to-app or engine-restart setup — was never answered, so the native SDK's
+  `await` hung for good. Releasing the plugin now answers every parked request
+  (an empty client-user token, no bridge signature). Single-engine apps never
+  hit this path.
+- **iOS: a line-wrapped base64 profile picture was dropped where Android accepted it.**
+  The bridge decoded strictly, so base64 carrying line breaks or spaces — what RFC 2045
+  wrapping at 76 columns produces — yielded no picture, while the same host value worked
+  on Android. iOS now ignores characters outside the base64 alphabet, exactly as Android's
+  decoder does, and then requires the bytes to decode as an image before forwarding them;
+  a payload iOS cannot decode as an image connects without a picture instead of travelling
+  on. The custom theme logo decodes the same way, in both places that read it.
+- **Android:** the embedded community view (`OctopusHomeScreen` widget,
+  `showOctopusHomeScreen()`, `openNotification()`) no longer crashes the host
+  process when it is mounted before `initialize()` has completed — a host that
+  builds the widget without awaiting the call, or Android restoring the host
+  activity in a fresh process (low-memory kill, "Don't keep activities") before
+  the engine has re-run the host's initialisation. The native `koinApp` was read
+  on the first composition and threw `UninitializedPropertyAccessException`. The
+  platform view now renders nothing while the SDK is uninitialised and fills in
+  on its own the moment `initialize()` lands, with no remount needed; a warning
+  naming the initialisation order goes to logcat. Native SDK 1.13.4 had already
+  closed the default path — `showNavBar: false`, which mounts the native
+  `OctopusHomeContent`, was the one still unguarded. iOS was never affected (it
+  renders its own "SDK not initialized" label). Hosts that already await
+  `initialize()` before showing Octopus UI see no change.
+
+### Dependencies
+- Android Octopus SDK: 1.13.4 → 1.14.1
+- iOS Octopus SDK: 1.13.2 → 1.14.0
+
+Android 1.14.1 is a single-fix patch over 1.14.0: stopping the SDK, switching
+community or initializing it again while it is still starting up no longer
+closes the app (present since at least native 1.12). No API change.
+
+Both native pins move to the 1.14 line, so the package moves to 1.14 with them
+(the package minor tracks the native minor). The bump itself needed no wrapper code
+change and changes no Dart API. Inherited from the natives with no wrapper change: a
+**Comments tab** on profile and activity screens (always on the connected
+user's own profile, on other members' when the community enables it), a
+**who-reacted list** behind the reaction
+counter, and **empty, loading and error states** with a Retry action across
+every list. iOS 1.14.0 also keeps the installation id across an app reinstall,
+and fixes URL detection in a body truncated behind "See more" and a server
+rights message replaced by a generic error.
+
+Android 1.14.0 fixes a Flutter host gets with no wrapper change: an
+`OctopusEvent` post-created payload that could omit an attachment the user did
+publish; an RTL `overrideDefaultLocale` laid out left-to-right, and reaction
+counts with reversed digits under an RTL locale; links in feed bodies rendered
+as plain text, and a URL with two underscores opening the wrong page; a feed
+load error shown twice; session durations reported to analytics that were
+wrong; `registerPushNotificationToken` and `trackCommunityAccess`
+crashing when called before `initialize()`; and an image or SSO avatar the SDK
+could not encode, which was dropped (or reset the member's picture) while the
+call reported success. Feeds now render markdown in post and comment bodies,
+as the detail screens already did.
+
+Things a host may have to act on, none of them a Dart API change:
+- **iOS privacy manifest.** The iOS SDK now ships a `PrivacyInfo.xcprivacy`
+  (SPM and CocoaPods alike). Check that your app's App Privacy section on App
+  Store Connect matches the data it declares.
+- **Android string overrides.** Nine Android SDK string resources were removed
+  (`notifications_list_empty`, `post_create_incentive_button1`–`4`,
+  `post_create_incentive_button6`, `post_create_incentive_explanation`,
+  `post_list_empty`, `post_list_other_user_empty`). An override of one of them
+  in your app's `android/app/src/main/res` is now unused and can be deleted.
+- The Android native breaks listed in the native `MIGRATING.md` (`GuestError`
+  gained `UserBanned`, shifted profile/Activity tab indices, trailing default
+  parameters on `CommunityConfig`, `CurrentUserProfile` and `OtherUserProfile`)
+  do not reach Flutter hosts: the plugin bridges none of those surfaces and
+  passes no raw tab index. `OctopusIcons` also gained trailing default
+  parameters; the plugin builds it itself against native 1.14.0, so Flutter
+  apps are unaffected.
+
+Platform and toolchain floors checked, none moved: iOS 14.0 (native floor 13),
+Swift tools 6.0 upstream, Android `minSdk` 21 / `compileSdk` 35, Kotlin 2.1.10.
+
+### Example App
+Changes to the example app only — no public SDK API change.
+
+- **"Unified Profile (exposeClientUserId)" tri-state** (Backend /
+  Force on / Force off) under Config → Integration, next to
+  `onNavigateToProfile`, so both profile routings can be exercised on any
+  community; the *Community Data (Unified Profile)* scenario and Debug
+  info show the effective value.
+- Target existing demo community content for post deep links, reactions, member
+  lookups and default topic selection, with build-time and editable input overrides.
+- **Two scenarios closing the cross-platform parity gap with the
+  Android/RN/Unity samples** — *Browse Groups* (`fetchGroups`, per-row
+  `followGroup`/`unfollowGroup`) and *Community Access* (`overrideCommunityAccess`
+  grant/deny plus `trackCommunityAccess`, combined in one screen the way the
+  other samples demo it — the individual APIs already had scenarios of their
+  own in *Force Octopus A/B Tests* and *Track A/B Tests*, unchanged here).
+- **Design targets ported from the Android sample** — per-feature
+  toggles, Developer tools with a read-only toggles card, Debug info with the API
+  key masked, events-log copy action, About › Design reference, and a **Customize**
+  mode on the scenario screen (presets, dashed *Custom* chip, stale-result marker,
+  state kept across rotation). Internal builds only (source not distributed) also
+  get a Send feedback sheet that pre-fills a GitHub issue; it carries the
+  environment *label* only, never a key.
+- **Three debug-override scenarios** — *Profile Field Lock*,
+  *Content Options* and *Terms Acceptance (Consent)*, covering
+  `debugOverrideProfileFieldsLock`, `debugOverrideContentOptions` and
+  `debugOverrideTermsAcceptanceMode` (the internal test affordances shipped in
+  1.13.1, not supported public API). Preset ids, labels and `result_test_id`s
+  are the shared QA scenario catalog's, verbatim, so the same automated run
+  drives Android, iOS and Flutter. The applied override is held at process
+  level, so it still reads true after a round trip through the community.
+- Light-theme outlined buttons, segmented buttons and
+  unselected chips draw a 3:1 control outline (`#6D6E78`), replacing an
+  invisible or 1.2:1 one, and interactive dark chips take the dark control
+  outline (the accent when selected) instead of a 28 % accent hairline. Follows
+  the Android sample's 3:1 boundaries and also covers light chips, which
+  Android has not lifted yet.
+- Ask for the notification permission once the SDK is initialised
+  with push registration on, instead of at cold start — the Android 13+
+  `POST_NOTIFICATIONS` prompt and the iOS authorization alert no longer cover
+  the Config screen. Asked once per launch. The Android FCM token is still
+  fetched at startup; the iOS APNs token now arrives after the grant, as before,
+  but only once the SDK is initialised.
+- System bars follow the resolved app theme on Community and SDK
+  routes, with Signal tab surfaces and explicit navigation-icon contrast.
+- Declare iOS export compliance (`ITSAppUsesNonExemptEncryption = false`) in
+  the Info.plist, so a TestFlight upload is testable without a manual compliance answer.
+- In-app links now land on the section they name. Config opens
+  scrolled to the section a link names (the Community init-failure band gains
+  a Config link next to Retry, and the
+  text pointers in Config, Push Notifications and Switch community become
+  links); a scenario's "Change it in Scenarios" row opens the Scenarios tab on
+  that scenario's section, and the scenarios of a section with a feature
+  toggle now show that toggle, read-only; the Config revisit title reads "Change
+  Configuration"; and the top bar gains a Debug console button, as on Android.
+- Raise the iOS deployment target to 15.0 (App Store Connect
+  ITMS-90068; the plugin itself still supports iOS 14.0).
+- Align dark mode with the Signal palette, including the SDK
+  background and distinct primary containers. Light mode is unchanged.
+- Layer dark mode on the octopuscommunity.com navy ladder —
+  bluish page, card, elevated and hover steps, navy hairlines with a stronger
+  frame on *Current configuration*, a 3:1 control outline, brighter text, and a
+  soft blue halo at the top of Home. Light mode and the SDK primary colors are
+  unchanged.
+- The dark-theme halo now glows from the top-right corner of
+  every sample screen — Home, Scenarios, Settings, Config and their
+  sub-pages — fixed to the viewport and behind a transparent app bar, instead
+  of Home's list only. Dark card titles and monospace values now read in the
+  light text colours rather than the accent and caption grey, and the bottom
+  action areas (Home's dock, Config's start button, a scenario's Run) fade the
+  content out instead of cutting it at a hairline. The embedded community view
+  and light mode are unchanged.
+- **The Android adaptive launcher icon was padded twice.** The foreground
+  PNG is already inset by the shared icon generator (68% canvas, like the Android and
+  React Native samples), and `flutter_launcher_icons` added its default 16% inset on top,
+  shrinking the Octopus mark and its Flutter badge by about a third next to the sibling
+  samples. The inset is now 0.
+- **The Locale scenario reported the wrong state.** A preset button
+  resolved *which* preset to run by matching the parameter values it had just
+  applied against the spec built on the previous frame — so tapping "Force fr"
+  from a freshly mounted screen ran "Reset to system" instead: the result line
+  said the override had been reset and Live state showed `System` while the SDK
+  rendered French. A preset now runs by index; Customize's own Run still runs
+  whatever the fields hold. Every Customize-enabled scenario was affected.
+- **The bottom button of Settings › Account looked struck
+  through.** Account is a pushed route and had no `SafeArea` of its own, so the
+  list scrolled under Android's gesture handle and the handle crossed the
+  "Connect SSO User" / "Reconnect" label. The screen now clears the bottom
+  system inset.
+- **Settings › About, Debug info and Developer tools scrolled under
+  the gesture handle too.** The three other pushed Settings routes had the same
+  missing `SafeArea` as Account, so the last row of each list rendered under
+  Android's bottom system inset. All three now clear it; the Settings tab itself
+  was never affected — the app shell already insets every tab.
+- **The Events log, Edit profile and every multi-preset scenario
+  screen scrolled under the gesture handle too.** Same missing `SafeArea` as
+  the Settings routes above: the events list, the profile edit form, and a
+  scenario's inline preset buttons (when there is more than one) could render
+  under Android's bottom system inset. All three now clear it.
+- The Config screen now says that applying a change restarts the
+  SDK and drops the connected SSO user, so the reconnect is expected rather
+  than surprising. The restart itself is unchanged.
+
+### Documentation
+- Integration guide, iOS on CocoaPods: static frameworks
+  (`use_frameworks! :linkage => :static`) are now stated as required — with
+  dynamic frameworks the native UI pod cannot find its resource bundle and the
+  first Octopus screen crashes — along with what that means for the app's other
+  pods. The gRPC conflict with Firebase Firestore now documents the fix that
+  works (the `gRPC-Swift.podspec.json` override from the native SDK repository)
+  instead of `:modular_headers => true`, which does not resolve the link error.
+  Two matching Troubleshooting entries. The Swift Package Manager path is
+  unaffected.
+- `README.md` is now a one-screen evaluation page: what the package does,
+  requirements, install, a minimal quickstart, the sample app and links. The
+  detailed reference it used to carry (platform setup, SSO sign-in and error
+  handling, theming, presentation, bridge, push, reactive streams, other APIs,
+  troubleshooting) moved unchanged to `doc/integration-guide.md`. The setup
+  guide link, which pointed at a page that no longer exists, now points at
+  `https://doc.octopuscommunity.com/SDK/sso/`.
+- The three `debugOverride*` methods on `OctopusSDK` carried a dartdoc saying
+  iOS support was pending, so pub.dev and every IDE hover told iOS hosts a
+  working API did not work. iOS has shipped them since 1.13.1 on the
+  **CocoaPods** integration path — the plugin declares `OctopusCommunityCore`
+  as a pod dependency and imports `OctopusCore` directly, which the CHANGELOG
+  entry for that release already said. Only the **Swift Package Manager** path
+  is genuinely unsupported (`OctopusCore` is not one of `octopus-sdk-swift`'s
+  SPM products), and that is what the docs now say. The wire-format notes on
+  `ProfileFieldLockState.toNativeValue()` and
+  `TermsAcceptanceMode.toNativeValue()` named only the Android bridge for the
+  same reason; both bridges have identical fail-closed behaviour and the notes
+  now cover both. Documentation only — no code, behaviour or API change.
+- `OctopusSDK.showOctopusHomeScreen()`'s `onBack` dartdoc now says precisely
+  when the pop guard runs: `onBack` is a `VoidCallback`, so the guard checks
+  the route is still current synchronously, right after the callback call
+  returns — before any `Future` an `async` handler returns has completed.
+  Documentation only — no code, behaviour or API change.
+- `OctopusSDK.showCreatePostScreen()`'s dartdoc now states that it requires an
+  initialized SDK: called before `initialize()` has completed, it fails on both
+  platforms with a `PlatformException` whose code is `NOT_INITIALIZED`, and no
+  editor is presented. Documentation only — no code, behaviour or API change.
+- `OctopusInitialScreen.activity` and `ActivityScreenInfo` dartdoc now describe
+  the 1.14 activity screen: posts only by default, **Posts** and **Comments**
+  tabs when the community enables comments on other members' profiles, and
+  the tabbed screen (Comments tab always shown) for the connected user's own
+  id. Documentation only — no code, behaviour or API change.
+
 ## 1.13.2
 
 ### New Features
@@ -10,15 +293,17 @@
   **before** the pop, and a callback that throws is reported through
   `FlutterError.reportError` while the route pops anyway, so a host handler can
   never strand the user inside the SDK. The pop is guarded on the helper's own
-  route still being the current one when the callback returns, so a callback
-  that navigates by itself — pops the route, or pushes a dialog — is neither
-  double-popped nor has its own route closed from under it; a callback that
-  only does bookkeeping pops exactly as before. `navBarLeadingAction` is
-  forwarded verbatim to the embedded view, so the full-screen helper can now
-  show the close (X) icon instead of the back chevron. Both parameters are
-  optional; omitting them leaves the previous behaviour unchanged, except that
-  a leading-icon tap arriving while the route is already leaving is now a
-  no-op instead of popping whatever sits under it.
+  route still being the current one immediately after the callback returns —
+  `onBack` is a `VoidCallback`, so an `async` handler's `Future` is never
+  awaited here and the guard is checked before that `Future` completes, not
+  after — so a callback that synchronously navigates by itself — pops the
+  route, or pushes a dialog — is neither double-popped nor has its own route
+  closed from under it; a callback that only does bookkeeping pops exactly as
+  before. `navBarLeadingAction` is forwarded verbatim to the embedded view, so
+  the full-screen helper can now show the close (X) icon instead of the back
+  chevron. Both parameters are optional; omitting them leaves the previous
+  behaviour unchanged, except that a leading-icon tap arriving while the route
+  is already leaving is now a no-op instead of popping whatever sits under it.
 
   Only the tap on the SDK's **root** leading icon reaches `onBack`; no
   OS-level gesture does. While the SDK is on its **root** screen, Android

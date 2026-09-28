@@ -155,18 +155,6 @@ const bool octopusIsInternalBuild = bool.fromEnvironment('OCTOPUS_INTERNAL');
 bool get octopusShowsServerWarning =>
     octopusIsInternalBuild && octopusIsProdServer;
 
-/// A real post id on the demo community, injected via
-/// `--dart-define=OCTOPUS_DEMO_POST_ID=…` (injected at build time by default).
-///
-/// Prefills the Initial-Screen scenario's "Post id" field so its post /
-/// post-details presets are runnable out of the box. Empty (keyless / public
-/// build) → the field starts blank and the presets explain what to plug in.
-/// Environment-specific like the keys, hence injected rather than committed.
-const String octopusDemoPostId = String.fromEnvironment(
-  'OCTOPUS_DEMO_POST_ID',
-  defaultValue: '',
-);
-
 /// Group NAME the Bridge → Client Object scenario resolves to a `groupId`
 /// (by lookup in the live `OctopusSDK.groups` stream) for its random-recipe
 /// preset, injected via `--dart-define=OCTOPUS_DEMO_BRIDGE_TOPIC=…`.
@@ -179,33 +167,28 @@ const String octopusDemoBridgeTopic = String.fromEnvironment(
   defaultValue: 'General',
 );
 
-/// Whether a non-empty demo post id is configured (i.e. [octopusDemoPostId] was
-/// injected by default; a keyless / public build leaves it empty).
-bool get hasDemoPostId => octopusDemoPostId.isNotEmpty;
-
-/// The post id the notification fixture references.
+/// The GitHub repository Send feedback opens an issue in, as `owner/name`, injected via
+/// `--dart-define=OCTOPUS_FEEDBACK_REPO=…`.
 ///
-/// Falls back to a clearly-labelled placeholder when [octopusDemoPostId] is
-/// empty, so the value is always a well-formed, non-empty id (a `link_path`
-/// like `post/` would otherwise be malformed). The placeholder resolves to a
-/// not-found post — the SDK handles the stale link gracefully.
-String get demoOrPlaceholderPostId =>
-    hasDemoPostId ? octopusDemoPostId : 'octopus-demo-post-id-unset';
-
-/// A representative Octopus push-notification payload, shaped like the flat
-/// `RemoteMessage.data` map an Android FCM push delivers (the nested iOS APNs
-/// `userInfo` shape is also accepted by `OctopusNotification.fromMap`).
+/// **No default, deliberately.** Empty means the Settings → Support row is absent — a
+/// public clone, a store build and `flutter test` all land there. Combined with
+/// [octopusIsInternalBuild], this is what gates the feature; the file it lives in being
+/// denylisted from the public mirror is the third layer, not the first.
 ///
-/// Lets the Not-seen-notifications scenario exercise the full push-tap code
-/// path — `isOctopusNotification` → `getOctopusNotification` →
-/// `openNotification` — without an actual push, which a simulator/emulator
-/// cannot easily deliver. The `post_id` / `link_path` reference
-/// [demoOrPlaceholderPostId]; with [octopusDemoPostId] injected the payload
-/// deep-links to real content.
-Map<String, String> get sampleOctopusNotificationPayload => {
-  'is_octopus_notification': 'true',
-  'title': 'New activity in the demo community',
-  'body': 'Tap to open the post this notification points at.',
-  'link_path': 'post/$demoOrPlaceholderPostId',
-  'post_id': demoOrPlaceholderPostId,
-};
+/// ⚠ This must never point at a **public** repository: the pre-filled issue body carries
+/// the last 50 Debug console lines. They are redacted on the way out, but a redactor is a
+/// net, not a wall.
+const String octopusFeedbackRepo = String.fromEnvironment(
+  'OCTOPUS_FEEDBACK_REPO',
+  defaultValue: '',
+);
+
+/// The shared design reference the About screen links to, injected via
+/// `--dart-define=OCTOPUS_DESIGN_REFERENCE_URL=…`.
+///
+/// Empty by default, and an empty value hides the row: the reference is an internal
+/// document, so a build that was not told where it lives simply does not offer it.
+const String octopusDesignReferenceUrl = String.fromEnvironment(
+  'OCTOPUS_DESIGN_REFERENCE_URL',
+  defaultValue: '',
+);

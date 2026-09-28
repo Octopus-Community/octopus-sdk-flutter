@@ -7,7 +7,7 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
-import '../octopus_demo_config.dart';
+import '../sample_fixtures.dart';
 import '../widgets/scenario_scaffold.dart';
 
 /// Modal scenario — host integration mode where the SDK's
@@ -25,7 +25,9 @@ import '../widgets/scenario_scaffold.dart';
 ///   (matching `.fullScreenCover`) and **disables** the
 ///   swipe-from-left-edge back gesture — modals are dismissed explicitly.
 /// - Android keeps the platform's default fullscreen-dialog transition;
-///   the system back gesture/button still pops the route.
+///   the system back gesture/button still pops the route while the SDK is
+///   on its **root** screen (deeper inside the SDK it is consumed by the
+///   native navigation stack instead, same as the Fullscreen scenario).
 ///
 /// **Native dismiss + sub-navigation in a modal.** This scenario uses two
 /// wrapped-SDK APIs added specifically for modal hosting by Flutter / React
@@ -55,8 +57,9 @@ import '../widgets/scenario_scaffold.dart';
 /// both platforms, so the modal shows the Close (X) regardless. [showBackButton]
 /// is left `true` as a harmless fallback (it would drive the icon only if
 /// `navBarLeadingAction` were `null`); the Android system back gesture/button
-/// pops the route too. The modal therefore has a native dismissal affordance
-/// on both platforms with no host-owned chrome.
+/// pops the route too, at the SDK's **root** screen. The modal therefore has
+/// a native dismissal affordance on both platforms with no host-owned
+/// chrome.
 ///
 /// **Bottom inset.** The route hosts the SDK PlatformView edge-to-edge
 /// (`SafeArea(bottom: false)`), so the host forwards the device's bottom
@@ -105,7 +108,7 @@ class ModalScenario extends StatelessWidget {
         ).viewPadding.bottom;
         final notification = deepLink
             ? OctopusSDK.getOctopusNotification(
-                sampleOctopusNotificationPayload,
+                sampleFixtures.postNotificationPayload,
               )
             : app.pendingCommunityNotification;
         setResult(

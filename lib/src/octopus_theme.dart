@@ -1,5 +1,7 @@
 import 'dart:ui' show Color;
 
+import 'octopus_icons.dart';
+
 /// Enum for theme mode options
 enum OctopusThemeMode {
   /// Light theme mode
@@ -184,6 +186,11 @@ class OctopusTheme {
   /// Format: 'iVBORw0KGgoAAAANSUhEUgAA...'
   final String? logoBase64;
 
+  /// Native icon overrides, including the activity button and reaction images.
+  ///
+  /// Omitted slots keep the native defaults. See [OctopusIconSource.asset].
+  final OctopusIcons? icons;
+
   /// Theme mode (light or dark)
   final OctopusThemeMode? themeMode;
 
@@ -204,6 +211,7 @@ class OctopusTheme {
     this.fontSizeCaption2,
     this.fontSizeNavBarItem,
     this.logoBase64,
+    this.icons,
     this.themeMode,
   }) : assert(
           fontWeight == null || (fontWeight >= 100 && fontWeight <= 900),
@@ -230,6 +238,7 @@ class OctopusTheme {
     int? fontSizeCaption2,
     int? fontSizeNavBarItem,
     String? logoBase64,
+    OctopusIcons? icons,
     OctopusThemeMode? themeMode,
   }) {
     return OctopusTheme(
@@ -249,6 +258,7 @@ class OctopusTheme {
       fontSizeCaption2: fontSizeCaption2 ?? this.fontSizeCaption2,
       fontSizeNavBarItem: fontSizeNavBarItem ?? this.fontSizeNavBarItem,
       logoBase64: logoBase64 ?? this.logoBase64,
+      icons: icons ?? this.icons,
       themeMode: themeMode ?? this.themeMode,
     );
   }
@@ -274,6 +284,7 @@ class OctopusTheme {
       if (fontSizeCaption2 != null) 'fontSizeCaption2': fontSizeCaption2,
       if (fontSizeNavBarItem != null) 'fontSizeNavBarItem': fontSizeNavBarItem,
       if (logoBase64 != null) 'logoBase64': logoBase64,
+      if (icons != null && icons!.toMap().isNotEmpty) 'icons': icons!.toMap(),
       if (themeMode != null) 'themeMode': themeMode!.name,
     };
   }

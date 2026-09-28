@@ -15,7 +15,7 @@ String _describeOverrideResult(
 ) {
   switch (result) {
     case OctopusSuccess():
-      return 'forceOctopusABTest(hasAccess=$hasAccess) → success. '
+      return 'overrideCommunityAccess(hasAccess=$hasAccess) → success. '
           'The cohort attribution has been overridden for the current user.';
     case OctopusInvalidArguments<OctopusServerError>(:final errors):
       // Narrow back to the method's typed error to enumerate known leaves.
@@ -28,9 +28,9 @@ String _describeOverrideResult(
             return 'OverrideCommunityAccess$label: $error';
           })
           .join(', ');
-      return 'forceOctopusABTest(hasAccess=$hasAccess) → failed with $labels.';
+      return 'overrideCommunityAccess(hasAccess=$hasAccess) → failed with $labels.';
     case OctopusConnectionFailure():
-      return 'forceOctopusABTest(hasAccess=$hasAccess) → '
+      return 'overrideCommunityAccess(hasAccess=$hasAccess) → '
           'connection-layer failure: $result';
   }
 }

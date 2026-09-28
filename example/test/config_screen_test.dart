@@ -5,6 +5,26 @@ import 'package:octopus_sdk_flutter_example/config/config_screen.dart';
 import 'package:octopus_sdk_flutter_example/config/user_id_registry.dart';
 
 void main() {
+  for (final entry in ConfigEntry.values) {
+    testWidgets('the SSO restart notice matches the ${entry.name} entry', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1000, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(MaterialApp(home: ConfigScreen(entry: entry)));
+
+      expect(
+        find.text(
+          'The restart drops the connected SSO user — reconnect from '
+          'Settings › Account.',
+        ),
+        entry == ConfigEntry.revisit ? findsOneWidget : findsNothing,
+      );
+    });
+  }
+
   testWidgets(
     'tapping a User ID quick-pick chip fills the field and parks the caret '
     'at the end',
@@ -13,8 +33,8 @@ void main() {
       // the Start button (which this test never taps), so the
       // chip-fills-field contract can be exercised without the host
       // ChangeNotifier.
-      // The form is a ListView: give it a tall surface so the
-      // Authentication (SSO) section below the fold is built.
+      // The form scrolls: give it a tall surface so the Authentication
+      // (SSO) section sits on screen, where taps and enterText reach it.
       tester.view.physicalSize = const Size(1000, 3000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -73,9 +93,9 @@ void main() {
         serverEnv: ServerEnv.prod,
       );
 
-      // The form is a ListView: fields below the fold are never built in the
-      // default 800x600 test viewport. Give it a tall surface so every
-      // section — including Authentication (SSO) — is present.
+      // The form scrolls: in the default 800x600 test viewport the lower
+      // fields sit below the fold. Give it a tall surface so every section —
+      // including Authentication (SSO) — is on screen.
       tester.view.physicalSize = const Size(1000, 3000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);

@@ -487,12 +487,19 @@ private final class SafeHostingContainerView: UIView {
       let link = (dict["link"] as? NSNumber).map { OctopusSDKFlutterPlugin.uiColorFromARGBInt($0.intValue) }
       let fontFamily = dict["fontFamily"] as? String
       let fontWeight = (dict["fontWeight"] as? NSNumber)?.intValue
+      let icons = dict["icons"] as? [String: String]
       let logoBase64 = dict["logoBase64"] as? String
       // Only treat the logo as "custom" when the base64 actually decodes to a
-      // UIImage — mirrors the decode guard in OctopusSDKFlutterPlugin.buildTheme.
+      // UIImage — mirrors the decode guard in OctopusSDKFlutterPlugin.buildTheme,
+      // `.ignoreUnknownCharacters` included. The two must stay identical: if this
+      // one stayed strict, a line-wrapped logo would be applied to the theme there
+      // and still leave `hasCustomLogo` false here, so the bar would fall back to
+      // the text title while carrying a logo (#385).
       // A non-decodable / empty string must fall back to the text title below
       // rather than force an empty `.logo` placement.
-      if let logoBase64, let data = Data(base64Encoded: logoBase64), UIImage(data: data) != nil {
+      if let logoBase64,
+         let data = Data(base64Encoded: logoBase64, options: .ignoreUnknownCharacters),
+         UIImage(data: data) != nil {
         hasCustomLogo = true
       }
       navBarTitle = dict["navBarTitle"] as? String
@@ -620,7 +627,7 @@ private final class SafeHostingContainerView: UIView {
       // sizes against the wrapper's own numbers, which made "unset" and
       // "explicitly set to the wrapper default" indistinguishable; now an absent
       // key is absent all the way down.
-      if main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil ||
+      if main != nil || low != nil || high != nil || onPrimary != nil || logoBase64 != nil || icons != nil ||
          background != nil || link != nil || fontFamily != nil || fontWeight != nil ||
          fontSizeNavBarItem != nil ||
          fontSizeTitle1 != nil || fontSizeTitle2 != nil || fontSizeBody1 != nil ||
@@ -638,6 +645,7 @@ private final class SafeHostingContainerView: UIView {
           background: background,
           link: link,
           logoBase64: logoBase64,
+          icons: icons,
           fontFamily: fontFamily,
           fontWeight: fontWeight,
           fontSizeTitle1: fontSizeTitle1,

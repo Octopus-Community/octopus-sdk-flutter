@@ -15,11 +15,14 @@ import 'community/community_screen.dart';
 import 'config/config_screen.dart';
 import 'debug/debug_console.dart';
 import 'design.dart';
+import 'feature_toggles.dart';
 import 'home/home_screen.dart';
 import 'octopus_demo_config.dart';
+import 'push_permission_gate.dart';
 import 'scenarios/scenarios_screen.dart';
 import 'settings/settings_screen.dart';
 import 'widgets/production_warning_banner.dart';
+import 'widgets/sample_system_bars.dart';
 
 /// MethodChannel the iOS AppDelegate uses to forward the APNs token + taps.
 const MethodChannel _pushChannel = MethodChannel(
@@ -179,25 +182,30 @@ Widget octopusDemoAppBuilderWith(
   BuildContext context,
   Widget? child, {
   required bool showWarning,
-}) => Column(
-  verticalDirection: VerticalDirection.up,
-  children: [
-    // The banner consumes the top inset, so the routed content drops it to
-    // avoid a double status-bar gap; when the banner is hidden the route
-    // keeps its normal padding. Keyed on the SAME predicate as the banner:
-    // removing the inset while the banner renders nothing would glue every
-    // screen under the status bar.
-    Expanded(
-      child: showWarning
-          ? MediaQuery.removePadding(
-              context: context,
-              removeTop: true,
-              child: child!,
-            )
-          : child!,
-    ),
-    ProductionWarningBanner(show: showWarning),
-  ],
+}) => SampleSystemBars(
+  child: Column(
+    verticalDirection: VerticalDirection.up,
+    children: [
+      // The banner consumes the top inset, so the routed content drops it to
+      // avoid a double status-bar gap; when the banner is hidden the route
+      // keeps its normal padding. Keyed on the SAME predicate as the banner:
+      // removing the inset while the banner renders nothing would glue every
+      // screen under the status bar.
+      Expanded(
+        child: showWarning
+            ? MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                child: child!,
+              )
+            : child!,
+      ),
+      SampleSystemBars(
+        surface: Theme.of(context).colorScheme.errorContainer,
+        child: ProductionWarningBanner(show: showWarning),
+      ),
+    ],
+  ),
 );
 
 /// Root widget: owns [AppState], wires push notifications, and chooses between
@@ -218,10 +226,23 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
   StreamSubscription<bool>? _pushInitSub;
   StreamSubscription<OctopusConnectionState>? _pushConnSub;
 
+  /// Fires the OS notification permission request once, after the SDK is
+  /// initialised — never at cold start (see [PushPermissionGate]).
+  late final PushPermissionGate _pushPermission = PushPermissionGate(
+    _requestPushPermission,
+  );
+
   @override
   void initState() {
     super.initState();
     _app = AppState()..addListener(_onAppChanged);
+    // Turning the toggle on registers the token straight away, so the effect is
+    // visible without waiting for the next refresh — which on a warm install
+    // may never come.
+    _app.onPushRegistrationEnabled = () async {
+      _registerPushTokenIfReady();
+      await _openPushPermissionGate();
+    };
     _app.bootstrap();
     _setupPush();
   }
@@ -234,6 +255,7 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
   void dispose() {
     _pushInitSub?.cancel();
     _pushConnSub?.cancel();
+    _app.onPushRegistrationEnabled = null;
     _app.removeListener(_onAppChanged);
     _app.dispose();
     super.dispose();
@@ -246,7 +268,9 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
     // switchCommunity re-init). Registration only sticks once the SDK is
     // initialised — see [_registerPushTokenIfReady].
     _pushInitSub = OctopusSDK.isInitialisedFlow.listen((initialised) {
-      if (initialised) _registerPushTokenIfReady();
+      if (!initialised) return;
+      _registerPushTokenIfReady();
+      unawaited(_openPushPermissionGate());
     });
     // Also re-register when the connection changes (e.g. guest → logged-in
     // user): the token must be tied to the currently-connected user so the
@@ -265,7 +289,10 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
   Future<void> _setupFirebaseMessaging() async {
     final messaging = FirebaseMessaging.instance;
     try {
-      await messaging.requestPermission();
+      // No permission request here: this runs at startup, before the SDK is
+      // initialised — [_pushPermission] asks once it is. Fetching the token
+      // needs no permission.
+      //
       // Keep the latest FCM token and (re)register it with the SDK only once
       // the SDK is initialised. `registerPushNotificationToken` reaches the
       // native `registerNotificationsToken`, which requires an initialised SDK
@@ -319,6 +346,35 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
     }
   }
 
+  /// Offers the current init + toggle state to [_pushPermission]. Reads
+  /// `OctopusSDK.isInitialised` directly, for the reason given on
+  /// [_registerPushTokenIfReady].
+  Future<void> _openPushPermissionGate() => _pushPermission.onSignal(
+    initialised: OctopusSDK.isInitialised,
+    registrationEnabled: _app.featureToggles[FeatureToggle.pushRegistration],
+  );
+
+  /// Shows the platform's notification permission prompt. Android 13+ asks for
+  /// `POST_NOTIFICATIONS` through Firebase Messaging; FCM hands out a token
+  /// without it, so the token path is unchanged there and the token registers
+  /// whatever the answer — a Deny only stops the notifications from being shown,
+  /// as in the Android sample, whose permission callback registers either way.
+  /// iOS asks the AppDelegate,
+  /// which owns `UNUserNotificationCenter` and registers for APNs on a grant, as
+  /// it did at launch before — the token now arrives after init and registers
+  /// through the same `apnsToken` handler.
+  Future<void> _requestPushPermission() async {
+    try {
+      if (Platform.isAndroid) {
+        await FirebaseMessaging.instance.requestPermission();
+      } else if (Platform.isIOS) {
+        await _pushChannel.invokeMethod('requestAuthorization');
+      }
+    } catch (e) {
+      debugPrint('[Push] notification permission request failed: $e');
+    }
+  }
+
   /// Registers the latest FCM token with the SDK, but only when the SDK is
   /// initialised — a pre-init call throws natively and silently drops the
   /// token, so push delivery never starts. Idempotent: safe to call on each
@@ -330,9 +386,21 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
   /// guarantee firing order between two listeners on the same stream. The
   /// static getter reflects the value set **before** subscribers are notified
   /// (see `octopus_sdk.dart:151`), so reading it here is race-free.
+  ///
+  /// Also gated on the `PushRegistration` feature toggle (Scenarios tab,
+  /// Notifications section header). Registering is what a real integration
+  /// does; the toggle is what makes "my app decides whether Octopus learns
+  /// this device" demonstrable, and this is the one place that decision can be
+  /// honoured — the SDK exposes no unregister. Android splits the same check
+  /// between its messaging service and its Explorer; Flutter routes both the
+  /// APNs and the FCM path through here, so one guard covers both.
   void _registerPushTokenIfReady() {
     final token = _pushToken;
     if (token == null || token.isEmpty || !OctopusSDK.isInitialised) return;
+    if (!_app.featureToggles[FeatureToggle.pushRegistration]) {
+      debugPrint('[Push] skipped: push registration is off');
+      return;
+    }
     _app.octopus
         .registerPushNotificationToken(token)
         .then((_) => debugPrint('[Push] push token registered with the SDK'))
@@ -418,7 +486,9 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
         // While bootstrap restores a persisted config, show a splash so a saved
         // session doesn't flash the Config screen before auto-starting back in.
         home: _app.restoringConfig
-            ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+            ? const SampleScaffold(
+                body: Center(child: CircularProgressIndicator()),
+              )
             : (_app.config == null
                   ? ConfigScreen(initialConfig: _app.restoredConfig)
                   : MainScreen(app: _app)),
@@ -442,6 +512,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   static const int _communityIndex = 2;
+  static const int _settingsIndex = 3;
   // Land directly on Community when there's a pending deep link from a push.
   // A cold-start tap on a notification calls `requestCommunityTab` BEFORE this
   // screen mounts, so the `navEpoch` diff in `_onAppChanged` can't trip — the
@@ -466,11 +537,12 @@ class _MainScreenState extends State<MainScreen> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _onUpdateStatusChanged(),
     );
+    _noteBreadcrumb(_index);
   }
 
   /// A newer sample build deserves one snackbar, not a badge the tester has to
-  /// go looking for: the update card lives in Settings, a tab a tester running
-  /// a scenario has no reason to open. `acknowledgeNewVersion` returns a
+  /// go looking for: the update card lives on Home, a tab a tester running a
+  /// scenario has already left. `acknowledgeNewVersion` returns a
   /// versionCode at most once per build, so re-checks do not re-announce.
   void _onUpdateStatusChanged() {
     final version = widget.app.updateChecker.acknowledgeNewVersion();
@@ -507,8 +579,17 @@ class _MainScreenState extends State<MainScreen> {
           rootNavigator: true,
         )?.popUntil((route) => route.isFirst);
         setState(() => _index = widget.app.requestedTab);
+        _noteBreadcrumb(_index);
       }
     }
+  }
+
+  /// Records the tab as the feedback breadcrumb — except Settings, which is
+  /// where Send feedback is opened from: reporting "Settings" would throw away
+  /// the context the report is about.
+  void _noteBreadcrumb(int index) {
+    if (index == _settingsIndex) return;
+    widget.app.noteBreadcrumb(_titles[index]);
   }
 
   @override
@@ -520,6 +601,7 @@ class _MainScreenState extends State<MainScreen> {
 
   void _onTap(int index) {
     setState(() => _index = index);
+    _noteBreadcrumb(index);
     // Leaving Community discards a consumed deep link so it isn't reopened.
     if (index != _communityIndex) {
       widget.app.clearPendingNotification();
@@ -549,45 +631,67 @@ class _MainScreenState extends State<MainScreen> {
     // surface without embedding.
     final hasOwnAppBar = _index == _communityIndex;
 
-    return Scaffold(
+    return SampleScaffold(
+      // The halo belongs to the sample's own tabs, not to the SDK's view:
+      // Community keeps the plain page colour behind the embedded screen.
+      halo: !hasOwnAppBar,
       appBar: hasOwnAppBar
           ? null
-          : AppBar(title: SampleAppBarTitle(_titles[_index])),
+          : AppBar(
+              title: SampleAppBarTitle(_titles[_index]),
+              // Same action as the Android sample's top bar: the console one
+              // tap away from every tab root, not two levels into Settings ›
+              // Developer tools. Community has none: the SDK draws its own bar.
+              actions: [
+                Semantics(
+                  identifier: 'shell-debug-console-button',
+                  button: true,
+                  child: IconButton(
+                    tooltip: 'Debug console',
+                    icon: const Icon(Icons.terminal),
+                    onPressed: () => showDebugConsoleSheet(context),
+                  ),
+                ),
+              ],
+            ),
       body: SafeArea(child: body),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: _onTap,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: [
-          NavigationDestination(
-            icon: Semantics(
-              identifier: 'home-tab',
-              child: const Icon(Icons.home),
+      bottomNavigationBar: SampleSystemBars(
+        surface: Theme.of(context).navigationBarTheme.backgroundColor,
+        child: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: _onTap,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          destinations: [
+            NavigationDestination(
+              icon: Semantics(
+                identifier: 'home-tab',
+                child: const Icon(Icons.home),
+              ),
+              label: 'Home',
             ),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Semantics(
-              identifier: 'scenarios-tab',
-              child: const Icon(Icons.science),
+            NavigationDestination(
+              icon: Semantics(
+                identifier: 'scenarios-tab',
+                child: const Icon(Icons.science),
+              ),
+              label: 'Scenarios',
             ),
-            label: 'Scenarios',
-          ),
-          NavigationDestination(
-            icon: Semantics(
-              identifier: 'community-tab',
-              child: const Icon(Icons.forum),
+            NavigationDestination(
+              icon: Semantics(
+                identifier: 'community-tab',
+                child: const Icon(Icons.forum),
+              ),
+              label: 'Community',
             ),
-            label: 'Community',
-          ),
-          NavigationDestination(
-            icon: Semantics(
-              identifier: 'settings-tab',
-              child: const Icon(Icons.settings),
+            NavigationDestination(
+              icon: Semantics(
+                identifier: 'settings-tab',
+                child: const Icon(Icons.settings),
+              ),
+              label: 'Settings',
             ),
-            label: 'Settings',
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

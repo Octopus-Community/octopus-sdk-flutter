@@ -22,10 +22,11 @@ enum ProfileFieldLockState {
   ///
   /// Wire format mirrors the native enum names: `EDITABLE`, `READ_ONLY`,
   /// `DISABLED`. These strings must match the keys handled by the Android
-  /// Kotlin bridge: if any of the three fields carries a value it does not
-  /// recognize, the bridge fails closed and drops the *whole*
-  /// `ProfileFieldsLock` override (no lock is applied), rather than
-  /// defaulting the unrecognized field to the most permissive state.
+  /// Kotlin and iOS Swift bridges, which behave identically: if any of the
+  /// three fields carries a value the bridge does not recognize, it fails
+  /// closed and drops the *whole* `ProfileFieldsLock` override (no lock is
+  /// applied), rather than defaulting the unrecognized field to the most
+  /// permissive state.
   String toNativeValue() {
     switch (this) {
       case ProfileFieldLockState.editable:

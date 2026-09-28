@@ -3,31 +3,11 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
-import '../octopus_demo_config.dart';
+import '../sample_fixtures.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
 
-/// Stable, intentionally-bogus post id used as a fallback when no demo post id
-/// is injected. Exercises the typed-error path via [SetReactionPostNotFoundError]
-/// — useful for QA when [octopusDemoPostId] is unset (public builds).
-const String _fallbackFakePostId = 'flutter-demo-fake-post-id';
-
-/// Reactions scenario — set, change and remove a reaction on a post.
-///
-/// Presets 1-3 walk the capability end to end: react, change the reaction to
-/// another kind, then unreact. Presets 4-7 cover the remaining
-/// [OctopusReactionKind] values so every kind is exercised at least once.
-///
-/// When [octopusDemoPostId] is configured (`OCTOPUS_DEMO_POST_ID` injected at
-/// build time, see `octopus_demo_config.dart`), every preset hits a **real**
-/// post on the backend — reactions actually land, and the scenario reports
-/// [OctopusSuccess]. Falls back to [_fallbackFakePostId] when no demo id is
-/// configured, in which case every preset is expected to fail with
-/// [SetReactionPostNotFoundError] on the happy connected path — that still
-/// proves the typed-error channel works end-to-end. The presets also handle
-/// the orthogonal [OctopusConnectionFailure] branch (no network / not
-/// authenticated) and surface its concrete subtype so the automated UI tests see
-/// exactly what came back.
+/// Set, change and remove reactions on the catalog's post.reactionStack.
 class ReactionsScenario extends StatefulWidget {
   const ReactionsScenario({super.key});
 
@@ -36,11 +16,7 @@ class ReactionsScenario extends StatefulWidget {
 }
 
 class _ReactionsScenarioState extends State<ReactionsScenario> {
-  /// The post id actually hit by every preset: the real demo post id when
-  /// [octopusDemoPostId] is configured, otherwise the fake fallback.
-  static final String _postId = hasDemoPostId
-      ? octopusDemoPostId
-      : _fallbackFakePostId;
+  String get _postId => sampleFixtures.postReactionStack.trim();
 
   /// Latest reaction the user asked for (label form — `null` reads as
   /// `unreact`).
@@ -64,6 +40,10 @@ class _ReactionsScenarioState extends State<ReactionsScenario> {
     String label,
     OctopusReactionKind? reaction,
   ) async {
+    if (_postId.isEmpty) {
+      setResult('Skipped: post.reactionStack fixture is empty.', isError: true);
+      return;
+    }
     setState(() {
       _lastReactionLabel = label;
       _lastOutcome = 'running…';
@@ -83,9 +63,7 @@ class _ReactionsScenarioState extends State<ReactionsScenario> {
           _safeOutcome('success');
         case OctopusInvalidArguments<OctopusServerError>(:final errors):
           // Typed business error. With a real demo post id this is rare
-          // (e.g. the post was deleted server-side); with the fallback
-          // fake id this is the expected happy path (proves the
-          // typed-error channel works end-to-end). The outer
+          // (e.g. the post was deleted server-side). The outer
           // `<OctopusServerError>` annotation is required for
           // exhaustiveness (see OctopusResult dartdoc); errors are
           // SetReactionError at runtime.
@@ -133,14 +111,14 @@ class _ReactionsScenarioState extends State<ReactionsScenario> {
           'Calls OctopusSDK().setReaction(reaction, postId) once per preset. '
           'Presets 1-3 react, change the reaction, then unreact; presets 4-7 '
           'cover the remaining reaction kinds. '
-          '${hasDemoPostId ? 'Hits the real OCTOPUS_DEMO_POST_ID — reactions land on the backend.' : 'No OCTOPUS_DEMO_POST_ID configured — falls back to a fake post id and surfaces SetReactionPostNotFoundError (still proves the typed-error channel).'} '
+          'Targets the shared post.reactionStack fixture. '
           'When the user is not connected / offline, surfaces the concrete '
           'OctopusConnectionFailure subtype (e.g. OctopusUserNotAuthenticated).',
       resultTestId: 'reactions-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
-          (hasDemoPostId ? 'Demo postId' : 'Fallback fake postId', _postId),
+          ('post.reactionStack', _postId),
           ('Last reaction', _lastReactionLabel),
           ('Last outcome', _lastOutcome),
         ],

@@ -92,6 +92,19 @@ class RealDebugLog extends ChangeNotifier implements DemoLogSink {
     );
   }
 
+  @override
+  void note(String label, [Map<String, Object?> details = const {}]) {
+    _add(
+      DebugEntry(
+        DebugEntryKind.event,
+        'host · $label',
+        details.isEmpty
+            ? ''
+            : details.entries.map((e) => '${e.key} → ${e.value}').join('\n'),
+      ),
+    );
+  }
+
   void _add(DebugEntry entry) {
     _entries.insert(0, entry);
     if (_entries.length > 500) _entries.removeLast();

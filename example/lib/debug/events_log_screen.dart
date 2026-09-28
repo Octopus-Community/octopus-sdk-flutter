@@ -29,28 +29,31 @@ class _EventsLogScreenState extends State<EventsLogScreen> {
     _LogFilter.host => e.kind == DebugEntryKind.api,
   };
 
-  Future<void> _copyAsJson() async {
-    await Clipboard.setData(ClipboardData(text: debugLog.exportJson()));
-    if (mounted) showSampleSnackBar(context, 'Events log copied as JSON');
+  /// Plain text, not JSON: what a tester pastes goes into a Slack message or a
+  /// GitHub issue, where a JSON array is read by nobody and eats the length
+  /// budget in braces. [DebugLog.exportJson] stays for machine consumers.
+  Future<void> _copyLog() async {
+    await Clipboard.setData(ClipboardData(text: debugLog.exportText()));
+    if (mounted) showSampleSnackBar(context, 'Events log copied');
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return SampleScaffold(
       appBar: AppBar(
         title: const SampleAppBarTitle('Events log'),
         actions: [
           Semantics(
-            identifier: 'debug-copy-button',
+            identifier: 'events-copy-log-button',
             button: true,
             // An icon, not a label: a text action here pushed the app bar over
             // its width on a 1080px screen — the title ellipsised to
             // "Events l…" and this button laid out at zero width while staying
             // tappable next to Clear.
             child: IconButton(
-              tooltip: 'Copy as JSON',
+              tooltip: 'Copy log',
               icon: const Icon(Icons.content_copy_outlined),
-              onPressed: _copyAsJson,
+              onPressed: _copyLog,
             ),
           ),
           Semantics(
@@ -64,56 +67,64 @@ class _EventsLogScreenState extends State<EventsLogScreen> {
           ),
         ],
       ),
-      body: Semantics(
-        identifier: 'events-log-screen',
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Semantics(
-                identifier: 'debug-filter-select',
-                container: true,
-                child: SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<_LogFilter>(
-                    segments: const [
-                      ButtonSegment(value: _LogFilter.all, label: Text('All')),
-                      ButtonSegment(value: _LogFilter.sdk, label: Text('SDK')),
-                      ButtonSegment(
-                        value: _LogFilter.host,
-                        label: Text('HOST'),
-                      ),
-                    ],
-                    selected: {_filter},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (s) =>
-                        setState(() => _filter = s.first),
+      body: SafeArea(
+        child: Semantics(
+          identifier: 'events-log-screen',
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Semantics(
+                  identifier: 'debug-filter-select',
+                  container: true,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<_LogFilter>(
+                      segments: const [
+                        ButtonSegment(
+                          value: _LogFilter.all,
+                          label: Text('All'),
+                        ),
+                        ButtonSegment(
+                          value: _LogFilter.sdk,
+                          label: Text('SDK'),
+                        ),
+                        ButtonSegment(
+                          value: _LogFilter.host,
+                          label: Text('HOST'),
+                        ),
+                      ],
+                      selected: {_filter},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (s) =>
+                          setState(() => _filter = s.first),
+                    ),
                   ),
                 ),
               ),
-            ),
-            Expanded(
-              child: Semantics(
-                identifier: 'debug-log-list',
-                container: true,
-                child: ListenableBuilder(
-                  listenable: debugLog,
-                  builder: (context, _) {
-                    final entries = debugLog.entries.where(_matches).toList();
-                    if (entries.isEmpty) {
-                      return const Center(child: Text('No events yet.'));
-                    }
-                    return ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemCount: entries.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, i) => _EntryTile(entries[i]),
-                    );
-                  },
+              Expanded(
+                child: Semantics(
+                  identifier: 'debug-log-list',
+                  container: true,
+                  child: ListenableBuilder(
+                    listenable: debugLog,
+                    builder: (context, _) {
+                      final entries = debugLog.entries.where(_matches).toList();
+                      if (entries.isEmpty) {
+                        return const Center(child: Text('No events yet.'));
+                      }
+                      return ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        itemCount: entries.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, i) => _EntryTile(entries[i]),
+                      );
+                    },
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -178,14 +189,17 @@ class _SourcePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final color = label == 'HOST'
+    final dark = brightness == Brightness.dark;
+    final color = dark
+        ? sampleAccentDark
+        : label == 'HOST'
         ? sampleAmberFor(brightness)
         : sampleAccent(brightness);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        border: Border.all(color: color),
+        color: dark ? sampleDarkChipFill : color.withValues(alpha: 0.12),
+        border: Border.all(color: dark ? sampleDarkChipBorder : color),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(

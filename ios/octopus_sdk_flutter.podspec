@@ -29,8 +29,8 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   # across the new threshold rebuilds the embedded screen and discards its state
   # (a half-typed post included). Re-check the condition in
   # `OctopusUI/Utils/View+InsetableMainNavigationView.swift` when changing these.
-  s.dependency 'OctopusCommunity', '1.13.2'
-  s.dependency 'OctopusCommunityUI', '1.13.2'
+  s.dependency 'OctopusCommunity', '1.14.0'
+  s.dependency 'OctopusCommunityUI', '1.14.0'
   # `OctopusCore` is where `ProfileFieldsLock` / `ContentOptions` /
   # `TermsAcceptanceMode` are declared (the `debugOverride*` QA affordances
   # need to construct these). It is not a Swift Package "product" of
@@ -38,7 +38,7 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   # `OctopusCommunity` already pulls in transitively — CocoaPods has no
   # concept of "products", so declaring it here is enough to `import
   # OctopusCore` directly. Keep in lockstep with the two pins above.
-  s.dependency 'OctopusCommunityCore', '1.13.2'
+  s.dependency 'OctopusCommunityCore', '1.14.0'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

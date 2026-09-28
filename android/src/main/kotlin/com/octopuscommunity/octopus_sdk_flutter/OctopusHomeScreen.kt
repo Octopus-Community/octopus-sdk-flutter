@@ -77,6 +77,7 @@ fun OctopusHomeScreen(
     fontFamily: String? = null,
     fontWeight: Int? = null,
     logoBase64: String? = null,
+    icons: Map<String, String> = emptyMap(),
     navBarTitle: String? = null,
     navBarPrimaryColor: Boolean = false,
     /**
@@ -146,6 +147,7 @@ fun OctopusHomeScreen(
         fontFamily = fontFamily,
         fontWeight = fontWeight,
         logoBase64 = logoBase64,
+        icons = icons,
         navBarTitle = navBarTitle,
         navBarPrimaryColor = navBarPrimaryColor,
         fontSizeTitle1 = fontSizeTitle1,

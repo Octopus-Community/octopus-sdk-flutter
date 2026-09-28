@@ -7,7 +7,7 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
-import '../octopus_demo_config.dart';
+import '../sample_fixtures.dart';
 import '../widgets/scenario_scaffold.dart';
 
 /// Height of the fake host bottom bar used by Preset 3.
@@ -31,10 +31,14 @@ const double _kHostBarHeight = 56;
 /// **Why this is different from the Modal scenario.**
 /// - The fullscreen route behaves like any other screen in the host's
 ///   navigation stack: the user pushes into it (lateral / platform-default
-///   transition) and pops out via the SDK's own back arrow, the system
-///   back gesture, or — on iOS — the swipe-from-left-edge that
-///   [MaterialPageRoute] enables by default. No tap-outside-to-dismiss, no
-///   drag handle, no explicit close button.
+///   transition) and pops out via the SDK's own back arrow; while the SDK
+///   is on its **root** screen, the Android system back gesture and — on
+///   iOS — the swipe-from-left-edge that [MaterialPageRoute] enables by
+///   default pop it too. Deeper inside the SDK, the Android system back
+///   gesture is consumed by the native navigation stack instead and leaves
+///   this route in place; on iOS which stack a deeper swipe reaches isn't
+///   something the plugin decides. No tap-outside-to-dismiss, no drag
+///   handle, no explicit close button.
 /// - The Modal scenario sets `fullscreenDialog: true` instead, which
 ///   presents with the modal slide-up transition on iOS, disables the iOS
 ///   swipe-back gesture, and shows the SDK's native close button
@@ -152,7 +156,7 @@ class FullscreenScenario extends StatelessWidget {
             : 0.0;
         final notification = deepLink
             ? OctopusSDK.getOctopusNotification(
-                sampleOctopusNotificationPayload,
+                sampleFixtures.postNotificationPayload,
               )
             : app.pendingCommunityNotification;
         setResult(
