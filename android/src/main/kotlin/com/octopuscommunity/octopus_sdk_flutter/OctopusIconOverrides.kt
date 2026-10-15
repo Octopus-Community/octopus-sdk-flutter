@@ -14,7 +14,8 @@ private fun painterSlot(painter: Painter): @Composable () -> Painter = { painter
  * Every path is mapped onto its Android field here — the names differ in a few places
  * (`content.post.creation.open` is `post.creation.create`, `content.comment.creation.open`
  * is `post.openCommentCreation`, `content.reply.creation.open` is
- * `comment.openReplyCreation`, `profile.emptyNotifications` lives under `notifications`...).
+ * `comment.openReplyCreation`...). `profile.emptyNotifications` is accepted and ignored, as
+ * on iOS: both SDKs draw an empty notification list from `screenStates.emptyNotifications`.
  * An absent path keeps the SDK default; an on/off pair is applied only when both of its
  * images loaded, as the Dart layer only ever sends complete pairs.
  */
@@ -141,15 +142,13 @@ internal fun octopusIconsWithOverrides(overrides: Map<String, Painter>): Octopus
       notConnected = slot("profile.notConnected", profile.notConnected),
       blockUser = slot("profile.blockUser", profile.blockUser)
     ),
-    notifications = base.notifications.copy(
-      emptyNotifications = slot("profile.emptyNotifications", base.notifications.emptyNotifications)
-    ),
     screenStates = OctopusIconsDefaults.screenStates(
       emptyContent = slot("screenStates.emptyContent", base.screenStates.emptyContent),
       emptyNotifications = slot("screenStates.emptyNotifications", base.screenStates.emptyNotifications),
       networkError = slot("screenStates.networkError", base.screenStates.networkError),
       error = slot("screenStates.error", base.screenStates.error)
     ),
+    clearText = slot("common.clearText", base.clearText),
     radio = pair("common.radio", base.radio),
     checkbox = pair("common.checkbox", base.checkbox),
     toggle = pair("common.toggle", base.toggle),

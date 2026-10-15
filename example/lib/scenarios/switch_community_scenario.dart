@@ -27,8 +27,7 @@ class SwitchCommunityScenario extends StatelessWidget {
 
   String _redactKey(String? key) {
     if (key == null || key.isEmpty) return '<empty>';
-    final visible = key.length < 4 ? key : key.substring(0, 4);
-    return '$visible…';
+    return '••••';
   }
 
   String _connectionLabel(OctopusConnectionState? state) {
@@ -46,8 +45,8 @@ class SwitchCommunityScenario extends StatelessWidget {
     final currentKey = app.activeApiKey;
     final hasNamedKeys = injectedApiKeys.isNotEmpty;
     return ScenarioScaffold(
-      title: 'Switch community',
-      api: 'switchCommunity',
+      title: 'Restart or stop the SDK',
+      api: 'reset / stop / switchCommunity',
       verifyInCommunity: true,
       description: hasNamedKeys
           ? 'Re-target the SDK at a different community at runtime via '
@@ -85,6 +84,33 @@ class SwitchCommunityScenario extends StatelessWidget {
         ],
       ),
       presets: [
+        ScenarioPreset(
+          testId: 'qa-preset-lifecycle-2',
+          label: 'reset() · Execute',
+          onRun: (setResult) async {
+            await app.resetSessionForScenario();
+            setResult('Session reset; the selected community is kept.');
+          },
+        ),
+        ScenarioPreset(
+          testId: 'qa-preset-lifecycle-3',
+          label: 'stop() · Execute',
+          onRun: (setResult) async {
+            await app.stopForScenario();
+            setResult('SDK stopped. Configuration is kept for restarting.');
+          },
+        ),
+        ScenarioPreset(
+          testId: 'lifecycle-restart',
+          label: 'Restart the SDK',
+          onRun: (setResult) async {
+            await app.restartForScenario();
+            setResult(
+              app.initError ?? 'SDK restarted.',
+              isError: !app.initialized,
+            );
+          },
+        ),
         for (var i = 0; i < injectedApiKeys.length; i++)
           ScenarioPreset(
             // Interpolated on purpose: the preset set is the named-key set,

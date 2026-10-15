@@ -7,6 +7,7 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../design.dart';
 
 /// Sync Followed Groups scenario — `syncFollowGroups` (batch follow/unfollow).
 ///
@@ -172,7 +173,7 @@ class _SyncFollowGroupsScenarioState extends State<SyncFollowGroupsScenario> {
             selected: _offset,
             onChanged: (offset) => setState(() => _offset = offset),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: SampleSpacing.space4),
           KeyValueCard(
             title: 'Community groups (live)',
             rows: groups.isEmpty
@@ -226,7 +227,7 @@ class _OffsetSelector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('actionDate offset', style: theme.textTheme.labelLarge),
-        const SizedBox(height: 8),
+        const SizedBox(height: SampleSpacing.space2),
         Wrap(
           spacing: 8,
           children: [

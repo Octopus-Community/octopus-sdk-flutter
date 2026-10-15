@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../design.dart';
 
 /// Track A/B Tests scenario — mirrors iOS `TrackABTests`.
 ///
@@ -139,7 +140,12 @@ class _CanAccessSwitch extends StatelessWidget {
     return Card(
       color: theme.colorScheme.surfaceContainerHighest,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+        padding: const EdgeInsets.fromLTRB(
+          SampleSpacing.space4,
+          SampleSpacing.space3,
+          SampleSpacing.space3,
+          SampleSpacing.space3,
+        ),
         child: Row(
           children: [
             Expanded(
@@ -150,7 +156,7 @@ class _CanAccessSwitch extends StatelessWidget {
                     'Can access the community',
                     style: theme.textTheme.titleSmall,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: SampleSpacing.space1),
                   Text(
                     'Simulates the host\'s A/B-test decision. Toggling fires '
                     'OctopusSDK.trackCommunityAccess(value).',

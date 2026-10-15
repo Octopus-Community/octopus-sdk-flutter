@@ -78,10 +78,10 @@ class ProfileFieldsLock {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'nickname': nickname.toNativeValue(),
-        'avatar': avatar.toNativeValue(),
-        'bio': bio.toNativeValue(),
-      };
+    'nickname': nickname.toNativeValue(),
+    'avatar': avatar.toNativeValue(),
+    'bio': bio.toNativeValue(),
+  };
 
   @override
   bool operator ==(Object other) =>

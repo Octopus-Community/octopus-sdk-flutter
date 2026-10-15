@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../app_log.dart';
 import '../app_state.dart';
 import '../design.dart';
-import '../octopus_demo_config.dart';
 import 'connect_user_result.dart';
 
 /// Profile-edit page backing the embedded UI's `onModifyUser` callback.
@@ -26,12 +24,23 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   final _formKey = GlobalKey<FormState>();
   final _nicknameController = TextEditingController();
   final _bioController = TextEditingController();
+  bool _seeded = false;
   bool _busy = false;
 
   bool get _showNickname =>
       widget.fieldToEdit == null || widget.fieldToEdit == 'NICKNAME';
   bool get _showBio =>
       widget.fieldToEdit == null || widget.fieldToEdit == 'BIO';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = AppScope.maybeOf(context);
+    if (_seeded || app == null) return;
+    _seeded = true;
+    _nicknameController.text = app.profileForEditing.nickname ?? '';
+    _bioController.text = app.profileForEditing.bio ?? '';
+  }
 
   @override
   void dispose() {
@@ -44,20 +53,21 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     final app = AppScope.of(context);
-    final nickname = _showNickname ? _nicknameController.text.trim() : null;
-    final bio = _showBio ? _bioController.text.trim() : null;
+    final previous = app.profileForEditing;
+    // Native connectUser ignores a null nickname; null bio/picture clear them.
+    // Keep unedited values, while an edited empty bio deliberately clears it.
+    final nickname = _showNickname
+        ? _nicknameController.text.trim()
+        : previous.nickname;
+    final bio = _showBio ? _bioController.text.trim() : previous.bio;
+    final picture = previous.picture;
     final userId = app.effectiveUserId;
     try {
-      demoLog.apiCall('connectUser', {
-        'userId': userId,
-        if (nickname != null) 'nickname': nickname,
-        if (bio != null) 'bio': bio,
-      });
-      final result = await app.octopus.connectUser(
+      final result = await app.connectWithProfile(
         userId: userId,
-        tokenProvider: () async => octopusUserToken,
         nickname: nickname,
         bio: bio,
+        picture: picture,
       );
       final failure = describeConnectUserFailure(result);
       if (failure != null) {
@@ -90,6 +100,19 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    const bioMaxLines = 4;
+    final inputStyle = Theme.of(context).textTheme.bodyLarge!;
+    final linePainter = TextPainter(
+      text: TextSpan(text: ' ', style: inputStyle),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    );
+    // Reserve the extra lines below the icon so its center matches Nickname's
+    // first line, including when system text scaling changes the line height.
+    final bioIconBottomPadding =
+        (bioMaxLines - 1) * linePainter.preferredLineHeight;
+    linePainter.dispose();
+
     return SampleScaffold(
       appBar: AppBar(
         title: Text(
@@ -108,11 +131,25 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(SampleSpacing.space6),
             children: [
+              const Center(
+                child: CircleAvatar(
+                  radius: 32,
+                  child: Icon(Icons.person_outline, size: 32),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Edit profile',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
               if (_showNickname)
                 TextFormField(
                   controller: _nicknameController,
+                  style: inputStyle,
                   decoration: const InputDecoration(
                     labelText: 'Nickname',
                     border: OutlineInputBorder(),
@@ -122,19 +159,24 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                       ? 'Enter a nickname'
                       : null,
                 ),
-              if (_showNickname && _showBio) const SizedBox(height: 16),
+              if (_showNickname && _showBio)
+                const SizedBox(height: SampleSpacing.space4),
               if (_showBio)
                 TextFormField(
                   controller: _bioController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
+                  style: inputStyle,
+                  maxLines: bioMaxLines,
+                  decoration: InputDecoration(
                     labelText: 'Bio',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.description),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: Padding(
+                      padding: EdgeInsets.only(bottom: bioIconBottomPadding),
+                      child: const Icon(Icons.description),
+                    ),
                     alignLabelWithHint: true,
                   ),
                 ),
-              const SizedBox(height: 24),
+              const SizedBox(height: SampleSpacing.space6),
               FilledButton(
                 onPressed: _busy ? null : _save,
                 child: Text(_busy ? 'Saving…' : 'Save'),

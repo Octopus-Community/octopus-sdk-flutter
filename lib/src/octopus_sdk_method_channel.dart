@@ -7,6 +7,7 @@ import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
+import 'consent_texts.dart';
 import 'content_options.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
@@ -21,6 +22,7 @@ import 'profile_fields_lock.dart';
 import 'sync_follow_group.dart';
 import 'terms_acceptance_mode.dart';
 import 'octopus_sdk_platform.dart';
+import 'octopus_sdk_version.dart';
 
 /// An implementation of [OctopusSDKPlatform] that uses method channels.
 class OctopusSDKMethodChannel extends OctopusSDKPlatform {
@@ -36,21 +38,10 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }) async {
     await methodChannel.invokeMethod('initialize', {
       'apiKey': apiKey,
-      'appManagedFields':
-          appManagedFields?.map((f) => f.toNativeValue()).toList(),
-      'apiServer': apiServer?.toMap(),
-    });
-  }
-
-  @override
-  Future<void> initializeOctopusAuth({
-    required String apiKey,
-    String? deepLink,
-    ApiServer? apiServer,
-  }) async {
-    await methodChannel.invokeMethod('initializeOctopusAuth', {
-      'apiKey': apiKey,
-      'deepLink': deepLink,
+      'wrapperVersion': octopusSdkVersion,
+      'appManagedFields': appManagedFields
+          ?.map((f) => f.toNativeValue())
+          .toList(),
       'apiServer': apiServer?.toMap(),
     });
   }
@@ -63,21 +54,10 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }) async {
     await methodChannel.invokeMethod('switchCommunity', {
       'apiKey': apiKey,
-      'appManagedFields':
-          appManagedFields?.map((f) => f.toNativeValue()).toList(),
-      'apiServer': apiServer?.toMap(),
-    });
-  }
-
-  @override
-  Future<void> switchCommunityOctopusAuth({
-    required String apiKey,
-    String? deepLink,
-    ApiServer? apiServer,
-  }) async {
-    await methodChannel.invokeMethod('switchCommunityOctopusAuth', {
-      'apiKey': apiKey,
-      'deepLink': deepLink,
+      'wrapperVersion': octopusSdkVersion,
+      'appManagedFields': appManagedFields
+          ?.map((f) => f.toNativeValue())
+          .toList(),
       'apiServer': apiServer?.toMap(),
     });
   }
@@ -93,20 +73,23 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }
 
   @override
-  Future<OctopusResult<void, ClientUserError>> connectUser(
-      {required String userId,
-      required String token,
-      String? nickname,
-      String? bio,
-      String? picture}) async {
-    final raw =
-        await methodChannel.invokeMethod<Map<dynamic, dynamic>>('connectUser', {
-      'userId': userId,
-      'token': token,
-      'nickname': nickname,
-      'bio': bio,
-      'picture': picture
-    });
+  Future<OctopusResult<void, ClientUserError>> connectUser({
+    required String userId,
+    required String token,
+    String? nickname,
+    String? bio,
+    String? picture,
+  }) async {
+    final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+      'connectUser',
+      {
+        'userId': userId,
+        'token': token,
+        'nickname': nickname,
+        'bio': bio,
+        'picture': picture,
+      },
+    );
     return _decodeConnectUserResult(raw);
   }
 
@@ -120,19 +103,20 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }) async {
     final raw = await methodChannel
         .invokeMethod<Map<dynamic, dynamic>>('connectUserWithTokenProvider', {
-      'userId': userId,
-      'providerId': providerId,
-      'nickname': nickname,
-      'bio': bio,
-      'picture': picture,
-    });
+          'userId': userId,
+          'providerId': providerId,
+          'nickname': nickname,
+          'bio': bio,
+          'picture': picture,
+        });
     return _decodeConnectUserResult(raw);
   }
 
   OctopusResult<void, ClientUserError> _decodeConnectUserResult(
     Map<dynamic, dynamic>? raw,
   ) {
-    final wire = raw ??
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -173,12 +157,13 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<OctopusResult<void, OverrideCommunityAccessError>>
-      overrideCommunityAccess(bool hasAccess) async {
+  overrideCommunityAccess(bool hasAccess) async {
     final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'overrideCommunityAccess',
       {'hasAccess': hasAccess},
     );
-    final wire = raw ??
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -196,10 +181,12 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<OctopusResult<void, RefreshEntitlementsError>>
-      refreshEntitlements() async {
-    final raw = await methodChannel
-        .invokeMethod<Map<dynamic, dynamic>>('refreshEntitlements');
-    final wire = raw ??
+  refreshEntitlements() async {
+    final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+      'refreshEntitlements',
+    );
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -222,12 +209,10 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   ) async {
     final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'setReaction',
-      {
-        'postId': postId,
-        'reaction': reaction?.toWire(),
-      },
+      {'postId': postId, 'reaction': reaction?.toWire()},
     );
-    final wire = raw ??
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -245,7 +230,7 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<OctopusResult<OctopusPost, ClientPostError>>
-      fetchOrCreateClientObjectRelatedPost(
+  fetchOrCreateClientObjectRelatedPost(
     ClientPost clientPost, {
     required String requestId,
     required bool hasTokenProvider,
@@ -258,7 +243,8 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
         'hasTokenProvider': hasTokenProvider,
       },
     );
-    final wire = raw ??
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -287,7 +273,9 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<void> startClientObjectPostObservation(
-      String observationId, String clientObjectId) async {
+    String observationId,
+    String clientObjectId,
+  ) async {
     await methodChannel.invokeMethod('startClientObjectPostObservation', {
       'observationId': observationId,
       'clientObjectId': clientObjectId,
@@ -306,11 +294,10 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
     String? profileId,
     String? clientUserId,
   }) async {
-    return await methodChannel
-        .invokeMethod<Map<dynamic, dynamic>>('fetchCommunityData', {
-      'profileId': profileId,
-      'clientUserId': clientUserId,
-    });
+    return await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+      'fetchCommunityData',
+      {'profileId': profileId, 'clientUserId': clientUserId},
+    );
   }
 
   @override
@@ -381,6 +368,20 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   }
 
   @override
+  Future<void> debugOverrideForceNicknameChoice(bool? enabled) async {
+    await methodChannel.invokeMethod('debugOverrideForceNicknameChoice', {
+      'enabled': enabled,
+    });
+  }
+
+  @override
+  Future<void> debugOverrideConsentTexts(OctopusConsentTexts? texts) async {
+    await methodChannel.invokeMethod('debugOverrideConsentTexts', {
+      'texts': texts?.toMap(),
+    });
+  }
+
+  @override
   Future<Map<dynamic, dynamic>?> debugGetCommunityConfig() async {
     return await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'debugGetCommunityConfig',
@@ -389,7 +390,9 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<void> trackCustomEvent(
-      String name, Map<String, String> properties) async {
+    String name,
+    Map<String, String> properties,
+  ) async {
     await methodChannel.invokeMethod('trackCustomEvent', {
       'name': name,
       'properties': properties,
@@ -405,18 +408,21 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<List<SyncFollowGroupResult>> syncFollowGroups(
-      List<SyncFollowGroupAction> actions) async {
+    List<SyncFollowGroupAction> actions,
+  ) async {
     if (actions.isEmpty) return const <SyncFollowGroupResult>[];
 
     final raw = await methodChannel.invokeMethod<List<dynamic>>(
       'syncFollowGroups',
       {
         'actions': actions
-            .map((a) => {
-                  'groupId': a.groupId,
-                  'followed': a.followed,
-                  'actionDateMs': a.actionDate.millisecondsSinceEpoch,
-                })
+            .map(
+              (a) => {
+                'groupId': a.groupId,
+                'followed': a.followed,
+                'actionDateMs': a.actionDate.millisecondsSinceEpoch,
+              },
+            )
             .toList(),
       },
     );
@@ -424,19 +430,23 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
     if (raw == null) return const <SyncFollowGroupResult>[];
     return raw
         .cast<Map<dynamic, dynamic>>()
-        .map((m) => SyncFollowGroupResult(
-              groupId: m['groupId'] as String,
-              status: SyncFollowGroupStatus.fromWire(m['status'] as String),
-            ))
+        .map(
+          (m) => SyncFollowGroupResult(
+            groupId: m['groupId'] as String,
+            status: SyncFollowGroupStatus.fromWire(m['status'] as String),
+          ),
+        )
         .toList(growable: false);
   }
 
   @override
   Future<OctopusResult<List<OctopusGroup>, OctopusServerError>>
-      fetchGroups() async {
-    final raw =
-        await methodChannel.invokeMethod<Map<dynamic, dynamic>>('fetchGroups');
-    final wire = raw ??
+  fetchGroups() async {
+    final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+      'fetchGroups',
+    );
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -464,12 +474,14 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<OctopusResult<void, GroupFollowUnfollowError>> followGroup(
-      String groupId) async {
+    String groupId,
+  ) async {
     final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'followGroup',
       {'groupId': groupId},
     );
-    final wire = raw ??
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',
@@ -487,12 +499,14 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<OctopusResult<void, GroupFollowUnfollowError>> unfollowGroup(
-      String groupId) async {
+    String groupId,
+  ) async {
     final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'unfollowGroup',
       {'groupId': groupId},
     );
-    final wire = raw ??
+    final wire =
+        raw ??
         const <String, dynamic>{
           'type': 'failure',
           'kind': 'statusError',

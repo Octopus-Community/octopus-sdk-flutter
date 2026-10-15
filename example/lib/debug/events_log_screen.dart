@@ -4,8 +4,6 @@ import 'package:flutter/services.dart';
 import '../design.dart';
 import 'debug_log.dart';
 
-enum _LogFilter { all, sdk, host }
-
 /// Developer tools → Events log: one live feed of what the SDK emitted (SDK)
 /// and what the sample called (HOST), newest first.
 ///
@@ -21,19 +19,18 @@ class EventsLogScreen extends StatefulWidget {
 }
 
 class _EventsLogScreenState extends State<EventsLogScreen> {
-  _LogFilter _filter = _LogFilter.all;
-
-  bool _matches(DebugEntry e) => switch (_filter) {
-    _LogFilter.all => true,
-    _LogFilter.sdk => e.kind == DebugEntryKind.event,
-    _LogFilter.host => e.kind == DebugEntryKind.api,
-  };
-
   /// Plain text, not JSON: what a tester pastes goes into a Slack message or a
   /// GitHub issue, where a JSON array is read by nobody and eats the length
   /// budget in braces. [DebugLog.exportJson] stays for machine consumers.
   Future<void> _copyLog() async {
-    await Clipboard.setData(ClipboardData(text: debugLog.exportText()));
+    await Clipboard.setData(
+      ClipboardData(
+        text: debugLog.entries
+            .where((entry) => entry.kind == DebugEntryKind.event)
+            .map((entry) => '${entry.label} — ${entry.detail}')
+            .join('\n'),
+      ),
+    );
     if (mounted) showSampleSnackBar(context, 'Events log copied');
   }
 
@@ -73,32 +70,11 @@ class _EventsLogScreenState extends State<EventsLogScreen> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Semantics(
-                  identifier: 'debug-filter-select',
-                  container: true,
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: SegmentedButton<_LogFilter>(
-                      segments: const [
-                        ButtonSegment(
-                          value: _LogFilter.all,
-                          label: Text('All'),
-                        ),
-                        ButtonSegment(
-                          value: _LogFilter.sdk,
-                          label: Text('SDK'),
-                        ),
-                        ButtonSegment(
-                          value: _LogFilter.host,
-                          label: Text('HOST'),
-                        ),
-                      ],
-                      selected: {_filter},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (s) =>
-                          setState(() => _filter = s.first),
-                    ),
+                padding: const EdgeInsets.all(SampleSpacing.space4),
+                child: ListenableBuilder(
+                  listenable: debugLog,
+                  builder: (context, _) => Text(
+                    '${debugLog.entries.where((entry) => entry.kind == DebugEntryKind.event).length} events',
                   ),
                 ),
               ),
@@ -109,12 +85,22 @@ class _EventsLogScreenState extends State<EventsLogScreen> {
                   child: ListenableBuilder(
                     listenable: debugLog,
                     builder: (context, _) {
-                      final entries = debugLog.entries.where(_matches).toList();
+                      final entries = debugLog.entries
+                          .where((entry) => entry.kind == DebugEntryKind.event)
+                          .toList();
                       if (entries.isEmpty) {
-                        return const Center(child: Text('No events yet.'));
+                        return ListView(
+                          padding: const EdgeInsets.all(SampleSpacing.space4),
+                          children: const [Text('No events yet.')],
+                        );
                       }
                       return ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        padding: const EdgeInsets.fromLTRB(
+                          SampleSpacing.space4,
+                          0,
+                          SampleSpacing.space4,
+                          SampleSpacing.space6,
+                        ),
                         itemCount: entries.length,
                         separatorBuilder: (_, _) => const Divider(height: 1),
                         itemBuilder: (context, i) => _EntryTile(entries[i]),
@@ -149,7 +135,7 @@ class _EntryTile extends StatelessWidget {
           Row(
             children: [
               _SourcePill(isHost ? 'HOST' : 'SDK'),
-              const SizedBox(width: 8),
+              const SizedBox(width: SampleSpacing.space2),
               Expanded(
                 child: Text(
                   entry.label,
@@ -166,7 +152,7 @@ class _EntryTile extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: SampleSpacing.space1),
           Text(
             entry.detail,
             style: theme.textTheme.bodySmall?.copyWith(
@@ -196,7 +182,10 @@ class _SourcePill extends StatelessWidget {
         ? sampleAmberFor(brightness)
         : sampleAccent(brightness);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: SampleSpacing.space2,
+        vertical: 2,
+      ),
       decoration: BoxDecoration(
         color: dark ? sampleDarkChipFill : color.withValues(alpha: 0.12),
         border: Border.all(color: dark ? sampleDarkChipBorder : color),
@@ -206,7 +195,7 @@ class _SourcePill extends StatelessWidget {
         label,
         style: TextStyle(
           color: color,
-          fontSize: 11,
+          fontSize: SampleTypography.captionSize,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.6,
         ),

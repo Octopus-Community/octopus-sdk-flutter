@@ -240,8 +240,10 @@ final class OctopusInvalidArguments<E extends OctopusServerError>
   final List<E> errors;
 
   const OctopusInvalidArguments(this.errors)
-      : assert(errors.length > 0,
-            'OctopusInvalidArguments requires at least one error');
+    : assert(
+        errors.length > 0,
+        'OctopusInvalidArguments requires at least one error',
+      );
 
   /// The first (primary) error.
   E get error => errors.first;
@@ -297,7 +299,8 @@ extension OctopusResultExtensions<D, E extends OctopusServerError>
   /// Transforms each typed error inside an [OctopusInvalidArguments].
   /// Successes and connection failures pass through unchanged.
   OctopusResult<D, NE> mapErrors<NE extends OctopusServerError>(
-      NE Function(E error) transform) {
+    NE Function(E error) transform,
+  ) {
     final self = this;
     if (self is OctopusInvalidArguments<E>) {
       return OctopusInvalidArguments<NE>(self.errors.map(transform).toList());
@@ -318,7 +321,8 @@ extension OctopusResultExtensions<D, E extends OctopusServerError>
 
   /// Runs [block] with the failure when failed; returns `this`.
   OctopusResult<D, E> onFailure(
-      void Function(OctopusFailure<E> failure) block) {
+    void Function(OctopusFailure<E> failure) block,
+  ) {
     final self = this;
     if (self is OctopusFailure<E>) block(self);
     return this;

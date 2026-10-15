@@ -7,6 +7,7 @@ import '../app_log.dart';
 import '../app_state.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../design.dart';
 
 /// Browse live community groups and change each group's follow status.
 class GroupsScenario extends StatefulWidget {
@@ -88,7 +89,7 @@ class _GroupsScenarioState extends State<GroupsScenario> {
             Card(
               key: ValueKey(group.id),
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(SampleSpacing.space4),
                 child: Row(
                   children: [
                     Expanded(
@@ -113,7 +114,7 @@ class _GroupsScenarioState extends State<GroupsScenario> {
                       ),
                     ),
                     if (group.canChangeFollowStatus) ...[
-                      const SizedBox(width: 12),
+                      const SizedBox(width: SampleSpacing.space3),
                       MergeSemantics(
                         child: group.isFollowed
                             ? Semantics(
@@ -178,7 +179,7 @@ class _GroupFollowButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.tonal(
+    return OutlinedButton(
       onPressed: isLoading ? null : onPressed,
       child: isLoading
           ? const SizedBox(

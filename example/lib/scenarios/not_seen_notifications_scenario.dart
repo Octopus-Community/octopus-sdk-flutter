@@ -128,7 +128,7 @@ class _NotSeenNotificationsScenarioState
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: SampleSpacing.space4),
           // Badged CTA — mirrors the iOS button at line 36-61 of
           // NotSeenNotificationsView.swift. Tapping it is equivalent to
           // Preset 1 (push the SDK as a full-page route).

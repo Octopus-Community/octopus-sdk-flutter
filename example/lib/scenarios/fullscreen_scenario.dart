@@ -9,6 +9,8 @@ import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
 import '../sample_fixtures.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../design.dart';
+import 'embedded_back_scenario.dart';
 
 /// Height of the fake host bottom bar used by Preset 3.
 ///
@@ -244,6 +246,13 @@ class FullscreenScenario extends StatelessWidget {
           'deep-linked to the sample post so this mode can be QA-verified '
           'without a live push.',
       resultTestId: 'fullscreen-result',
+      controls: SampleLink(
+        label: 'Choose the SDK back button',
+        identifier: 'fullscreen-embedded-back-link',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const EmbeddedBackScenario()),
+        ),
+      ),
       presets: [
         ScenarioPreset(
           testId: 'qa-preset-fullscreen-1',

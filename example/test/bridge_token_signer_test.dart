@@ -66,6 +66,9 @@ void main() {
       expect(payload['bridge_fingerprint'], fingerprint);
       expect(payload['exp'], exp);
       expect(payload.length, 2);
+      // Never stamp `iat`: a device clock ahead of the server makes the
+      // backend reject the token as issued in the future (#140).
+      expect(payload.containsKey('iat'), isFalse);
 
       // No '+' / '/' / '=' in any segment (base64url, no padding).
       for (final part in parts) {

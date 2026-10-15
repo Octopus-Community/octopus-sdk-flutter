@@ -51,8 +51,9 @@ class OctopusGroup {
     return OctopusGroup(
       id: wire['id'] is String ? wire['id'] as String : '',
       name: wire['name'] is String ? wire['name'] as String : '',
-      isFollowed:
-          wire['isFollowed'] is bool ? wire['isFollowed'] as bool : false,
+      isFollowed: wire['isFollowed'] is bool
+          ? wire['isFollowed'] as bool
+          : false,
       canChangeFollowStatus: wire['canChangeFollowStatus'] is bool
           ? wire['canChangeFollowStatus'] as bool
           : true,
@@ -75,16 +76,17 @@ class OctopusGroup {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        name,
-        isFollowed,
-        canChangeFollowStatus,
-        canAccess,
-        canCreateChildren,
-      );
+    id,
+    name,
+    isFollowed,
+    canChangeFollowStatus,
+    canAccess,
+    canCreateChildren,
+  );
 
   @override
-  String toString() => 'OctopusGroup(id: $id, name: $name, '
+  String toString() =>
+      'OctopusGroup(id: $id, name: $name, '
       'isFollowed: $isFollowed, canChangeFollowStatus: $canChangeFollowStatus, '
       'canAccess: $canAccess, canCreateChildren: $canCreateChildren)';
 }

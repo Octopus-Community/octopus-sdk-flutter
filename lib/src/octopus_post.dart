@@ -98,11 +98,13 @@ class OctopusPost {
       commentCount: wire['commentCount'] is num
           ? (wire['commentCount'] as num).toInt()
           : 0,
-      viewCount:
-          wire['viewCount'] is num ? (wire['viewCount'] as num).toInt() : 0,
+      viewCount: wire['viewCount'] is num
+          ? (wire['viewCount'] as num).toInt()
+          : 0,
       userReactionKind: rawUserReaction is Map
           ? OctopusReactionKind.fromWire(
-              Map<String, dynamic>.from(rawUserReaction))
+              Map<String, dynamic>.from(rawUserReaction),
+            )
           : null,
     );
   }
@@ -119,15 +121,16 @@ class OctopusPost {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        Object.hashAll(reactions),
-        commentCount,
-        viewCount,
-        userReactionKind,
-      );
+    id,
+    Object.hashAll(reactions),
+    commentCount,
+    viewCount,
+    userReactionKind,
+  );
 
   @override
-  String toString() => 'OctopusPost(id: $id, reactions: $reactions, '
+  String toString() =>
+      'OctopusPost(id: $id, reactions: $reactions, '
       'commentCount: $commentCount, viewCount: $viewCount, '
       'userReactionKind: $userReactionKind)';
 }

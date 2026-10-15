@@ -12,15 +12,24 @@ let package = Package(
         .library(name: "octopus-sdk-flutter", targets: ["octopus_sdk_flutter"])
     ],
     dependencies: [
+        // The Flutter engine (`import Flutter`), as a package the Flutter tool
+        // generates next to every SwiftPM plugin it links. Declared the way
+        // https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-plugin-authors
+        // prescribes. Flutter generates it from 3.41.0 on: on an older Flutter
+        // with SwiftPM enabled the path does not exist and resolution fails, so
+        // those apps take the CocoaPods path (`octopus_sdk_flutter.podspec`),
+        // which never reads this file.
+        .package(name: "FlutterFramework", path: "../FlutterFramework"),
         // Native Octopus iOS SDK, distributed as a Swift Package. Keep this
         // version in lockstep with the CocoaPods pins in
         // `octopus_sdk_flutter.podspec` (OctopusCommunity / OctopusCommunityUI).
-        .package(url: "https://github.com/Octopus-Community/octopus-sdk-swift.git", exact: "1.14.0")
+        .package(url: "https://github.com/Octopus-Community/octopus-sdk-swift.git", exact: "1.15.0")
     ],
     targets: [
         .target(
             name: "octopus_sdk_flutter",
             dependencies: [
+                .product(name: "FlutterFramework", package: "FlutterFramework"),
                 .product(name: "Octopus", package: "octopus-sdk-swift"),
                 .product(name: "OctopusUI", package: "octopus-sdk-swift")
             ],

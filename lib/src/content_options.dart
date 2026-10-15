@@ -13,28 +13,41 @@ class PostOptions {
   /// Whether members may attach a poll to a post.
   final bool enablePolls;
 
-  /// Creates a [PostOptions]. Both flags default to `true`.
-  const PostOptions({this.enablePictures = true, this.enablePolls = true});
+  /// Whether a post must contain text. Defaults to `true`.
+  ///
+  /// When `false`, an image (with or without a poll) can be published without
+  /// text. A poll alone still needs text; nonblank text keeps native length
+  /// validation. The backend must also allow posts without text.
+  final bool textRequired;
+
+  /// Creates a [PostOptions]. Every flag defaults to `true`.
+  const PostOptions({
+    this.enablePictures = true,
+    this.enablePolls = true,
+    this.textRequired = true,
+  });
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'enablePictures': enablePictures,
-        'enablePolls': enablePolls,
-      };
+    'enablePictures': enablePictures,
+    'enablePolls': enablePolls,
+    'textRequired': textRequired,
+  };
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PostOptions &&
           other.enablePictures == enablePictures &&
-          other.enablePolls == enablePolls;
+          other.enablePolls == enablePolls &&
+          other.textRequired == textRequired;
 
   @override
-  int get hashCode => Object.hash(enablePictures, enablePolls);
+  int get hashCode => Object.hash(enablePictures, enablePolls, textRequired);
 
   @override
   String toString() =>
-      'PostOptions(enablePictures: $enablePictures, enablePolls: $enablePolls)';
+      'PostOptions(enablePictures: $enablePictures, enablePolls: $enablePolls, textRequired: $textRequired)';
 }
 
 /// Per-content-type options governing what members may add when creating a
@@ -52,8 +65,8 @@ class CommentOptions {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'enablePictures': enablePictures,
-      };
+    'enablePictures': enablePictures,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -82,8 +95,8 @@ class ReplyOptions {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'enablePictures': enablePictures,
-      };
+    'enablePictures': enablePictures,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -133,10 +146,10 @@ class ContentOptions {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'post': post.toMap(),
-        'comment': comment.toMap(),
-        'reply': reply.toMap(),
-      };
+    'post': post.toMap(),
+    'comment': comment.toMap(),
+    'reply': reply.toMap(),
+  };
 
   @override
   bool operator ==(Object other) =>

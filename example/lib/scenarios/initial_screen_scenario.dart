@@ -231,12 +231,12 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
         .trim();
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(SampleSpacing.space4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Inputs', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             TextField(
               controller: _postIdCtrl,
               decoration: const InputDecoration(
@@ -251,7 +251,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 setState(() {});
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             DropdownButtonFormField<String?>(
               dropdownColor: theme.brightness == Brightness.dark
                   ? sampleDarkElevated
@@ -297,12 +297,12 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 });
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: SampleSpacing.space4),
             Text(
               'Prefilled post (preset 4)',
               style: theme.textTheme.titleSmall,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: SampleSpacing.space2),
             TextField(
               controller: _prefillTextCtrl,
               minLines: 3,
@@ -315,7 +315,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -328,7 +328,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: SampleSpacing.space3),
                 Expanded(
                   child: TextField(
                     controller: _ctaUrlCtrl,
@@ -341,7 +341,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: SampleSpacing.space2),
             Text(
               'Leave both CTA fields empty to attach no CTA. Filling only '
               'one surfaces a typed CtaLabelEmpty / CtaUrlEmpty error.',
@@ -349,9 +349,9 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: SampleSpacing.space4),
             Text('Member (presets 8-10)', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
+            const SizedBox(height: SampleSpacing.space2),
             TextField(
               controller: _memberClientUserIdCtrl,
               decoration: InputDecoration(
@@ -369,7 +369,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 setState(() {});
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             TextField(
               controller: _memberProfileIdCtrl,
               decoration: const InputDecoration(

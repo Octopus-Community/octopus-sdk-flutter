@@ -19,8 +19,9 @@ sealed class RefreshEntitlementsError implements OctopusServerError {
   /// [RefreshEntitlementsServerError], and a missing/non-String `message`
   /// falls back to a placeholder.
   factory RefreshEntitlementsError.fromWire(Map<String, dynamic> wire) {
-    final message =
-        wire['message'] is String ? wire['message'] as String : 'Unknown error';
+    final message = wire['message'] is String
+        ? wire['message'] as String
+        : 'Unknown error';
     switch (wire['type']) {
       case 'noClientTokenProvider':
         return RefreshEntitlementsNoClientTokenProviderError(message);
@@ -37,8 +38,8 @@ sealed class RefreshEntitlementsError implements OctopusServerError {
   }
 }
 
-/// Entitlements refresh is only supported in SSO mode with a registered token
-/// provider; the current connection has none.
+/// No token provider has been registered through [OctopusSDK.connectUser] yet.
+/// Reconnect a restored session with a token provider before refreshing.
 @immutable
 final class RefreshEntitlementsNoClientTokenProviderError
     extends RefreshEntitlementsError {

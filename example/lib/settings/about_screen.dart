@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../design.dart';
+import '../update/update_card.dart';
 import '../octopus_demo_config.dart';
 import '../widgets/open_url.dart';
 
@@ -17,7 +18,7 @@ class AboutScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return SampleScaffold(
-      appBar: AppBar(title: const SampleAppBarTitle('About')),
+      appBar: SampleTopAppBar(title: 'About'),
       // A pushed route: nothing above it consumes the bottom system inset the
       // way the app shell's own `SafeArea` does for the tabs. Without this the
       // list scrolls under Android's gesture handle, which crosses whatever
@@ -26,42 +27,64 @@ class AboutScreen extends StatelessWidget {
         child: Semantics(
           identifier: 'about-screen',
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(SampleSpacing.space4),
             children: [
+              if (app.updateChecker.isSupported) ...[
+                UpdateCard(checker: app.updateChecker),
+                const SizedBox(height: 12),
+              ],
               SampleSection(
-                title: 'About',
+                title: 'Versions',
                 identifier: 'about-versions',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SampleKeyValue(
-                      'Sample version',
+                      'App version',
                       app.sampleVersionLabel ?? '—',
                     ),
-                    SampleKeyValue('Built with', 'the Octopus SDK for Flutter'),
-                    const SizedBox(height: 4),
-                    // The visible trace of the common base: one row, opening the
-                    // design target the five platforms implement, so "same UX on
-                    // five platforms" is a claim a reader can check from inside
-                    // the app. Absent rather than dead when no target URL was
-                    // injected into the build — the URL is not in the source,
-                    // because this file reaches the public mirror.
-                    if (octopusDesignReferenceUrl.isNotEmpty)
-                      SampleNavTile(
-                        icon: Icons.design_services_outlined,
-                        title: 'Design reference',
-                        subtitle: 'Shared target for the five platforms',
-                        identifier: 'about-design-reference-row',
-                        onTap: () => openUrlOrCopy(
-                          context,
-                          octopusDesignReferenceUrl,
-                          clipLabel: 'Octopus design reference',
-                        ),
-                      ),
+                    const SizedBox(height: 6),
+                    const SampleKeyValue(
+                      'SDK version',
+                      'Not exposed by the Flutter plugin',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // The shared design link is present only when injected at build.
+              if (octopusDesignReferenceUrl.isNotEmpty) ...[
+                SampleNavTile(
+                  icon: Icons.design_services_outlined,
+                  title: 'Design reference',
+                  subtitle: 'Shared target for the five platforms',
+                  identifier: 'about-design-reference-row',
+                  onTap: () => openUrlOrCopy(
+                    context,
+                    octopusDesignReferenceUrl,
+                    clipLabel: 'Octopus design reference',
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              SampleSection(
+                title: 'Licences',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Open-source notices for what this sample links against.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 6),
+                    const SampleKeyValue('Octopus SDK', 'Proprietary'),
+                    const SizedBox(height: 6),
+                    const SampleKeyValue('Flutter / Dart', 'BSD-3-Clause'),
                     SampleNavTile(
                       icon: Icons.description_outlined,
                       title: 'Licences',
-                      subtitle: 'Open-source licences of every bundled package',
+                      subtitle:
+                          'Open-source notices for what this sample links against.',
                       identifier: 'about-licences-entry',
                       onTap: () => showLicensePage(
                         context: context,
@@ -72,32 +95,24 @@ class AboutScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               // Flutter attribution — Google's required trademark line, kept at
               // the readability floor.
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      'Built with Flutter™',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.74,
-                        ),
-                      ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Built with the Octopus SDK for Flutter',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: SampleSpacing.space1),
+                  Text(
+                    'Flutter and the related logo are trademarks of Google LLC.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Flutter and the related logo are trademarks of Google LLC.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.74,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
           ),

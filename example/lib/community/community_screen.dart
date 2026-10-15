@@ -1,23 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
-import '../app_log.dart';
 import '../app_state.dart';
-import '../auth/login_page.dart';
-import '../auth/profile_edit_page.dart';
 import '../config/config_screen.dart';
 import '../design.dart';
+import '../sample_tab.dart';
 import '../settings/account_screen.dart';
-import 'client_profile_page.dart';
+import 'community_navigation.dart';
+import 'present_community.dart';
 
 /// Community tab — the SDK's own embedded UI ([OctopusHomeScreen]).
 ///
 /// Reflects the active custom theme (Theme scenario), the locale override
 /// (Locale scenario), and any push deep-link (Community deep-link). A
-/// [ValueKey] derived from those forces a fresh PlatformView when they change,
-/// because UiKitView/AndroidView ignore creationParams changes after mount.
+/// surface generation changes only when its mount-time inputs or navigation
+/// target change; ordinary tab switches keep the PlatformView alive.
 class CommunityTab extends StatelessWidget {
-  const CommunityTab({super.key});
+  const CommunityTab({super.key, this.active = true});
+
+  final bool active;
 
   /// Blocking band action — retries the initialisation with the setup already
   /// saved, or sends the host back to Config when there is nothing to retry.
@@ -33,7 +34,7 @@ class CommunityTab extends StatelessWidget {
 
   /// Degraded band action — Settings → Account, where the SSO user connects.
   void _connect(BuildContext context) {
-    AppScope.of(context).requestTab(3);
+    AppScope.of(context).requestTab(SampleTab.settings.index);
     Navigator.of(
       context,
       rootNavigator: true,
@@ -73,13 +74,13 @@ class CommunityTab extends StatelessWidget {
           Expanded(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.all(32),
+                padding: const EdgeInsets.all(SampleSpacing.space8),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: failed
                       ? const [
                           Icon(Icons.cloud_off, size: 56),
-                          SizedBox(height: 12),
+                          SizedBox(height: SampleSpacing.space3),
                           Text(
                             'The community loads once the SDK is initialised.',
                             textAlign: TextAlign.center,
@@ -91,7 +92,7 @@ class CommunityTab extends StatelessWidget {
                             height: 28,
                             child: CircularProgressIndicator(strokeWidth: 3),
                           ),
-                          SizedBox(height: 12),
+                          SizedBox(height: SampleSpacing.space3),
                           Text(
                             'Starting the SDK…',
                             textAlign: TextAlign.center,
@@ -104,32 +105,6 @@ class CommunityTab extends StatelessWidget {
         ],
       );
     }
-
-    final pending = app.pendingCommunityNotification;
-    final octopusTheme = app.effectiveOctopusTheme();
-    final key = ValueKey<String>(
-      'community'
-      '|${pending?.linkPath ?? 'root'}'
-      '|${app.activeThemeLabel}'
-      // The tag, not the enum name: a locale typed in the Locale scenario's
-      // Customize editor leaves `localeChoice` on `system`, so keying on the
-      // enum would neither remount for `de` nor tell `de` from `es`.
-      '|${app.localeTag}'
-      // Include the resolved SDK theme mode so a Config-screen Light/Dark
-      // change forces a fresh PlatformView (creationParams are read once
-      // at mount). Today the host returns to Config to flip themes, so
-      // this is defensive — but it costs nothing and keeps the contract
-      // honest if Settings ever gains a live theme toggle.
-      '|${octopusTheme?.themeMode?.name ?? 'sdkDefault'}'
-      // The Unified Profile switch is mount-time (it rides in creationParams),
-      // so flipping it must remount the PlatformView — otherwise the toggle
-      // silently does nothing until the tab happens to rebuild.
-      '|${app.unifiedProfileWired ? 'profileWired' : 'profileNative'}'
-      // Same for the exposeClientUserId override: both natives observe the
-      // config reactively, but a remount guarantees no already-built profile
-      // screen keeps routing by the previous value.
-      '|expose:${app.exposeClientUserIdOverride.name}',
-    );
 
     // Embedded mode: the SDK renders its own native top bar (the M3
     // `OctopusTopAppBar` on Android, `UINavigationBar` on iOS) for BOTH the
@@ -158,72 +133,45 @@ class CommunityTab extends StatelessWidget {
             onAction: () => _connect(context),
             identifier: 'community-band-readonly',
           ),
-        Expanded(child: _octopusHome(context, app, key, octopusTheme, pending)),
+        Expanded(
+          child: app.communityNavigation == CommunityNavigation.inTab
+              ? (app.pendingCommunityNotification != null
+                    ? const Center(child: CircularProgressIndicator())
+                    : CommunitySurface(app: app, active: active))
+              : Center(
+                  child: FilledButton(
+                    onPressed: () => openCommunityFullScreen(context),
+                    child: const Text('Open the community'),
+                  ),
+                ),
+        ),
+        const CommunityNavigationPicker(),
       ],
     );
   }
+}
 
-  Widget _octopusHome(
-    BuildContext context,
-    AppState app,
-    Key key,
-    OctopusTheme? octopusTheme,
-    OctopusNotification? pending,
-  ) {
-    return OctopusHomeScreen(
-      key: key,
-      theme: octopusTheme,
-      // Match the Flutter shell's other-tab titles so switching between
-      // Home / Scenarios / Community / Settings doesn't reveal a sudden
-      // branding change. The SDK renders "Community" in its own native
-      // top bar; with `navBarPrimaryColor: false` the SDK uses its default
-      // light/white surface with dark text — closer to the Material AppBar
-      // the host renders on the other tabs (white surface, dark title).
-      // Flip to `true` to demo the brand-primary-tinted top bar.
-      navBarTitle: 'Community',
-      navBarPrimaryColor: false,
-      // Center the "Community" title in the top bar **on iOS only** — that
-      // matches the platform conventions: iOS `UINavigationBar` titles are
-      // centered, Android Material 3 top-app-bar titles stay leading. The
-      // param works on both platforms (Android `titleCentered`, iOS
-      // `OctopusMainFeedTitle.Placement.center`); here the sample opts into
-      // centering only where it's the native look.
-      titleCentered: Theme.of(context).platform == TargetPlatform.iOS,
-      showBackButton: false,
-      notification: pending,
-      onNavigateToLogin: () => Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-      onModifyUser: (field) => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ProfileEditPage(fieldToEdit: field)),
+/// Temporary Community control below the SDK; Settings placement belongs to F5.
+class CommunityNavigationPicker extends StatelessWidget {
+  const CommunityNavigationPicker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    return Padding(
+      padding: const EdgeInsets.all(SampleSpacing.space2),
+      child: Semantics(
+        identifier: 'community-navigation-mode',
+        child: SegmentedButton<CommunityNavigation>(
+          segments: [
+            for (final mode in CommunityNavigation.values)
+              ButtonSegment(value: mode, label: Text(mode.label)),
+          ],
+          selected: {app.communityNavigation},
+          onSelectionChanged: (selection) =>
+              app.setCommunityNavigation(selection.single),
+        ),
       ),
-      onNavigateToUrl: (url) {
-        demoLog.apiCall('onNavigateToUrl', {'url': url});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Navigate to URL (handled by app): $url')),
-        );
-        return UrlOpeningStrategy.handledByApp;
-      },
-      // Unified Profile. Passing this callback is the activation switch: the SDK
-      // then routes EVERY profile tap here — the connected user's own included —
-      // and stops showing its native profile screens. Wired only when the
-      // Settings toggle is on, so the sample demonstrates both behaviours; a
-      // real host would simply always pass it (or never).
-      //
-      // Nothing changes unless the community also exposes client user ids: until
-      // then the SDK keeps its own screens and this is never called.
-      onNavigateToProfile: app.unifiedProfileWired
-          ? (clientUserId) {
-              demoLog.apiCall('onNavigateToProfile', {
-                'clientUserId': clientUserId,
-              });
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ClientProfilePage(clientUserId: clientUserId),
-                ),
-              );
-            }
-          : null,
     );
   }
 }

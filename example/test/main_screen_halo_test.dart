@@ -5,20 +5,14 @@ import 'package:octopus_sdk_flutter_example/branding.dart';
 import 'package:octopus_sdk_flutter_example/design.dart';
 import 'package:octopus_sdk_flutter_example/main.dart';
 
-/// The shell's wiring of the dark halo (`halo: !hasOwnAppBar` in
-/// `MainScreen`), not just [SampleScaffold] on its own: the sample's tabs
-/// paint it, the Community tab — the SDK's embedded view — does not.
+/// Sample chrome uses the flat page ground on each tab.
 void main() {
-  Finder halo() => find.descendant(
-    of: find.byType(SampleScaffold),
-    matching: find.byWidgetPredicate(
-      (w) => w is CustomPaint && w.painter is SampleHaloPainter,
-    ),
-  );
+  void flatGround(WidgetTester tester) {
+    final theme = Theme.of(tester.element(find.byType(SampleScaffold)));
+    expect(theme.scaffoldBackgroundColor, sampleDarkSurface);
+  }
 
-  testWidgets('dark: halo on Home, none on Community, back on Home', (
-    tester,
-  ) async {
+  testWidgets('dark: flat ground on Scenarios and Community', (tester) async {
     tester.view.physicalSize = const Size(600, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -38,14 +32,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(halo(), findsOneWidget);
+    flatGround(tester);
 
     await tester.tap(find.text('Community').last);
     await tester.pump();
-    expect(halo(), findsNothing);
+    flatGround(tester);
 
-    await tester.tap(find.text('Home').last);
+    await tester.tap(find.text('Scenarios').last);
     await tester.pumpAndSettle();
-    expect(halo(), findsOneWidget);
+    flatGround(tester);
   });
 }

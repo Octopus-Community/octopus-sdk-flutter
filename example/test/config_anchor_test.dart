@@ -66,16 +66,25 @@ void main() {
         ConfigSection.integration.identifier,
       );
       expect(target, findsOneWidget);
-      expect(onScreen(tester, target), isFalse);
+      expect(
+        tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position
+            .pixels,
+        0,
+      );
+      expect(
+        tester
+            .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+            .every((tile) => !tile.initiallyExpanded),
+        isTrue,
+      );
     });
 
     testWidgets('lands on the anchored section, once', (tester) async {
       usePhoneSurface(tester);
       Widget screen() => const MaterialApp(
-        home: ConfigScreen(
-          entry: ConfigEntry.revisit,
-          anchor: ConfigSection.integration,
-        ),
+        home: ConfigScreen(anchor: ConfigSection.integration),
       );
       await tester.pumpWidget(screen());
       await tester.pumpAndSettle();
@@ -85,8 +94,16 @@ void main() {
       );
       expect(onScreen(tester, target), isTrue);
 
-      // Scroll away, then rebuild: the anchor is spent, the tester's own
-      // scroll position stays.
+      // Expand Theme to make the form taller than the phone, then scroll
+      // away. A rebuild must not replay the entry anchor.
+      for (final title in ['Theme', 'Connect your users (SSO)', 'Community']) {
+        final section = find.widgetWithText(ExpansionTile, title);
+        await tester.ensureVisible(section);
+        await tester.tap(section);
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
       await tester.drag(
         find.byType(SingleChildScrollView).first,
         const Offset(0, 5000),
@@ -123,7 +140,7 @@ void main() {
       await tester.tap(find.text('link'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Change Configuration'), findsOneWidget);
+      expect(find.text('Configuration'), findsOneWidget);
       expect(
         onScreen(
           tester,
@@ -142,9 +159,7 @@ void main() {
       expect(app.takeRequestedScenariosSection(), isNull);
     });
 
-    testWidgets('"Change it in Scenarios" asks for the scenario\'s section', (
-      tester,
-    ) async {
+    testWidgets('"Change" asks for the scenario\'s section', (tester) async {
       final app = AppState();
       await tester.pumpWidget(
         AppScope(
@@ -165,7 +180,12 @@ void main() {
       );
       final row = find.bySemanticsIdentifier('scenario-feature-state');
       expect(row, findsOneWidget);
-      await tester.tap(row);
+      await tester.tap(
+        find.descendant(
+          of: row,
+          matching: find.widgetWithText(TextButton, 'Change'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(app.takeRequestedScenariosSection(), 'notifications');

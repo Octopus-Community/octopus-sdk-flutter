@@ -9,6 +9,7 @@ import '../community/client_profile_page.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
 import '../sample_fixtures.dart';
+import '../design.dart';
 
 /// Unified Profile community-data scenario — reads a member's public Octopus
 /// stats so the **host** can render them on its own profile screen, instead of
@@ -44,6 +45,9 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
 
   StreamSubscription<OctopusCommunityData?>? _flowSub;
   Object? _flowError;
+  final _userId = TextEditingController();
+  bool _lookupByProfileId = false;
+  bool _seededUserId = false;
 
   @override
   void initState() {
@@ -57,6 +61,7 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
 
   @override
   void dispose() {
+    _userId.dispose();
     // The subscription owns a native observation — dropping it without
     // cancelling would leak the native collector for the app's lifetime.
     unawaited(_flowSub?.cancel());
@@ -87,6 +92,10 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    if (!_seededUserId) {
+      _userId.text = _clientUserId(app);
+      _seededUserId = true;
+    }
     final data = _data;
     final gamification = data?.gamification;
     return ScenarioScaffold(
@@ -98,6 +107,45 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
           'profileId or by your own clientUserId. Note that '
           'gamification.score is always null through this API — use level.',
       resultTestId: 'communityData-result',
+      catalogParams: const {
+        'userId': 'String — a community profile ID or an app user ID',
+      },
+      inputFields: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _userId,
+            decoration: const InputDecoration(labelText: 'User ID'),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Use community profile ID'),
+            subtitle: const Text('Off: look up the host app user ID'),
+            value: _lookupByProfileId,
+            onChanged: (value) => setState(() => _lookupByProfileId = value),
+          ),
+        ],
+      ),
+      execute: ScenarioPreset(
+        testId: 'communityData-execute',
+        label: 'Execute',
+        onRun: (setResult) async {
+          final id = _userId.text.trim();
+          if (id.isEmpty) {
+            setResult('Enter a User ID.', isError: true);
+            return;
+          }
+          final data = await app.octopus.fetchCommunityData(
+            profileId: _lookupByProfileId ? id : null,
+            clientUserId: _lookupByProfileId ? null : id,
+          );
+          if (!mounted) return;
+          _record(data, 'fetch(User ID)');
+          setResult(
+            data == null ? 'No community profile for "$id".' : 'Fetched: $data',
+          );
+        },
+      ),
       liveState: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -105,12 +153,13 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
             identifier: 'communityData-exposeClientUserId-hint',
             container: true,
             child: Text(
-              'Host profile needs exposeClientUserId on (Config → '
-              'Integration) — now: ${app.exposeClientUserIdSummary}',
+              'Host profile needs exposeClientUserId on (Scenarios → '
+              'Sign-in & user → Unified Profile) — now: '
+              '${app.exposeClientUserIdSummary}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: SampleSpacing.space2),
           KeyValueCard(
             title: 'Live state',
             rows: [

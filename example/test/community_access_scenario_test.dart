@@ -40,7 +40,7 @@ void main() {
       'Track · has access',
     ];
     for (final (index, label) in labels.indexed) {
-      expect(find.widgetWithText(FilledButton, label), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, label), findsOneWidget);
       expect(
         find.bySemanticsIdentifier('qa-preset-communityAccess-${index + 1}'),
         findsOneWidget,

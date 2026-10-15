@@ -23,8 +23,10 @@ class OctopusIconSource {
   ///
   /// Uses the exact asset key, without density-variant selection. For package
   /// assets use `packages/<package>/<path>`. Loading errors are propagated.
-  static Future<OctopusIconSource> asset(String key,
-      {AssetBundle? bundle}) async {
+  static Future<OctopusIconSource> asset(
+    String key, {
+    AssetBundle? bundle,
+  }) async {
     final data = await (bundle ?? rootBundle).load(key);
     return OctopusIconSource.bytes(
       data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
@@ -44,15 +46,12 @@ class OctopusIconOnOff {
   final OctopusIconSource off;
 
   /// Creates a complete pair; both images must decode or the default pair is used.
-  const OctopusIconOnOff({
-    required this.on,
-    required this.off,
-  });
+  const OctopusIconOnOff({required this.on, required this.off});
 
   Map<String, String> _flatten(String prefix) => {
-        '${prefix}on': on.base64,
-        '${prefix}off': off.base64,
-      };
+    '${prefix}on': on.base64,
+    '${prefix}off': off.base64,
+  };
 }
 
 /// Icons for choosing a group and navigating to its contents.
@@ -67,17 +66,13 @@ class OctopusGroupsIcons {
   final OctopusIconSource? viewGroup;
 
   /// Creates optional icon overrides.
-  const OctopusGroupsIcons({
-    this.openList,
-    this.selected,
-    this.viewGroup,
-  });
+  const OctopusGroupsIcons({this.openList, this.selected, this.viewGroup});
 
   Map<String, String> _flatten(String prefix) => {
-        if (openList != null) '${prefix}openList': openList!.base64,
-        if (selected != null) '${prefix}selected': selected!.base64,
-        if (viewGroup != null) '${prefix}viewGroup': viewGroup!.base64,
-      };
+    if (openList != null) '${prefix}openList': openList!.base64,
+    if (selected != null) '${prefix}selected': selected!.base64,
+    if (viewGroup != null) '${prefix}viewGroup': viewGroup!.base64,
+  };
 }
 
 /// Actions in the native post composer, including pictures and polls.
@@ -98,14 +93,14 @@ class OctopusPostCreationIcons {
   final OctopusIconSource? addPoll;
 
   /// Adds an option to the poll.
-  /// Android 1.14.1 does not render this override.
+  /// Android 1.15.0 does not render this override.
   final OctopusIconSource? addPollOption;
 
   /// Removes the poll.
   final OctopusIconSource? deletePoll;
 
   /// Removes a poll option.
-  /// Android 1.14.1 does not render this override.
+  /// Android 1.15.0 does not render this override.
   final OctopusIconSource? deletePollOption;
 
   /// Creates optional icon overrides.
@@ -121,19 +116,17 @@ class OctopusPostCreationIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (open != null) '${prefix}open': open!.base64,
-        if (topicSelection != null)
-          '${prefix}topicSelection': topicSelection!.base64,
-        if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
-        if (deletePicture != null)
-          '${prefix}deletePicture': deletePicture!.base64,
-        if (addPoll != null) '${prefix}addPoll': addPoll!.base64,
-        if (addPollOption != null)
-          '${prefix}addPollOption': addPollOption!.base64,
-        if (deletePoll != null) '${prefix}deletePoll': deletePoll!.base64,
-        if (deletePollOption != null)
-          '${prefix}deletePollOption': deletePollOption!.base64,
-      };
+    if (open != null) '${prefix}open': open!.base64,
+    if (topicSelection != null)
+      '${prefix}topicSelection': topicSelection!.base64,
+    if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
+    if (deletePicture != null) '${prefix}deletePicture': deletePicture!.base64,
+    if (addPoll != null) '${prefix}addPoll': addPoll!.base64,
+    if (addPollOption != null) '${prefix}addPollOption': addPollOption!.base64,
+    if (deletePoll != null) '${prefix}deletePoll': deletePoll!.base64,
+    if (deletePollOption != null)
+      '${prefix}deletePollOption': deletePollOption!.base64,
+  };
 }
 
 /// Post actions and legacy empty-feed illustrations.
@@ -142,17 +135,17 @@ class OctopusPostIcons {
   final OctopusPostCreationIcons? creation;
 
   /// Illustration of an empty group feed.
-  /// Both Android 1.14.1 and iOS 1.14.0 render `screenStates.emptyContent`
+  /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
   /// for this screen instead; this field preserves the native public surface.
   final OctopusIconSource? emptyFeedInGroups;
 
   /// Illustration of the current user's empty post feed on their profile.
-  /// Both Android 1.14.1 and iOS 1.14.0 render `screenStates.emptyContent`
+  /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
   /// for this screen instead; this field preserves the native public surface.
   final OctopusIconSource? emptyFeedInCurrentUserProfile;
 
   /// Illustration of another user's empty post feed on their profile.
-  /// Both Android 1.14.1 and iOS 1.14.0 render `screenStates.emptyContent`
+  /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
   /// for this screen instead; this field preserves the native public surface.
   final OctopusIconSource? emptyFeedInOtherUserProfile;
 
@@ -160,15 +153,15 @@ class OctopusPostIcons {
   final OctopusIconSource? notAvailable;
 
   /// Next to the comment count of a post.
-  /// Neither native SDK renders this slot at Android 1.14.1 / iOS 1.14.0.
+  /// Neither native SDK renders this slot at Android 1.15.0 / iOS 1.15.0.
   final OctopusIconSource? commentCount;
 
   /// Next to the view count of a post.
-  /// Neither native SDK renders this slot at Android 1.14.1 / iOS 1.14.0.
+  /// Neither native SDK renders this slot at Android 1.15.0 / iOS 1.15.0.
   final OctopusIconSource? viewCount;
 
   /// Opens the full reaction picker.
-  /// Neither native SDK renders this slot at Android 1.14.1 / iOS 1.14.0.
+  /// Neither native SDK renders this slot at Android 1.15.0 / iOS 1.15.0.
   final OctopusIconSource? moreReactions;
 
   /// The like button when the current user has not reacted.
@@ -192,24 +185,23 @@ class OctopusPostIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (creation != null) ...creation!._flatten('${prefix}creation.'),
-        if (emptyFeedInGroups != null)
-          '${prefix}emptyFeedInGroups': emptyFeedInGroups!.base64,
-        if (emptyFeedInCurrentUserProfile != null)
-          '${prefix}emptyFeedInCurrentUserProfile':
-              emptyFeedInCurrentUserProfile!.base64,
-        if (emptyFeedInOtherUserProfile != null)
-          '${prefix}emptyFeedInOtherUserProfile':
-              emptyFeedInOtherUserProfile!.base64,
-        if (notAvailable != null) '${prefix}notAvailable': notAvailable!.base64,
-        if (commentCount != null) '${prefix}commentCount': commentCount!.base64,
-        if (viewCount != null) '${prefix}viewCount': viewCount!.base64,
-        if (moreReactions != null)
-          '${prefix}moreReactions': moreReactions!.base64,
-        if (likeNotSelected != null)
-          '${prefix}likeNotSelected': likeNotSelected!.base64,
-        if (moderated != null) '${prefix}moderated': moderated!.base64,
-      };
+    if (creation != null) ...creation!._flatten('${prefix}creation.'),
+    if (emptyFeedInGroups != null)
+      '${prefix}emptyFeedInGroups': emptyFeedInGroups!.base64,
+    if (emptyFeedInCurrentUserProfile != null)
+      '${prefix}emptyFeedInCurrentUserProfile':
+          emptyFeedInCurrentUserProfile!.base64,
+    if (emptyFeedInOtherUserProfile != null)
+      '${prefix}emptyFeedInOtherUserProfile':
+          emptyFeedInOtherUserProfile!.base64,
+    if (notAvailable != null) '${prefix}notAvailable': notAvailable!.base64,
+    if (commentCount != null) '${prefix}commentCount': commentCount!.base64,
+    if (viewCount != null) '${prefix}viewCount': viewCount!.base64,
+    if (moreReactions != null) '${prefix}moreReactions': moreReactions!.base64,
+    if (likeNotSelected != null)
+      '${prefix}likeNotSelected': likeNotSelected!.base64,
+    if (moderated != null) '${prefix}moderated': moderated!.base64,
+  };
 }
 
 /// Actions for opening the comment composer, sending text and attaching pictures.
@@ -235,12 +227,11 @@ class OctopusCommentCreationIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (open != null) '${prefix}open': open!.base64,
-        if (create != null) '${prefix}create': create!.base64,
-        if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
-        if (deletePicture != null)
-          '${prefix}deletePicture': deletePicture!.base64,
-      };
+    if (open != null) '${prefix}open': open!.base64,
+    if (create != null) '${prefix}create': create!.base64,
+    if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
+    if (deletePicture != null) '${prefix}deletePicture': deletePicture!.base64,
+  };
 }
 
 /// Comment actions and legacy empty-comment illustrations.
@@ -249,7 +240,7 @@ class OctopusCommentIcons {
   final OctopusCommentCreationIcons? creation;
 
   /// Illustration of a post without comments.
-  /// Both Android 1.14.1 and iOS 1.14.0 render `screenStates.emptyContent`
+  /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
   /// for this screen instead; this field preserves the native public surface.
   final OctopusIconSource? emptyFeed;
 
@@ -272,13 +263,13 @@ class OctopusCommentIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (creation != null) ...creation!._flatten('${prefix}creation.'),
-        if (emptyFeed != null) '${prefix}emptyFeed': emptyFeed!.base64,
-        if (notAvailable != null) '${prefix}notAvailable': notAvailable!.base64,
-        if (seeReply != null) '${prefix}seeReply': seeReply!.base64,
-        if (likeNotSelected != null)
-          '${prefix}likeNotSelected': likeNotSelected!.base64,
-      };
+    if (creation != null) ...creation!._flatten('${prefix}creation.'),
+    if (emptyFeed != null) '${prefix}emptyFeed': emptyFeed!.base64,
+    if (notAvailable != null) '${prefix}notAvailable': notAvailable!.base64,
+    if (seeReply != null) '${prefix}seeReply': seeReply!.base64,
+    if (likeNotSelected != null)
+      '${prefix}likeNotSelected': likeNotSelected!.base64,
+  };
 }
 
 /// Actions for opening the reply composer, sending text and attaching pictures.
@@ -304,12 +295,11 @@ class OctopusReplyCreationIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (open != null) '${prefix}open': open!.base64,
-        if (create != null) '${prefix}create': create!.base64,
-        if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
-        if (deletePicture != null)
-          '${prefix}deletePicture': deletePicture!.base64,
-      };
+    if (open != null) '${prefix}open': open!.base64,
+    if (create != null) '${prefix}create': create!.base64,
+    if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
+    if (deletePicture != null) '${prefix}deletePicture': deletePicture!.base64,
+  };
 }
 
 /// Reply composition and like-button icons.
@@ -321,16 +311,13 @@ class OctopusReplyIcons {
   final OctopusIconSource? likeNotSelected;
 
   /// Creates optional icon overrides.
-  const OctopusReplyIcons({
-    this.creation,
-    this.likeNotSelected,
-  });
+  const OctopusReplyIcons({this.creation, this.likeNotSelected});
 
   Map<String, String> _flatten(String prefix) => {
-        if (creation != null) ...creation!._flatten('${prefix}creation.'),
-        if (likeNotSelected != null)
-          '${prefix}likeNotSelected': likeNotSelected!.base64,
-      };
+    if (creation != null) ...creation!._flatten('${prefix}creation.'),
+    if (likeNotSelected != null)
+      '${prefix}likeNotSelected': likeNotSelected!.base64,
+  };
 }
 
 /// Playback and sound controls in the native video player.
@@ -360,12 +347,12 @@ class OctopusVideoIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (muted != null) '${prefix}muted': muted!.base64,
-        if (notMuted != null) '${prefix}notMuted': notMuted!.base64,
-        if (pause != null) '${prefix}pause': pause!.base64,
-        if (play != null) '${prefix}play': play!.base64,
-        if (replay != null) '${prefix}replay': replay!.base64,
-      };
+    if (muted != null) '${prefix}muted': muted!.base64,
+    if (notMuted != null) '${prefix}notMuted': notMuted!.base64,
+    if (pause != null) '${prefix}pause': pause!.base64,
+    if (play != null) '${prefix}play': play!.base64,
+    if (replay != null) '${prefix}replay': replay!.base64,
+  };
 }
 
 /// The selection indicator for a poll option.
@@ -374,14 +361,12 @@ class OctopusPollIcons {
   final OctopusIconSource? selectedOption;
 
   /// Creates optional icon overrides.
-  const OctopusPollIcons({
-    this.selectedOption,
-  });
+  const OctopusPollIcons({this.selectedOption});
 
   Map<String, String> _flatten(String prefix) => {
-        if (selectedOption != null)
-          '${prefix}selectedOption': selectedOption!.base64,
-      };
+    if (selectedOption != null)
+      '${prefix}selectedOption': selectedOption!.base64,
+  };
 }
 
 /// The six reaction images, rendered in their original colors without tinting.
@@ -415,13 +400,13 @@ class OctopusReactionIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (heart != null) '${prefix}heart': heart!.base64,
-        if (joy != null) '${prefix}joy': joy!.base64,
-        if (mouthOpen != null) '${prefix}mouthOpen': mouthOpen!.base64,
-        if (clap != null) '${prefix}clap': clap!.base64,
-        if (cry != null) '${prefix}cry': cry!.base64,
-        if (rage != null) '${prefix}rage': rage!.base64,
-      };
+    if (heart != null) '${prefix}heart': heart!.base64,
+    if (joy != null) '${prefix}joy': joy!.base64,
+    if (mouthOpen != null) '${prefix}mouthOpen': mouthOpen!.base64,
+    if (clap != null) '${prefix}clap': clap!.base64,
+    if (cry != null) '${prefix}cry': cry!.base64,
+    if (rage != null) '${prefix}rage': rage!.base64,
+  };
 }
 
 /// Icons for posts, comments, replies, media and content actions.
@@ -463,15 +448,15 @@ class OctopusContentIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (post != null) ...post!._flatten('${prefix}post.'),
-        if (comment != null) ...comment!._flatten('${prefix}comment.'),
-        if (reply != null) ...reply!._flatten('${prefix}reply.'),
-        if (video != null) ...video!._flatten('${prefix}video.'),
-        if (poll != null) ...poll!._flatten('${prefix}poll.'),
-        if (reaction != null) ...reaction!._flatten('${prefix}reaction.'),
-        if (delete != null) '${prefix}delete': delete!.base64,
-        if (report != null) '${prefix}report': report!.base64,
-      };
+    if (post != null) ...post!._flatten('${prefix}post.'),
+    if (comment != null) ...comment!._flatten('${prefix}comment.'),
+    if (reply != null) ...reply!._flatten('${prefix}reply.'),
+    if (video != null) ...video!._flatten('${prefix}video.'),
+    if (poll != null) ...poll!._flatten('${prefix}poll.'),
+    if (reaction != null) ...reaction!._flatten('${prefix}reaction.'),
+    if (delete != null) '${prefix}delete': delete!.base64,
+    if (report != null) '${prefix}report': report!.base64,
+  };
 }
 
 /// Badges and actions in the levels and gamification rules screens.
@@ -483,27 +468,25 @@ class OctopusGamificationIcons {
   final OctopusIconSource? info;
 
   /// Illustration at the top of the gamification rules.
-  /// iOS 1.14.0 uses [badge] here instead, ignoring this override.
+  /// iOS 1.15.0 uses [badge] here instead, ignoring this override.
   final OctopusIconSource? rulesHeader;
 
   /// Creates optional icon overrides.
-  const OctopusGamificationIcons({
-    this.badge,
-    this.info,
-    this.rulesHeader,
-  });
+  const OctopusGamificationIcons({this.badge, this.info, this.rulesHeader});
 
   Map<String, String> _flatten(String prefix) => {
-        if (badge != null) '${prefix}badge': badge!.base64,
-        if (info != null) '${prefix}info': info!.base64,
-        if (rulesHeader != null) '${prefix}rulesHeader': rulesHeader!.base64,
-      };
+    if (badge != null) '${prefix}badge': badge!.base64,
+    if (info != null) '${prefix}info': info!.base64,
+    if (rulesHeader != null) '${prefix}rulesHeader': rulesHeader!.base64,
+  };
 }
 
-/// Icons for account, help, information and sign-out actions.
+/// Icons for help and information actions.
 class OctopusSettingsIcons {
-  /// The account entry.
-  final OctopusIconSource? account;
+  /// The former account entry, retained for compatibility.
+  @Deprecated('No longer displayed: user accounts are managed by your app.')
+  OctopusIconSource? get account => _account;
+  final OctopusIconSource? _account;
 
   /// The help entry.
   final OctopusIconSource? help;
@@ -511,29 +494,48 @@ class OctopusSettingsIcons {
   /// The information entry.
   final OctopusIconSource? info;
 
-  /// The logout entry.
-  final OctopusIconSource? logout;
+  /// The former logout entry, retained for compatibility.
+  @Deprecated('No longer displayed: user accounts are managed by your app.')
+  OctopusIconSource? get logout => _logout;
+  final OctopusIconSource? _logout;
 
-  /// The warning shown before an account deletion.
-  final OctopusIconSource? deleteAccountWarning;
+  /// The former account deletion warning, retained for compatibility.
+  @Deprecated('No longer displayed: user accounts are managed by your app.')
+  OctopusIconSource? get deleteAccountWarning => _deleteAccountWarning;
+  final OctopusIconSource? _deleteAccountWarning;
 
-  /// Creates optional icon overrides.
+  /// Creates overrides for the settings icons used by the SDK.
+  const OctopusSettingsIcons.helpAndInfo({this.help, this.info})
+    : _account = null,
+      _logout = null,
+      _deleteAccountWarning = null;
+
+  /// Creates legacy icon overrides. Account-related icons are no longer displayed.
+  @Deprecated(
+    'Use OctopusSettingsIcons.helpAndInfo: account-related icons are no longer displayed.',
+  )
   const OctopusSettingsIcons({
-    this.account,
+    OctopusIconSource? account,
     this.help,
     this.info,
-    this.logout,
-    this.deleteAccountWarning,
-  });
+    OctopusIconSource? logout,
+    OctopusIconSource? deleteAccountWarning,
+    // Keep the legacy constructor's public named parameters explicit.
+    // ignore: prefer_initializing_formals
+  }) : _account = account,
+       // ignore: prefer_initializing_formals
+       _logout = logout,
+       // ignore: prefer_initializing_formals
+       _deleteAccountWarning = deleteAccountWarning;
 
   Map<String, String> _flatten(String prefix) => {
-        if (account != null) '${prefix}account': account!.base64,
-        if (help != null) '${prefix}help': help!.base64,
-        if (info != null) '${prefix}info': info!.base64,
-        if (logout != null) '${prefix}logout': logout!.base64,
-        if (deleteAccountWarning != null)
-          '${prefix}deleteAccountWarning': deleteAccountWarning!.base64,
-      };
+    if (_account != null) '${prefix}account': _account.base64,
+    if (help != null) '${prefix}help': help!.base64,
+    if (info != null) '${prefix}info': info!.base64,
+    if (_logout != null) '${prefix}logout': _logout.base64,
+    if (_deleteAccountWarning != null)
+      '${prefix}deleteAccountWarning': _deleteAccountWarning.base64,
+  };
 }
 
 /// Profile editing actions and legacy profile illustrations.
@@ -548,7 +550,7 @@ class OctopusProfileIcons {
   final OctopusIconSource? addBio;
 
   /// Illustration of an empty notification list.
-  /// Both Android 1.14.1 and iOS 1.14.0 render `screenStates.emptyNotifications`
+  /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyNotifications`
   /// for this screen instead; this field preserves the native public surface.
   final OctopusIconSource? emptyNotifications;
 
@@ -573,24 +575,27 @@ class OctopusProfileIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
-        if (editPicture != null) '${prefix}editPicture': editPicture!.base64,
-        if (addBio != null) '${prefix}addBio': addBio!.base64,
-        if (emptyNotifications != null)
-          '${prefix}emptyNotifications': emptyNotifications!.base64,
-        if (report != null) '${prefix}report': report!.base64,
-        if (notConnected != null) '${prefix}notConnected': notConnected!.base64,
-        if (blockUser != null) '${prefix}blockUser': blockUser!.base64,
-      };
+    if (addPicture != null) '${prefix}addPicture': addPicture!.base64,
+    if (editPicture != null) '${prefix}editPicture': editPicture!.base64,
+    if (addBio != null) '${prefix}addBio': addBio!.base64,
+    if (emptyNotifications != null)
+      '${prefix}emptyNotifications': emptyNotifications!.base64,
+    if (report != null) '${prefix}report': report!.base64,
+    if (notConnected != null) '${prefix}notConnected': notConnected!.base64,
+    if (blockUser != null) '${prefix}blockUser': blockUser!.base64,
+  };
 }
 
 /// Shared navigation, activity and two-state control icons.
 class OctopusCommonIcons {
+  /// Clears a text field, including the nickname choice field (native 1.15).
+  final OctopusIconSource? clearText;
+
   /// Radio button pair. Absent: the native default pair (the platform widget on Android).
   final OctopusIconOnOff? radio;
 
   /// Checkbox pair. Absent: the native default pair.
-  /// Android 1.14.1 uses its platform checkbox and ignores this override.
+  /// Android 1.15.0 uses its platform checkbox and ignores this override.
   final OctopusIconOnOff? checkbox;
 
   /// Toggle pair. Absent: the native default pair (the platform switch on Android).
@@ -608,6 +613,7 @@ class OctopusCommonIcons {
 
   /// Creates optional icon overrides.
   const OctopusCommonIcons({
+    this.clearText,
     this.radio,
     this.checkbox,
     this.toggle,
@@ -617,15 +623,16 @@ class OctopusCommonIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (radio != null) ...radio!._flatten('${prefix}radio.'),
-        if (checkbox != null) ...checkbox!._flatten('${prefix}checkbox.'),
-        if (toggle != null) ...toggle!._flatten('${prefix}toggle.'),
-        if (moreActions != null) '${prefix}moreActions': moreActions!.base64,
-        if (activityButton != null)
-          '${prefix}activityButton': activityButton!.base64,
-        if (listCellNavIndicator != null)
-          '${prefix}listCellNavIndicator': listCellNavIndicator!.base64,
-      };
+    if (clearText != null) '${prefix}clearText': clearText!.base64,
+    if (radio != null) ...radio!._flatten('${prefix}radio.'),
+    if (checkbox != null) ...checkbox!._flatten('${prefix}checkbox.'),
+    if (toggle != null) ...toggle!._flatten('${prefix}toggle.'),
+    if (moreActions != null) '${prefix}moreActions': moreActions!.base64,
+    if (activityButton != null)
+      '${prefix}activityButton': activityButton!.base64,
+    if (listCellNavIndicator != null)
+      '${prefix}listCellNavIndicator': listCellNavIndicator!.base64,
+  };
 }
 
 /// Optional icon overrides; omitted slots retain the native defaults.
@@ -664,16 +671,16 @@ class OctopusIcons {
   });
 
   Map<String, String> _flatten(String prefix) => {
-        if (groups != null) ...groups!._flatten('${prefix}groups.'),
-        if (content != null) ...content!._flatten('${prefix}content.'),
-        if (gamification != null)
-          ...gamification!._flatten('${prefix}gamification.'),
-        if (settings != null) ...settings!._flatten('${prefix}settings.'),
-        if (profile != null) ...profile!._flatten('${prefix}profile.'),
-        if (common != null) ...common!._flatten('${prefix}common.'),
-        if (screenStates != null)
-          ...screenStates!._flatten('${prefix}screenStates.'),
-      };
+    if (groups != null) ...groups!._flatten('${prefix}groups.'),
+    if (content != null) ...content!._flatten('${prefix}content.'),
+    if (gamification != null)
+      ...gamification!._flatten('${prefix}gamification.'),
+    if (settings != null) ...settings!._flatten('${prefix}settings.'),
+    if (profile != null) ...profile!._flatten('${prefix}profile.'),
+    if (common != null) ...common!._flatten('${prefix}common.'),
+    if (screenStates != null)
+      ...screenStates!._flatten('${prefix}screenStates.'),
+  };
 
   /// Serializes the dotted slot paths consumed by both native bridges.
   Map<String, String> toMap() => _flatten('');
@@ -694,17 +701,18 @@ class OctopusScreenStateIcons {
   final OctopusIconSource? error;
 
   /// Overrides any screen-state illustration, preserving omitted native defaults.
-  const OctopusScreenStateIcons(
-      {this.emptyContent,
-      this.emptyNotifications,
-      this.networkError,
-      this.error});
+  const OctopusScreenStateIcons({
+    this.emptyContent,
+    this.emptyNotifications,
+    this.networkError,
+    this.error,
+  });
 
   Map<String, String> _flatten(String prefix) => {
-        if (emptyContent != null) '${prefix}emptyContent': emptyContent!.base64,
-        if (emptyNotifications != null)
-          '${prefix}emptyNotifications': emptyNotifications!.base64,
-        if (networkError != null) '${prefix}networkError': networkError!.base64,
-        if (error != null) '${prefix}error': error!.base64,
-      };
+    if (emptyContent != null) '${prefix}emptyContent': emptyContent!.base64,
+    if (emptyNotifications != null)
+      '${prefix}emptyNotifications': emptyNotifications!.base64,
+    if (networkError != null) '${prefix}networkError': networkError!.base64,
+    if (error != null) '${prefix}error': error!.base64,
+  };
 }

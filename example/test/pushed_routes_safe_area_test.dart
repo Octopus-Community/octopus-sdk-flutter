@@ -71,7 +71,7 @@ void main() {
       // The viewport itself stops above the handle, so no scroll position can
       // put a row under it.
       expect(
-        tester.getRect(find.byType(ListView)).bottom,
+        tester.getRect(find.byType(Scrollable).first).bottom,
         lessThanOrEqualTo(viewport.height - inset),
       );
 
@@ -81,17 +81,23 @@ void main() {
           // Scaffold removes the body's bottom padding when the anchored bar
           // is present: the new body SafeArea must not add a second inset.
           expect(
-            tester.getRect(find.byType(ListView)).bottom,
+            tester.getRect(find.byType(Scrollable).first).bottom,
             tester.getRect(find.byWidget(scaffold.bottomNavigationBar!)).top,
           );
           expect(
-            tester.getBottomLeft(find.widgetWithText(FilledButton, 'Run')).dy,
+            tester
+                .getBottomLeft(find.widgetWithText(FilledButton, 'Execute'))
+                .dy,
             lessThanOrEqualTo(viewport.height - inset),
           );
         } else {
-          await tester.drag(find.byType(ListView), const Offset(0, -3000));
+          final button = find.widgetWithText(OutlinedButton, 'Preset 3');
+          await tester.scrollUntilVisible(
+            button,
+            150,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.pumpAndSettle();
-          final button = find.widgetWithText(FilledButton, 'Preset 3');
           expect(button, findsOneWidget);
           expect(
             tester.getBottomLeft(button).dy,

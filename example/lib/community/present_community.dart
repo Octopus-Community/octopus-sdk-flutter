@@ -1,84 +1,197 @@
-/// The two non-embedded presentation shapes the Home dock offers.
-///
-/// The Scenarios tab still owns the *documented* demonstration of every
-/// integration mode (with presets, deep-link variants and a result zone); these
-/// helpers are the one-tap version behind Home's dock, so a tester can see the
-/// SDK in a sheet or a modal without walking the catalog. Both build the same
-/// [OctopusHomeScreen] the scenarios do, with the same login / profile-edit
-/// routing and the same native close affordance.
-library;
-
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
+import '../config/host_integration.dart';
+import '../widgets/open_url.dart';
 import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
+import 'client_profile_page.dart';
+import 'community_push_target.dart';
 
-/// Shared configuration of the embedded SDK surface for a modal presentation.
-///
-/// [navigationMode] is `navigationStack` in both shapes: a sheet and a
-/// `fullscreenDialog` route are modal presentations, where iOS's legacy
-/// navigation container can silently drop the SDK's own sub-navigation.
-Widget _octopusSurface(
-  BuildContext hostContext,
-  AppState app, {
-  required double bottomSafeArea,
-  String? navBarTitle,
-}) {
-  return OctopusHomeScreen(
-    theme: app.effectiveOctopusTheme(),
-    navBarTitle: navBarTitle,
-    navigationMode: OctopusNavigationMode.navigationStack,
-    navBarLeadingAction: OctopusNavBarLeadingAction.close,
-    bottomSafeAreaInset: bottomSafeArea,
-    notification: app.pendingCommunityNotification,
-    onBack: () => Navigator.of(hostContext).pop(),
-    onNavigateToLogin: () => Navigator.of(
-      hostContext,
-      rootNavigator: true,
-    ).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-    onModifyUser: (field) =>
-        Navigator.of(hostContext, rootNavigator: true).push(
-          MaterialPageRoute(
-            builder: (_) => ProfileEditPage(fieldToEdit: field),
+/// One SDK toolbar in every container. Callbacks always use the host navigator.
+class CommunitySurface extends StatefulWidget {
+  const CommunitySurface({
+    super.key,
+    required this.app,
+    this.active = true,
+    this.presentation = false,
+    this.modal = false,
+    this.useCommunityNotification = true,
+    this.bottomSafeArea = 0,
+  });
+
+  final AppState app;
+  final bool active;
+  final bool presentation;
+  final bool modal;
+  final bool useCommunityNotification;
+  final double bottomSafeArea;
+
+  @override
+  State<CommunitySurface> createState() => _CommunitySurfaceState();
+}
+
+class _CommunitySurfaceState extends State<CommunitySurface> {
+  VoidCallback? _cancelGroupAccess;
+
+  void _syncGroupAccess() {
+    _cancelGroupAccess?.call();
+    _cancelGroupAccess = null;
+    if (!widget.app.hostGroupAccessWired || !_canHandle) return;
+    _cancelGroupAccess = OctopusSDK.setGroupAccessDeniedCallback((groupId) {
+      if (!_canHandle) return;
+      demoLog.note('Group access denied', {'groupId': groupId});
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Group access denied'),
+          content: const Text(
+            'The host received access denial for this group.',
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
         ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _cancelGroupAccess?.call();
+    super.dispose();
+  }
+
+  Key? _identity;
+  OctopusNotification? _notification;
+
+  bool get _canHandle =>
+      mounted && widget.active && (ModalRoute.of(context)?.isCurrent ?? false);
+
+  void _openHost(Widget page) {
+    if (!_canHandle) return;
+    // Push on the host root graph, preserving the SDK stack underneath so Back
+    // returns to the same post, comment or profile that triggered the callback.
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.app,
+    builder: (context, _) {
+      _syncGroupAccess();
+      final app = widget.app;
+      final theme = app.effectiveOctopusTheme();
+      final identity = ValueKey<String>(
+        'community|${app.communitySession}|${app.communityRootEpoch}'
+        '|${app.communityNavigation.name}'
+        '|${app.activeThemeLabel}|${app.localeTag}'
+        '|${theme?.themeMode?.name}|${app.unifiedProfileWired}'
+        '|${app.exposeClientUserIdOverride.name}'
+        '|${app.hostProfileEditWired}|${app.onAuthenticationRequiredWired}'
+        '|${app.hostUrlHandling.name}',
+      );
+      if (_identity != identity) {
+        _identity = identity;
+        // A remount consumes only a pending target; it never replays a target
+        // already consumed by the previous native view.
+        _notification = widget.useCommunityNotification
+            ? app.takeDisplayedCommunityNotification()
+            : null;
+      }
+      final initialScreen = communityPushInitialScreen(_notification);
+      return OctopusHomeScreen(
+        key: identity,
+        theme: theme,
+        navBarTitle: 'Community',
+        navBarPrimaryColor: false,
+        titleCentered: Theme.of(context).platform == TargetPlatform.iOS,
+        navigationMode: OctopusNavigationMode.navigationStack,
+        showBackButton: widget.presentation,
+        navBarLeadingAction: widget.presentation
+            ? (widget.modal
+                  ? OctopusNavBarLeadingAction.close
+                  : OctopusNavBarLeadingAction.back)
+            : null,
+        bottomSafeAreaInset: widget.bottomSafeArea,
+        // Supplying both would make the notification win over initialScreen.
+        notification: initialScreen == null ? _notification : null,
+        initialScreen: initialScreen,
+        onBack: () {
+          if (_canHandle) {
+            if (widget.presentation) {
+              Navigator.of(context, rootNavigator: true).pop();
+            } else if (initialScreen != null) {
+              app.resetCommunityRoot();
+            }
+          }
+        },
+        onNavigateToLogin: app.onAuthenticationRequiredWired
+            ? () => _openHost(const LoginPage())
+            : null,
+        onModifyUser: app.hostProfileEditWired
+            ? (field) => _openHost(ProfileEditPage(fieldToEdit: field))
+            : null,
+        // The bridge ignores the Dart return value. A null callback is the
+        // only supported way to leave URL opening to the native SDK.
+        onNavigateToUrl: app.hostUrlHandling == HostUrlHandling.inApp
+            ? (url) {
+                if (_canHandle) {
+                  demoLog.apiCall('onNavigateToUrl', {'url': url});
+                  openUrlOrCopy(
+                    context,
+                    url,
+                    clipLabel: 'Community link',
+                    mode: LaunchMode.inAppBrowserView,
+                  );
+                }
+                return UrlOpeningStrategy.handledByApp;
+              }
+            : null,
+        onNavigateToProfile: app.unifiedProfileWired
+            ? (clientUserId) =>
+                  _openHost(ClientProfilePage(clientUserId: clientUserId))
+            : null,
+      );
+    },
   );
 }
 
-/// Opens the community in a 90%-height Material bottom sheet.
+/// Sheet and Modal are demos; neither inherits a pending or previously opened push.
 Future<void> openCommunitySheet(BuildContext context) async {
   final app = AppScope.of(context);
-  demoLog.apiCall('showModalBottomSheet<OctopusHomeScreen>', const {
-    'source': 'home-dock',
-  });
-  // Raw View inset, immune to what the widget tree consumes, so the SDK's
-  // floating "Write a post" pill clears the home indicator.
   final bottomSafeArea = MediaQueryData.fromView(
     View.of(context),
   ).viewPadding.bottom;
   await showModalBottomSheet<void>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
     builder: (sheetContext) {
-      // Keep the SDK's bottom input bar above the software keyboard: the sheet
-      // is a fixed fraction of the screen and does not resize for the IME.
       final mediaQuery = MediaQuery.of(sheetContext);
       final keyboardInset = mediaQuery.viewInsets.bottom;
-      final fullHeight = mediaQuery.size.height;
-      final maxHeight = fullHeight * 0.9;
-      final available = fullHeight - keyboardInset;
+      final maxHeight = mediaQuery.size.height * 0.9;
+      final available = mediaQuery.size.height - keyboardInset;
       return Padding(
         padding: EdgeInsets.only(bottom: keyboardInset),
         child: SizedBox(
           height: maxHeight < available ? maxHeight : available,
-          child: _octopusSurface(
-            sheetContext,
-            app,
+          child: CommunitySurface(
+            app: app,
+            presentation: true,
+            modal: true,
+            useCommunityNotification: false,
             bottomSafeArea: bottomSafeArea,
           ),
         ),
@@ -87,28 +200,39 @@ Future<void> openCommunitySheet(BuildContext context) async {
   );
 }
 
-/// Opens the community in a `fullscreenDialog` route — the Flutter equivalent
-/// of a modal presentation.
-Future<void> openCommunityModal(BuildContext context) async {
+Future<void> openCommunityModal(BuildContext context) =>
+    _openCommunityRoute(context, modal: true);
+
+/// Full screen presents the whole native flow over the host shell on both OSes.
+Future<void> openCommunityFullScreen(
+  BuildContext context, {
+  bool useCommunityNotification = false,
+}) => _openCommunityRoute(
+  context,
+  useCommunityNotification: useCommunityNotification,
+);
+
+Future<void> _openCommunityRoute(
+  BuildContext context, {
+  bool modal = false,
+  bool useCommunityNotification = false,
+}) {
   final app = AppScope.of(context);
-  demoLog.apiCall('MaterialPageRoute<OctopusHomeScreen>', const {
-    'fullscreenDialog': true,
-    'source': 'home-dock',
-  });
   final bottomSafeArea = MediaQueryData.fromView(
     View.of(context),
   ).viewPadding.bottom;
-  await Navigator.of(context).push(
+  return Navigator.of(context, rootNavigator: true).push<void>(
     MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (routeContext) => Scaffold(
+      fullscreenDialog: modal,
+      builder: (_) => Scaffold(
         body: SafeArea(
           bottom: false,
-          child: _octopusSurface(
-            routeContext,
-            app,
+          child: CommunitySurface(
+            app: app,
+            presentation: true,
+            modal: modal,
+            useCommunityNotification: useCommunityNotification,
             bottomSafeArea: bottomSafeArea,
-            navBarTitle: 'Community',
           ),
         ),
       ),

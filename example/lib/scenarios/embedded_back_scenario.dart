@@ -9,6 +9,7 @@ import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../design.dart';
 
 /// Which container the community is opened in for a given run.
 enum _Presentation {
@@ -298,7 +299,7 @@ class _EmbeddedBackScenarioState extends State<EmbeddedBackScenario> {
                   setState(() => _presentation = s.first),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: SampleSpacing.space3),
           KeyValueCard(
             title: 'onBack',
             rows: [

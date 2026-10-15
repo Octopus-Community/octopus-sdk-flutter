@@ -20,9 +20,9 @@ class ConnectionScenario extends StatelessWidget {
   /// `OctopusProfile.isGuest` (native iOS SDK `1.12.6+`).
   static String _connectionLabel(OctopusConnectionState? state) =>
       switch (state) {
-        OctopusConnected(isGuest: true) => 'connected · guest',
-        OctopusConnected() => 'connected',
-        _ => 'anonymous',
+        OctopusConnected(isGuest: true) => 'Connected (guest)',
+        OctopusConnected() => 'Connected',
+        _ => 'Not connected',
       };
 
   @override
@@ -44,13 +44,17 @@ class ConnectionScenario extends StatelessWidget {
           'falls back to the pre-baked OCTOPUS_USER_TOKEN — connect still '
           'works but refreshEntitlements returns NoClientTokenProvider.\n\n'
           'After Disconnect, a forced-login community re-establishes a '
-          'guest session — shown as "connected · guest" on both platforms '
+          'guest session — shown as "Connected (guest)" on both platforms '
           '(iOS reports the guest flag since native SDK 1.12.6).',
       resultTestId: 'connection-result',
+      catalogParams: const {
+        'user': 'OctopusUser — the demo SSO user configured in Settings',
+      },
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
-          ('Connection', _connectionLabel(app.connectionState)),
+          ('connectionState', _connectionLabel(app.connectionState)),
+          ('isUserConnected', app.userConnected.toString()),
           ('User id', app.effectiveUserId),
           ('User token', hasInjectedUserToken ? 'injected' : 'not injected'),
           (
@@ -76,7 +80,7 @@ class ConnectionScenario extends StatelessWidget {
       presets: [
         ScenarioPreset(
           testId: 'qa-preset-connection-1',
-          label: 'Preset 1 · Connect (no entitlements)',
+          label: 'connectUser() · Execute',
           onRun: (setResult) async {
             final userId = app.effectiveUserId;
             try {
@@ -163,7 +167,7 @@ class ConnectionScenario extends StatelessWidget {
         ),
         ScenarioPreset(
           testId: 'qa-preset-connection-5',
-          label: 'Preset 5 · Disconnect',
+          label: 'disconnectUser() · Execute',
           onRun: (setResult) async {
             try {
               await app.disconnectUser();

@@ -3,7 +3,6 @@ import Flutter
 
 class OctopusEventEmitter {
     private var eventSink: FlutterEventSink?
-    private var methodChannel: FlutterMethodChannel?
     
     // Callbacks for showNativeUI
     var onLoginRequired: (() -> Void)?
@@ -14,11 +13,6 @@ class OctopusEventEmitter {
     func setEventSink(_ eventSink: FlutterEventSink?) {
         self.eventSink = eventSink
         print("iOS OctopusEventEmitter: Event sink set: \(eventSink != nil)")
-    }
-    
-    func setMethodChannel(_ methodChannel: FlutterMethodChannel) {
-        self.methodChannel = methodChannel
-        print("iOS OctopusEventEmitter: Method channel set")
     }
     
     func emitLoginRequired() {
@@ -37,14 +31,6 @@ class OctopusEventEmitter {
         onModifyUser?(fieldToEdit)
     }
     
-    func emitUserTokenRequest(requestId: String) {
-        print("iOS OctopusEventEmitter: Emitting userTokenRequest event: \(requestId)")
-        eventSink?([
-            "event": "userTokenRequest",
-            "requestId": requestId
-        ])
-    }
-    
     func emitNavigateToLogin() {
         print("iOS OctopusEventEmitter: Emitting navigateToLogin event")
         eventSink?(["event": "navigateToLogin"])
@@ -52,7 +38,7 @@ class OctopusEventEmitter {
     }
 
     func sendEvent(_ eventName: String, data: [String: Any]? = nil) {
-        print("iOS OctopusEventEmitter: Sending event: \(eventName), data: \(String(describing: data))")
+        print("iOS OctopusEventEmitter: Sending event: \(eventName)")
         var eventData: [String: Any] = ["event": eventName]
         if let data { eventData.merge(data) { _, new in new } }
         eventSink?(eventData)

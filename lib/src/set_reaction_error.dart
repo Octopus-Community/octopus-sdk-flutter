@@ -25,8 +25,9 @@ sealed class SetReactionError implements OctopusServerError {
   /// [SetReactionReactionError], and a missing/non-String `message` falls back
   /// to a placeholder.
   factory SetReactionError.fromWire(Map<String, dynamic> wire) {
-    final message =
-        wire['message'] is String ? wire['message'] as String : 'Unknown error';
+    final message = wire['message'] is String
+        ? wire['message'] as String
+        : 'Unknown error';
     switch (wire['type']) {
       case 'unknownReaction':
         return const SetReactionUnknownReactionError();

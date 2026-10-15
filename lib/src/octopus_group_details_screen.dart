@@ -58,6 +58,12 @@ class OctopusGroupDetailsScreen extends StatelessWidget {
   /// Whether the widget is enabled (renders) — `false` renders an empty box.
   final bool enabled;
 
+  /// Whether this retained view may handle Android system Back.
+  ///
+  /// Defaults to `true`; a no-op on iOS. See [OctopusHomeScreen.isVisible]
+  /// for automatic visibility detection and host-controlled hiding.
+  final bool isVisible;
+
   /// Invoked when the user taps the SDK back chevron (or fires
   /// `backRequested` on iOS via `navBarLeadingAction` semantics). Wire to
   /// `Navigator.of(context).pop()` to dismiss the hosting route. Without
@@ -107,6 +113,7 @@ class OctopusGroupDetailsScreen extends StatelessWidget {
     this.navBarPrimaryColor = false,
     this.showBackButton = true,
     this.enabled = true,
+    this.isVisible = true,
     this.onBack,
     this.onNavigateToLogin,
     this.onModifyUser,
@@ -120,6 +127,7 @@ class OctopusGroupDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return OctopusHomeScreen(
       theme: theme,
+      isVisible: isVisible,
       navBarTitle: navBarTitle,
       navBarPrimaryColor: navBarPrimaryColor,
       showBackButton: showBackButton,

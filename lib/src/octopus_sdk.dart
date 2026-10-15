@@ -11,6 +11,8 @@ import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
+import 'client_user_token_provider_state.dart' as token_provider_state;
+import 'consent_texts.dart';
 import 'content_options.dart';
 import 'create_post_screen_info.dart';
 import 'group_follow_unfollow_error.dart';
@@ -34,6 +36,7 @@ import 'profile_field.dart';
 import 'profile_fields_lock.dart';
 import 'octopus_sdk_platform.dart';
 import 'octopus_theme.dart';
+import 'octopus_view_visibility.dart';
 import 'octopus_home_screen.dart';
 import 'sync_follow_group.dart';
 import 'terms_acceptance_mode.dart';
@@ -72,7 +75,7 @@ StreamController<Map<String, dynamic>>? _eventStreamController;
 EventChannel? _eventChannel;
 StreamSubscription?
 // ignore: unused_element
-    _eventSubscription; // Stored to prevent GC and allow future cancellation
+_eventSubscription; // Stored to prevent GC and allow future cancellation
 bool _isEventChannelInitialized = false;
 
 // Cached last values so late subscribers don't miss the initial emission.
@@ -118,7 +121,7 @@ void Function(String objectId)? _navigateToClientObjectCallback;
 // request/reply reentrant: two concurrent calls each carry their own requestId,
 // so the native side correlates the right provider with the right reply.
 final Map<String, Future<String?> Function(String fingerprint)>
-    _bridgeTokenProviders = <String, Future<String?> Function(String)>{};
+_bridgeTokenProviders = <String, Future<String?> Function(String)>{};
 int _bridgeTokenRequestCounter = 0;
 
 // The in-flight requestId of the create-post editor's bridge-share token
@@ -140,18 +143,24 @@ String? _createPostBridgeTokenRequestId;
 // token. The native bridge generates a unique requestId per invocation so
 // concurrent refreshes can't race.
 final Map<String, Future<String> Function()> _clientUserTokenProviders =
-    <String, Future<String> Function()>{};
+    // The SDK owns this state; its library exposes it only for test assertions.
+    // ignore: invalid_use_of_visible_for_testing_member
+    token_provider_state.clientUserTokenProviders;
 int _clientUserTokenProviderCounter = 0;
 
 // How many native `clientUserTokenRequest`s are currently awaiting their Dart
 // provider, keyed by providerId. A superseded provider is released only once
 // this drops back to zero, so a refresh that is already running against an
 // earlier registration still gets a real token (#375).
-final Map<String, int> _clientUserTokenRequestsInFlight = <String, int>{};
+final Map<String, int> _clientUserTokenRequestsInFlight =
+    // ignore: invalid_use_of_visible_for_testing_member
+    token_provider_state.clientUserTokenRequestsInFlight;
 
 // Providers superseded by a later connectUser that are being kept alive only
 // until their last in-flight request has been answered.
-final Set<String> _supersededClientUserTokenProviders = <String>{};
+final Set<String> _supersededClientUserTokenProviders =
+    // ignore: invalid_use_of_visible_for_testing_member
+    token_provider_state.supersededClientUserTokenProviders;
 
 // Providers whose own `connectUser` platform call has not resolved yet. Such a
 // registration is idle by definition — native has not invoked it — so the
@@ -160,7 +169,9 @@ final Set<String> _supersededClientUserTokenProviders = <String>{};
 // and a logout round trip first). Dropping it would leave native holding a
 // providerId Dart no longer has: an empty token on every later refresh, for the
 // rest of the session (#375).
-final Set<String> _connectingClientUserTokenProviders = <String>{};
+final Set<String> _connectingClientUserTokenProviders =
+    // ignore: invalid_use_of_visible_for_testing_member
+    token_provider_state.connectingClientUserTokenProviders;
 
 // Hard ceiling on how many registrations can be alive at once — current,
 // superseded-but-busy, and any whose own connect has not resolved yet. Enforced
@@ -238,8 +249,9 @@ class OctopusSDK {
   static void _handleBridgeTokenRequest(Map<String, dynamic> map) {
     final requestId = map['requestId'];
     if (requestId is! String) return;
-    final fingerprint =
-        map['fingerprint'] is String ? map['fingerprint'] as String : '';
+    final fingerprint = map['fingerprint'] is String
+        ? map['fingerprint'] as String
+        : '';
     final provider = _bridgeTokenProviders[requestId];
     unawaited(() async {
       String? token;
@@ -382,6 +394,7 @@ class OctopusSDK {
     final excess =
         _clientUserTokenProviders.length - _maxRetainedClientUserTokenProviders;
     if (excess <= 0) return;
+    final droppedGenerations = <String>[];
     // Oldest first — `_clientUserTokenProviders` is insertion-ordered.
     for (final providerId
         in _clientUserTokenProviders.keys.take(excess).toList()) {
@@ -389,6 +402,20 @@ class OctopusSDK {
       _connectingClientUserTokenProviders.remove(providerId);
       _clientUserTokenRequestsInFlight.remove(providerId);
       _clientUserTokenProviders.remove(providerId);
+      // Only the generated counter is safe to log: the rest includes userId.
+      droppedGenerations.add(providerId.split('_')[1]);
+    }
+    for (final generation in droppedGenerations) {
+      try {
+        debugPrint(
+          'OctopusSDK: token provider retention ceiling '
+          '($_maxRetainedClientUserTokenProviders) exceeded; '
+          'dropped provider generation $generation. Check for unresolved '
+          'connects or token requests.',
+        );
+      } catch (_) {
+        // A host-supplied logger must not interrupt connection or rollback.
+      }
     }
   }
 
@@ -446,28 +473,6 @@ class OctopusSDK {
     _lastIsInitialised = true;
   }
 
-  /// Initialize the Octopus SDK with Octopus Auth mode (Octopus manages user authentication)
-  ///
-  /// [apiKey] - Your Octopus Community API key
-  /// [deepLink] - Optional deep link to reopen your app after magic link authentication
-  /// Example: "com.yourapp.scheme://magic-link"
-  /// [apiServer] - Optional custom server endpoint the SDK targets. When `null`
-  /// (default), the SDK uses the Octopus default endpoint over TLS. See
-  /// [ApiServer] for the host validation rules.
-  Future<void> initializeOctopusAuth({
-    required String apiKey,
-    String? deepLink,
-    ApiServer? apiServer,
-  }) async {
-    _initializeEventChannel();
-    await OctopusSDKPlatform.instance.initializeOctopusAuth(
-      apiKey: apiKey,
-      deepLink: deepLink,
-      apiServer: apiServer,
-    );
-    _lastIsInitialised = true;
-  }
-
   /// Switches the SDK to a different community in SSO mode.
   ///
   /// Use this when your app supports multiple communities (i.e. different API
@@ -499,29 +504,6 @@ class OctopusSDK {
     _lastIsInitialised = true;
   }
 
-  /// Switches the SDK to a different community in Octopus Auth mode.
-  ///
-  /// The Octopus Auth counterpart to [switchCommunity]; mirrors
-  /// [initializeOctopusAuth]. See [switchCommunity] for the switching semantics
-  /// and the embedded-UI `key` recommendation.
-  ///
-  /// [apiKey] - The API key identifying the community to switch to.
-  /// [deepLink] - Optional deep link to reopen your app after magic-link auth.
-  /// [apiServer] - Optional custom server endpoint. See [ApiServer].
-  Future<void> switchCommunityOctopusAuth({
-    required String apiKey,
-    String? deepLink,
-    ApiServer? apiServer,
-  }) async {
-    _initializeEventChannel();
-    await OctopusSDKPlatform.instance.switchCommunityOctopusAuth(
-      apiKey: apiKey,
-      deepLink: deepLink,
-      apiServer: apiServer,
-    );
-    _lastIsInitialised = true;
-  }
-
   /// Disconnects the current user and clears locally cached data without
   /// switching community.
   ///
@@ -539,11 +521,10 @@ class OctopusSDK {
   /// Stops the SDK and releases all resources.
   ///
   /// Call this when the SDK is no longer needed. After this returns, the SDK is
-  /// uninitialized ([isInitialised] is `false`) and [initialize] /
-  /// [initializeOctopusAuth] must be called again before any further use. The
-  /// native SDK cancels its ongoing operations; the Dart event streams (e.g.
-  /// [events], [isInitialisedFlow]) stay open and [isInitialisedFlow] emits
-  /// `false`.
+  /// uninitialized ([isInitialised] is `false`) and [initialize] must be called
+  /// again before any further use. The native SDK cancels its ongoing operations;
+  /// the Dart event streams (e.g. [events], [isInitialisedFlow]) stay open and
+  /// [isInitialisedFlow] emits `false`.
   Future<void> stop() async {
     await OctopusSDKPlatform.instance.stop();
     _lastIsInitialised = false;
@@ -551,8 +532,7 @@ class OctopusSDK {
 
   /// Whether the SDK is currently initialized.
   ///
-  /// Returns `true` after [initialize] / [initializeOctopusAuth] /
-  /// [switchCommunity] / [switchCommunityOctopusAuth] complete, and `false`
+  /// Returns `true` after [initialize] / [switchCommunity] complete, and `false`
   /// before any initialization or after [stop]. [reset] does not change it.
   ///
   /// This is the synchronous complement to [isInitialisedFlow]. It reflects the
@@ -636,14 +616,13 @@ class OctopusSDK {
   static Stream<bool> buildIsInitialisedFlow(
     Stream<Map<String, dynamic>> source,
     bool seed,
-  ) =>
-      _seedThenListen<bool>(
-        source
-            .where((event) => event['event'] == 'isInitialisedChanged')
-            .map((event) => event['isInitialised'] as bool),
-        seed: [seed],
-        equals: (a, b) => a == b,
-      );
+  ) => _seedThenListen<bool>(
+    source
+        .where((event) => event['event'] == 'isInitialisedChanged')
+        .map((event) => event['isInitialised'] as bool),
+    seed: [seed],
+    equals: (a, b) => a == b,
+  );
 
   /// Embedded PlatformView widget to display native Octopus UI inside Flutter
   ///
@@ -732,11 +711,16 @@ class OctopusSDK {
   /// button, the back chevron via [showBackButton], or a layout where the
   /// parent's gesture area doesn't overlap the SDK.
   ///
+  /// [isVisible] controls whether a retained view may handle Android system
+  /// Back, in addition to automatic visibility detection. Defaults to `true`;
+  /// a no-op on iOS. See [OctopusHomeScreen.isVisible] for the full contract.
+  ///
   /// **Bottom padding** — `bottomSafeAreaInset` is the *total* bottom padding
   /// reserved inside the embedded view, resolved from this widget's mount point
   /// when left at its `0` default. See
   /// [OctopusHomeScreen.bottomSafeAreaInset] for the contract.
   static Widget embeddedView({
+    bool isVisible = true,
     String? navBarTitle,
     bool navBarPrimaryColor = false,
     bool showBackButton = true,
@@ -758,7 +742,7 @@ class OctopusSDK {
     _initializeEventChannel();
 
     final creationParams = <String, dynamic>{
-      if (navBarTitle != null) 'navBarTitle': navBarTitle,
+      'navBarTitle': ?navBarTitle,
       'navBarPrimaryColor': navBarPrimaryColor,
       'showBackButton': showBackButton,
       // Emit only the non-default (true); the native bridges default to
@@ -876,8 +860,8 @@ class OctopusSDK {
         final resolvedBottomInset = bottomSafeAreaInset > 0
             ? bottomSafeAreaInset
             : defaultTargetPlatform == TargetPlatform.android
-                ? _ambientBottomInset(context)
-                : 0.0;
+            ? _ambientBottomInset(context)
+            : 0.0;
         final params = resolvedBottomInset > 0
             ? <String, dynamic>{
                 ...creationParams,
@@ -893,14 +877,18 @@ class OctopusSDK {
                 hitTestBehavior: PlatformViewHitTestBehavior.opaque,
               )
             : defaultTargetPlatform == TargetPlatform.android
-                ? AndroidView(
-                    viewType: viewType,
-                    creationParams: params,
-                    creationParamsCodec: const StandardMessageCodec(),
-                    gestureRecognizers: gestureRecognizers,
-                    hitTestBehavior: PlatformViewHitTestBehavior.opaque,
-                  )
-                : const SizedBox.shrink();
+            ? OctopusViewVisibility(
+                isVisible: isVisible,
+                builder: (onCreated) => AndroidView(
+                  viewType: viewType,
+                  creationParams: params,
+                  creationParamsCodec: const StandardMessageCodec(),
+                  gestureRecognizers: gestureRecognizers,
+                  hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+                  onPlatformViewCreated: onCreated,
+                ),
+              )
+            : const SizedBox.shrink();
       },
     );
   }
@@ -1030,7 +1018,9 @@ class OctopusSDK {
   /// [picture] - User's profile picture as an `https` URL, or base64 (raw or
   ///   `data:` URI), optional. On iOS the URL is downloaded by the bridge before
   ///   connecting; a failed download or non-image response connects without a
-  ///   picture. Plain `http` needs an App Transport Security exception in your app.
+  ///   picture. On both platforms, base64 that does not decode to an image the
+  ///   platform can read connects without a picture. Plain `http` needs an App
+  ///   Transport Security exception in your app.
   /// [token] - **Deprecated.** A pre-minted static JWT. Prefer [tokenProvider]:
   ///   a static token cannot be re-minted when the SDK re-authenticates the
   ///   user (e.g. [refreshEntitlements]), so it fails once the JWT expires. To
@@ -1224,6 +1214,8 @@ class OctopusSDK {
       return result;
     } catch (_) {
       _clientUserTokenProviders.remove(providerId);
+      _clientUserTokenRequestsInFlight.remove(providerId);
+      _supersededClientUserTokenProviders.remove(providerId);
       rethrow;
     }
   }
@@ -1267,14 +1259,12 @@ class OctopusSDK {
     Stream<Map<String, dynamic>> source,
     bool hasSeed,
     int seed,
-  ) =>
-      _seedThenListen<int>(
-        source
-            .where(
-                (event) => event['event'] == 'notSeenNotificationsCountChanged')
-            .map((event) => event['count'] as int),
-        seed: hasSeed ? [seed] : const <int>[],
-      );
+  ) => _seedThenListen<int>(
+    source
+        .where((event) => event['event'] == 'notSeenNotificationsCountChanged')
+        .map((event) => event['count'] as int),
+    seed: hasSeed ? [seed] : const <int>[],
+  );
 
   /// Force refresh the unseen notification count from the server
   Future<void> updateNotSeenNotificationsCount() {
@@ -1304,13 +1294,12 @@ class OctopusSDK {
     Stream<Map<String, dynamic>> source,
     bool hasSeed,
     bool seed,
-  ) =>
-      _seedThenListen<bool>(
-        source
-            .where((event) => event['event'] == 'hasAccessToCommunityChanged')
-            .map((event) => event['hasAccess'] as bool),
-        seed: hasSeed ? [seed] : const <bool>[],
-      );
+  ) => _seedThenListen<bool>(
+    source
+        .where((event) => event['event'] == 'hasAccessToCommunityChanged')
+        .map((event) => event['hasAccess'] as bool),
+    seed: hasSeed ? [seed] : const <bool>[],
+  );
 
   /// Reactive stream of the connected user's public [OctopusProfile], or `null`
   /// when no user is connected.
@@ -1341,17 +1330,14 @@ class OctopusSDK {
     Stream<Map<String, dynamic>> source,
     bool hasReceived,
     OctopusProfile? seed,
-  ) =>
-      _seedThenListen<OctopusProfile?>(
-        source
-            .where((event) => event['event'] == 'profileChanged')
-            .map((event) {
-          final raw = event['profile'];
-          return raw is Map ? OctopusProfile.fromWire(raw) : null;
-        }),
-        seed: hasReceived ? [seed] : const <OctopusProfile?>[],
-        equals: (a, b) => a == b,
-      );
+  ) => _seedThenListen<OctopusProfile?>(
+    source.where((event) => event['event'] == 'profileChanged').map((event) {
+      final raw = event['profile'];
+      return raw is Map ? OctopusProfile.fromWire(raw) : null;
+    }),
+    seed: hasReceived ? [seed] : const <OctopusProfile?>[],
+    equals: (a, b) => a == b,
+  );
 
   /// Reactive stream of the community's [OctopusGroup]s (content categories the
   /// user can browse and follow).
@@ -1373,19 +1359,18 @@ class OctopusSDK {
   static Stream<List<OctopusGroup>> buildGroupsStream(
     Stream<Map<String, dynamic>> source,
     List<OctopusGroup>? seed,
-  ) =>
-      _seedThenListen<List<OctopusGroup>>(
-        source
-            .where((event) => event['event'] == 'groupsChanged')
-            .map((event) => _decodeGroups(event['groups'])),
-        seed: seed != null ? [seed] : const <List<OctopusGroup>>[],
-        equals: (a, b) => listEquals(a, b),
-      );
+  ) => _seedThenListen<List<OctopusGroup>>(
+    source
+        .where((event) => event['event'] == 'groupsChanged')
+        .map((event) => _decodeGroups(event['groups'])),
+    seed: seed != null ? [seed] : const <List<OctopusGroup>>[],
+    equals: (a, b) => listEquals(a, b),
+  );
 
   static List<OctopusGroup> _decodeGroups(Object? raw) => <OctopusGroup>[
-        if (raw is List)
-          for (final g in raw.whereType<Map>()) OctopusGroup.fromWire(g),
-      ];
+    if (raw is List)
+      for (final g in raw.whereType<Map>()) OctopusGroup.fromWire(g),
+  ];
 
   /// Reactive stream of the current [OctopusConnectionState].
   ///
@@ -1410,14 +1395,13 @@ class OctopusSDK {
   static Stream<OctopusConnectionState> buildConnectionStateStream(
     Stream<Map<String, dynamic>> source,
     OctopusConnectionState? seed,
-  ) =>
-      _seedThenListen<OctopusConnectionState>(
-        source
-            .where((event) => event['event'] == 'connectionStateChanged')
-            .map(_decodeConnectionState),
-        seed: seed != null ? [seed] : const <OctopusConnectionState>[],
-        equals: (a, b) => a == b,
-      );
+  ) => _seedThenListen<OctopusConnectionState>(
+    source
+        .where((event) => event['event'] == 'connectionStateChanged')
+        .map(_decodeConnectionState),
+    seed: seed != null ? [seed] : const <OctopusConnectionState>[],
+    equals: (a, b) => a == b,
+  );
 
   /// Reactive convenience stream derived from [connectionState]: `true` only
   /// when a fully authenticated (non-guest) user is connected.
@@ -1436,10 +1420,9 @@ class OctopusSDK {
   @visibleForTesting
   static Stream<bool> buildIsUserConnectedStream(
     Stream<OctopusConnectionState> source,
-  ) =>
-      source
-          .map((state) => state is OctopusConnected && !state.isGuest)
-          .distinct();
+  ) => source
+      .map((state) => state is OctopusConnected && !state.isGuest)
+      .distinct();
 
   static OctopusConnectionState _decodeConnectionState(
     Map<String, dynamic> event,
@@ -1463,13 +1446,13 @@ class OctopusSDK {
   /// Ignoring the result is not flagged by the analyzer, so a failure here is
   /// silent unless you read it.
   Future<OctopusResult<void, OverrideCommunityAccessError>>
-      overrideCommunityAccess(bool hasAccess) {
+  overrideCommunityAccess(bool hasAccess) {
     return OctopusSDKPlatform.instance.overrideCommunityAccess(hasAccess);
   }
 
   /// Refreshes the current user's community entitlements from the backend.
   ///
-  /// Only supported in SSO mode with a connected (non-guest) user and a
+  /// Requires a connected (non-guest) user and a
   /// registered token provider. Returns an [OctopusResult]: [OctopusSuccess] on
   /// success, or an [OctopusInvalidArguments] carrying a typed
   /// [RefreshEntitlementsError] (`NoClientTokenProvider`, `UserNotConnected`,
@@ -1620,7 +1603,7 @@ class OctopusSDK {
   /// [ClientPostOtherError]; on Android the specific [ClientPostError] subtypes
   /// are produced.
   Future<OctopusResult<OctopusPost, ClientPostError>>
-      fetchOrCreateClientObjectRelatedPost(
+  fetchOrCreateClientObjectRelatedPost(
     ClientPost clientPost, {
     Future<String?> Function(String fingerprint)? tokenProvider,
   }) async {
@@ -1632,10 +1615,10 @@ class OctopusSDK {
     try {
       return await OctopusSDKPlatform.instance
           .fetchOrCreateClientObjectRelatedPost(
-        clientPost,
-        requestId: requestId,
-        hasTokenProvider: tokenProvider != null,
-      );
+            clientPost,
+            requestId: requestId,
+            hasTokenProvider: tokenProvider != null,
+          );
     } finally {
       _bridgeTokenProviders.remove(requestId);
     }
@@ -1658,7 +1641,7 @@ class OctopusSDK {
   /// [stop] tears the native observation down: the subscription stays open but
   /// silent, so re-subscribe after re-initializing.
   ///
-  /// A community switch ([switchCommunity] / [switchCommunityOctopusAuth]) is
+  /// A community switch ([switchCommunity]) is
   /// **not** handled for you. The subscription stays open, but the native
   /// observation behind it belongs to the previous community, so it simply
   /// stops emitting. Cancel and re-subscribe after the switch.
@@ -1697,14 +1680,14 @@ class OctopusSDK {
       onListen: () {
         sub = source
             .where(
-          (event) =>
-              event['event'] == 'clientObjectPostChanged' &&
-              event['observationId'] == observationId,
-        )
+              (event) =>
+                  event['event'] == 'clientObjectPostChanged' &&
+                  event['observationId'] == observationId,
+            )
             .listen((event) {
-          final raw = event['post'];
-          controller.add(raw is Map ? OctopusPost.fromWire(raw) : null);
-        });
+              final raw = event['post'];
+              controller.add(raw is Map ? OctopusPost.fromWire(raw) : null);
+            });
         // Fire-and-forget, but surface a start failure (e.g. called before
         // initialize) to the listener instead of leaving a silently-dead
         // stream + an unhandled async error.
@@ -1712,8 +1695,8 @@ class OctopusSDK {
           platform
               .startClientObjectPostObservation(observationId, clientObjectId)
               .catchError((Object e, StackTrace st) {
-            if (!controller.isClosed) controller.addError(e, st);
-          }),
+                if (!controller.isClosed) controller.addError(e, st);
+              }),
         );
       },
       onCancel: () async {
@@ -1739,11 +1722,11 @@ class OctopusSDK {
   ///
   /// Passing both, or neither, throws an [ArgumentError] in every build.
   ///
-  /// Returns `null` when the member is unknown — an unresolvable
-  /// [clientUserId], or a [profileId] with no such profile. Refreshes from the
-  /// server, so it can fail: the returned future completes with an error on a
-  /// network/server failure, or when the community does not expose client user
-  /// ids and you passed a [clientUserId].
+  /// Returns `null` only after a successful lookup when the member is unknown —
+  /// an unresolvable [clientUserId], or a [profileId] with no such profile.
+  /// Refreshes from the server, so it can fail: the returned future completes
+  /// with an error on a network/server failure, or when the community does not
+  /// expose client user ids and you passed a [clientUserId].
   ///
   /// ```dart
   /// final data = await OctopusSDK().fetchCommunityData(
@@ -1791,7 +1774,7 @@ class OctopusSDK {
   /// silent. After re-initializing, cancel it and call [communityDataFlow]
   /// again for a fresh stream.
   ///
-  /// A community switch ([switchCommunity] / [switchCommunityOctopusAuth]) is
+  /// A community switch ([switchCommunity]) is
   /// **not** handled for you. The subscription stays open, but the native
   /// observation behind it belongs to the previous community, so it simply
   /// stops emitting. Cancel it and call [communityDataFlow] again after the
@@ -1850,29 +1833,29 @@ class OctopusSDK {
       onListen: () {
         sub = source
             .where(
-          (event) =>
-              event['event'] == 'communityDataChanged' &&
-              event['observationId'] == observationId,
-        )
+              (event) =>
+                  event['event'] == 'communityDataChanged' &&
+                  event['observationId'] == observationId,
+            )
             .listen((event) {
-          final raw = event['communityData'];
-          controller.add(
-            raw is Map ? OctopusCommunityData.fromWire(raw) : null,
-          );
-        });
+              final raw = event['communityData'];
+              controller.add(
+                raw is Map ? OctopusCommunityData.fromWire(raw) : null,
+              );
+            });
         // Fire-and-forget, but surface a start failure (e.g. called before
         // initialize) to the listener instead of leaving a silently-dead
         // stream + an unhandled async error.
         unawaited(
           platform
               .startCommunityDataObservation(
-            observationId,
-            profileId: profileId,
-            clientUserId: clientUserId,
-          )
+                observationId,
+                profileId: profileId,
+                clientUserId: clientUserId,
+              )
               .catchError((Object e, StackTrace st) {
-            if (!controller.isClosed) controller.addError(e, st);
-          }),
+                if (!controller.isClosed) controller.addError(e, st);
+              }),
         );
       },
       onCancel: () async {
@@ -1993,12 +1976,12 @@ class OctopusSDK {
   /// a backend serves it. **Not part of the supported public API** — it may
   /// change or be removed at any time.
   ///
-  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
-  /// iOS via **Swift Package Manager**: `ProfileFieldsLock` lives in
+  /// Supported on Android, and on iOS via **CocoaPods**. On iOS via **Swift
+  /// Package Manager** it depends on the build: `ProfileFieldsLock` lives in
   /// `octopus-sdk-swift`'s `OctopusCore` target, which that package does not
-  /// expose as an SPM product, so the plugin cannot construct it on that
-  /// integration path — the call resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException] there.
+  /// expose as an SPM product. When the build still reaches that module
+  /// transitively, the call is supported; otherwise it resolves with an
+  /// `UNSUPPORTED_PLATFORM` [PlatformException].
   ///
   /// [lock] - the lock to apply, or `null` to restore the backend-provided
   /// config.
@@ -2017,12 +2000,12 @@ class OctopusSDK {
   /// gating before a backend serves it. **Not part of the supported public
   /// API** — it may change or be removed at any time.
   ///
-  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
-  /// iOS via **Swift Package Manager**: `ContentOptions` lives in
+  /// Supported on Android, and on iOS via **CocoaPods**. On iOS via **Swift
+  /// Package Manager** it depends on the build: `ContentOptions` lives in
   /// `octopus-sdk-swift`'s `OctopusCore` target, which that package does not
-  /// expose as an SPM product, so the plugin cannot construct it on that
-  /// integration path — the call resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException] there.
+  /// expose as an SPM product. When the build still reaches that module
+  /// transitively, the call is supported; otherwise it resolves with an
+  /// `UNSUPPORTED_PLATFORM` [PlatformException].
   ///
   /// [options] - the content options to apply, or `null` to restore the
   /// backend-provided config.
@@ -2041,12 +2024,12 @@ class OctopusSDK {
   /// **Not part of the supported public API** — it may change or be removed
   /// at any time.
   ///
-  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
-  /// iOS via **Swift Package Manager**: `TermsAcceptanceMode` lives in
+  /// Supported on Android, and on iOS via **CocoaPods**. On iOS via **Swift
+  /// Package Manager** it depends on the build: `TermsAcceptanceMode` lives in
   /// `octopus-sdk-swift`'s `OctopusCore` target, which that package does not
-  /// expose as an SPM product, so the plugin cannot construct it on that
-  /// integration path — the call resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException] there.
+  /// expose as an SPM product. When the build still reaches that module
+  /// transitively, the call is supported; otherwise it resolves with an
+  /// `UNSUPPORTED_PLATFORM` [PlatformException].
   ///
   /// [mode] - the mode to force, or `null` to restore the backend-provided
   /// config.
@@ -2086,6 +2069,32 @@ class OctopusSDK {
     return OctopusSDKPlatform.instance.debugOverrideExposeClientUserId(enabled);
   }
 
+  /// Debug-only override of whether an unconfirmed member must type a nickname
+  /// before a first contribution. `false` prefills the generated nickname;
+  /// `null` restores the backend value. Requires native SDK 1.15.
+  ///
+  /// The native screen still requires an editable, unconfirmed nickname and
+  /// exempts an SSO nickname managed by the host. Guests keep the native flow.
+  /// Supported on both iOS integration paths; before initialization throws
+  /// `NOT_INITIALIZED`. This internal test API is not a supported production API.
+  Future<void> debugOverrideForceNicknameChoice(bool? enabled) {
+    return OctopusSDKPlatform.instance.debugOverrideForceNicknameChoice(
+      enabled,
+    );
+  }
+
+  /// Debug-only override of community consent wordings. `null` restores the
+  /// backend texts. This does not change the terms-acceptance mode.
+  ///
+  /// Strings are forwarded unchanged; native 1.15 owns empty-field fallback,
+  /// markdown, mode mismatch, links and layout. Not a supported production API.
+  /// On iOS requires access to OctopusCore (CocoaPods, or an SPM build exposing
+  /// that module); otherwise throws `UNSUPPORTED_PLATFORM`. Before initialization
+  /// throws `NOT_INITIALIZED` on both platforms.
+  Future<void> debugOverrideConsentTexts(OctopusConsentTexts? texts) {
+    return OctopusSDKPlatform.instance.debugOverrideConsentTexts(texts);
+  }
+
   /// Internal test affordance: reads the community config the native SDK
   /// currently holds, including any local `debugOverride*` — the same
   /// effective config the SDK UI consumes. Lets a test app show whether
@@ -2101,13 +2110,14 @@ class OctopusSDK {
   /// only, not part of the supported public API** — it may change or be
   /// removed at any time.
   ///
-  /// Supported on Android, and on iOS via **CocoaPods**. Not yet supported on
-  /// iOS via **Swift Package Manager** — the config type lives in
-  /// `octopus-sdk-swift`'s `OctopusCore` target, which is not an SPM product —
-  /// where the call resolves with an `UNSUPPORTED_PLATFORM`
-  /// [PlatformException]. Resolves with a `NOT_INITIALIZED`
-  /// [PlatformException] before [initialize], and with a `CONFIG_ERROR`
-  /// [PlatformException] when the native read itself fails.
+  /// Supported on Android, and on iOS via **CocoaPods**. On iOS via **Swift
+  /// Package Manager** it depends on the build: the config type lives in
+  /// `octopus-sdk-swift`'s `OctopusCore` target, which is not an SPM product.
+  /// When the build still reaches that module transitively, the read is
+  /// supported; otherwise it resolves with an `UNSUPPORTED_PLATFORM`
+  /// [PlatformException]. Resolves with a `NOT_INITIALIZED` [PlatformException]
+  /// before [initialize], and with a `CONFIG_ERROR` [PlatformException] when
+  /// the native read itself fails.
   Future<OctopusDebugCommunityConfig?> debugGetCommunityConfig() async {
     final wire = await OctopusSDKPlatform.instance.debugGetCommunityConfig();
     return wire == null ? null : OctopusDebugCommunityConfig.fromWire(wire);
@@ -2284,8 +2294,13 @@ class OctopusSDK {
   /// - **Deeper inside the SDK** — the native navigation stack consumes the
   ///   gesture and navigates up inside itself: the plugin hosts the native
   ///   screens in a Navigation-Compose `NavHost`, whose back callback is
-  ///   enabled as soon as that stack holds more than one entry, and the
-  ///   wrapped native SDK installs its own back handlers on the deeper screens
+  ///   enabled while its nearest Flutter route is current, [TickerMode] is
+  ///   enabled, [Visibility.of] is true (including a plain [IndexedStack]),
+  ///   and that stack holds more than one entry. Hiding a retained view caps
+  ///   its Android lifecycle at CREATED: video pauses, and returning re-runs
+  ///   ON_RESUME work such as counter refreshes and post view-count updates.
+  ///   See [OctopusHomeScreen] for nested-Navigator visibility requirements.
+  ///   The wrapped native SDK installs its own back handlers on the deeper screens
   ///   (post detail, group detail, profile, create-post…). Neither [onBack]
   ///   nor the returned [Future] fires there — the Flutter route is still up.
   ///
@@ -2350,7 +2365,8 @@ class OctopusSDK {
     // value entirely (its inset modifier needs iOS 15+).
     // (Before that normalization landed, iOS added this value *on top of* its
     // own safe area and rendered roughly twice the intended band.)
-    final effectiveBottomInset = bottomSafeAreaInset ??
+    final effectiveBottomInset =
+        bottomSafeAreaInset ??
         MediaQueryData.fromView(View.of(context)).viewPadding.bottom;
     // A `0` here — passed explicitly ("pass `0` to opt back into the previous
     // edge-to-edge look", a contract shipped in 1.12.3) or resolved on a device

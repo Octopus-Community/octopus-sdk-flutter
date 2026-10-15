@@ -11,6 +11,16 @@ import 'octopus_sdk.dart';
 /// This widget provides a simple way to integrate the Octopus Community UI directly
 /// into your Flutter application without opening a separate modal.
 ///
+/// On Android, a retained view stops handling system Back when hidden by an
+/// [IndexedStack] or [Visibility], when its [TickerMode] is disabled, or when
+/// its nearest Flutter route is no longer current. Its native navigation stack
+/// is retained. For nested Navigators, an overlay on an outer Navigator must
+/// also hide the embedded subtree with [Visibility] or disable its [TickerMode].
+///
+/// Hiding the view caps its Android lifecycle at CREATED. Video playback pauses;
+/// returning resumes the same native screen and re-runs its ON_RESUME work,
+/// including counter refreshes and post view-count updates.
+///
 /// Example usage:
 /// ```dart
 /// OctopusHomeScreen(
@@ -82,6 +92,19 @@ class OctopusHomeScreen extends StatefulWidget {
   /// Whether the widget should be enabled
   final bool enabled;
 
+  /// Whether this retained view may handle Android system Back.
+  ///
+  /// Defaults to `true`. Set to `false` when hiding the view with plain
+  /// [Offstage], opacity, or another host mechanism that does not disable
+  /// [TickerMode] or [Visibility]. Hidden IndexedStack children, disabled
+  /// TickerMode, Visibility and covered ModalRoutes are also gated automatically.
+  /// This flag cannot override those automatic gates.
+  ///
+  /// Updates pause the native lifecycle without recreating the view or clearing
+  /// its navigation stack. This does not hide pixels or change touch handling;
+  /// the host controls those separately. A no-op on iOS.
+  final bool isVisible;
+
   /// Callback function called when the user navigates to login
   final VoidCallback? onNavigateToLogin;
 
@@ -107,9 +130,9 @@ class OctopusHomeScreen extends StatefulWidget {
   /// Activation is an **AND gate**: wiring this alone is not enough, the
   /// community must also be configured to expose client user ids. Until both
   /// hold, the SDK keeps its native screens and this callback is never invoked.
-  /// A member with no client user id — a guest, an Octopus-authentication
-  /// member, or a back-office-created profile — opens the Octopus activity
-  /// screen instead, so you never receive a tap you cannot resolve.
+  /// A member with no client user id — a guest, a restored session
+  /// without a host identity, or a back-office-created profile — opens the
+  /// Octopus activity screen instead, so you never receive a tap you cannot resolve.
   ///
   /// Whether it is set at all is decided **when the view mounts**: Android takes
   /// the callback as a mount-time parameter of the native composable, so
@@ -349,6 +372,7 @@ class OctopusHomeScreen extends StatefulWidget {
     this.errorWidget,
     this.showError = true,
     this.enabled = true,
+    this.isVisible = true,
     this.onNavigateToLogin,
     this.onModifyUser,
     this.onNavigateToProfile,
@@ -469,6 +493,7 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
       showBackButton: widget.showBackButton,
       titleCentered: widget.titleCentered,
       theme: widget.theme,
+      isVisible: widget.isVisible,
       interceptUrls: widget.onNavigateToUrl != null,
       interceptProfileTaps: widget.onNavigateToProfile != null,
       hasModifyUserHandler: widget.onModifyUser != null,
@@ -512,11 +537,11 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
     // advantage of Material InkResponse / IconButton ripples without the
     // host having to wrap it themselves.
     Widget overlay(Widget child) => SafeArea(
-          bottom: false,
-          left: false,
-          right: false,
-          child: Material(type: MaterialType.transparency, child: child),
-        );
+      bottom: false,
+      left: false,
+      right: false,
+      child: Material(type: MaterialType.transparency, child: child),
+    );
     return Stack(
       children: [
         Positioned.fill(child: embedded),

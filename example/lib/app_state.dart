@@ -11,9 +11,13 @@ import 'app_log.dart';
 import 'auth/client_user_token_signer.dart';
 import 'auth/connect_user_result.dart';
 import 'branding.dart';
+import 'community/community_navigation.dart';
 import 'config/api_key_registry.dart';
+import 'config/host_integration.dart';
 import 'feature_toggles.dart';
 import 'octopus_demo_config.dart';
+import 'sample_tab.dart';
+import 'scenarios/debug_scenario_overrides.dart';
 import 'update/sample_update_checker.dart';
 
 /// Where the API key passed to the SDK comes from.
@@ -32,8 +36,8 @@ enum ApiKeySource {
 /// A real runtime switch (not a label): [DemoConfig.resolvedHost] turns the
 /// choice into the `ApiServer` handed to `initialize` / `switchCommunity`.
 ///
-/// Enum order is the Config-screen order, and [demo] is the default —
-/// a sample must never default to a client-facing backend.
+/// Enum order is the picker order. First launch keeps the build-injected
+/// host; without one, it uses the native SDK default.
 enum ServerEnv {
   /// The internal demo backend, whose host is injected at build time via
   /// `--dart-define=OCTOPUS_API_HOST` (never committed — see
@@ -71,26 +75,34 @@ extension AppThemeChoiceX on AppThemeChoice {
   };
 }
 
-/// Config → Integration's "Unified Profile (exposeClientUserId)" tri-state:
-/// keep the backend's value, or force the flag locally through
+/// Scenarios → Sign-in & user → "Unified Profile (exposeClientUserId)"
+/// override: keep the backend's value, or force the flag on locally through
 /// `OctopusSDK.debugOverrideExposeClientUserId` (debug/demo-only API). Mirrors
-/// the Android sample's `HostOverrides.exposeClientUserIdOverride`.
-enum ExposeClientUserIdOverride { backend, forceOn, forceOff }
+/// the Android sample's `HostOverrides.exposeClientUserIdOverride` — same
+/// place, same labels, applied live.
+enum ExposeClientUserIdOverride { backend, forceOn }
 
 extension ExposeClientUserIdOverrideX on ExposeClientUserIdOverride {
   /// The value handed to the SDK — `null` clears the override.
   bool? get enabled => switch (this) {
     ExposeClientUserIdOverride.backend => null,
     ExposeClientUserIdOverride.forceOn => true,
-    ExposeClientUserIdOverride.forceOff => false,
   };
 
   String get label => switch (this) {
-    ExposeClientUserIdOverride.backend => 'Backend',
-    ExposeClientUserIdOverride.forceOn => 'Force on',
-    ExposeClientUserIdOverride.forceOff => 'Force off',
+    ExposeClientUserIdOverride.backend => 'Use backend value',
+    ExposeClientUserIdOverride.forceOn => 'Force active',
+  };
+
+  /// Semantics identifier of the choice's button — the Android sample's
+  /// `expose-override-*` test tags, so one QA script drives both.
+  String get testId => switch (this) {
+    ExposeClientUserIdOverride.backend => 'expose-override-backend',
+    ExposeClientUserIdOverride.forceOn => 'expose-override-on',
   };
 }
+
+const sdkLocalePreferenceKey = 'sdk_locale_v1';
 
 /// Locale override choice (Locale scenario + Settings language picker).
 enum LocaleChoice { system, fr, en }
@@ -110,7 +122,7 @@ extension LocaleChoiceX on LocaleChoice {
   };
 }
 
-/// Immutable choices captured on the Config screen before Start.
+/// Immutable choices edited in Settings and applied when starting the SDK.
 class DemoConfig {
   final ApiKeySource apiKeySource;
 
@@ -143,9 +155,12 @@ class DemoConfig {
   final AppThemeChoice theme;
   final ServerEnv serverEnv;
 
-  /// Host typed on the Config screen for [ServerEnv.custom] — a hostname, not
-  /// a credential, so unlike [customApiKey] it IS persisted.
+  /// Hostname for [ServerEnv.custom]; ignored by Demo and Prod.
   final String customHost;
+  final int customPort;
+
+  /// Current build's host. Never persisted: Demo follows the running build.
+  final String buildHost;
 
   /// Which `OctopusTheme` the embedded SDK surface starts on (Config → Theme
   /// preset). `true` = the sample's Octopus-navy brand theme, `false` = the
@@ -168,6 +183,8 @@ class DemoConfig {
     required this.theme,
     required this.serverEnv,
     this.customHost = '',
+    this.customPort = 443,
+    this.buildHost = octopusApiHost,
     this.octopusNavyTheme = true,
     this.featureToggles = FeatureToggles.defaults,
   }) : // Const-ctor asserts cannot call methods (`.trim()` would compile-fail
@@ -187,6 +204,12 @@ class DemoConfig {
     ApiKeySource.demo => selectedInjectedKey?.key ?? octopusApiKey,
   };
 
+  String get communityLabel =>
+      selectedInjectedKey?.label ??
+      (apiKeySource == ApiKeySource.custom
+          ? 'Custom community'
+          : 'Demo community');
+
   /// Where the key comes from (Home dashboard, Debug info) — the source
   /// kind, never a key label: the picked named key's label is already the
   /// "Community" row, so repeating it here said nothing about the source.
@@ -204,26 +227,34 @@ class DemoConfig {
   /// means "pass no `ApiServer`", i.e. the native SDK's own default host
   /// (production).
   ///
-  /// [ServerEnv.custom] with nothing typed falls back to the build-time
-  /// injected host: that is the shape of a blob persisted by a build from
-  /// before this picker existed (`serverEnv: custom`, no `customHost`), which
-  /// meant exactly "the injected host". The Config screen refuses to Apply an
-  /// empty custom host, so no new config lands here.
+  /// Demo always uses [buildHost], even if a saved config carries an old
+  /// custom host. Legacy Custom configs without a host also use the build.
   String get resolvedHost => switch (serverEnv) {
-    ServerEnv.demo => octopusDemoApiHost,
+    ServerEnv.demo => buildHost.trim(),
     ServerEnv.prod => '',
     ServerEnv.custom =>
-      customHost.trim().isNotEmpty ? customHost.trim() : octopusDemoApiHost,
+      customHost.trim().isNotEmpty ? customHost.trim() : buildHost.trim(),
   };
 
   /// The `ApiServer` to hand `initialize` / `switchCommunity` (`null` = the
   /// SDK's default production host).
-  ApiServer? get apiServer =>
-      resolvedHost.isEmpty ? null : ApiServer(host: resolvedHost);
+  ApiServer? get apiServer => resolvedHost.isEmpty
+      ? null
+      : ApiServer(
+          host: resolvedHost,
+          port: serverEnv == ServerEnv.custom ? customPort : 443,
+        );
 
   /// Human-readable host for the Home / Settings summary rows.
-  String get hostLabel =>
-      resolvedHost.isEmpty ? '$productionHost (SDK default)' : resolvedHost;
+  String get hostLabel => resolvedHost.isEmpty
+      ? '$productionHost (SDK default)'
+      : (serverEnv == ServerEnv.custom && customPort != 443
+            ? '$resolvedHost:$customPort'
+            : resolvedHost);
+
+  String get serverLabel => serverEnv == ServerEnv.demo && resolvedHost.isEmpty
+      ? 'Demo (SDK default)'
+      : serverEnv.label;
 
   /// Whether this configuration talks to the production backend — either
   /// explicitly, or by resolving to the SDK's default host. Drives the
@@ -241,6 +272,8 @@ class DemoConfig {
     AppThemeChoice? theme,
     ServerEnv? serverEnv,
     String? customHost,
+    int? customPort,
+    String? buildHost,
     bool? octopusNavyTheme,
     FeatureToggles? featureToggles,
   }) => DemoConfig(
@@ -253,6 +286,8 @@ class DemoConfig {
     theme: theme ?? this.theme,
     serverEnv: serverEnv ?? this.serverEnv,
     customHost: customHost ?? this.customHost,
+    customPort: customPort ?? this.customPort,
+    buildHost: buildHost ?? this.buildHost,
     octopusNavyTheme: octopusNavyTheme ?? this.octopusNavyTheme,
     featureToggles: featureToggles ?? this.featureToggles,
   );
@@ -274,28 +309,32 @@ class DemoConfig {
   /// [octopusApiHost]) — so persisting it would let every later launch
   /// re-enter a client-facing backend with that key, silently, without the
   /// user ever passing the Config screen or its production banner again. Only
-  /// the SOURCE (`custom`) is kept, so the Config screen can restore every
-  /// other choice and ask for nothing but the key.
+  /// the SOURCE (`custom`) is kept, so Settings can restore every other choice
+  /// while the shell stays browsable without starting the SDK.
   Map<String, dynamic> toJson() => {
     'apiKeySource': apiKeySource.name,
     'selectedInjectedKeyId': selectedInjectedKey?.id,
     'userId': userId,
     'theme': theme.name,
     'serverEnv': serverEnv.name,
-    'customHost': customHost,
+    'customHost': serverEnv == ServerEnv.custom ? customHost : '',
+    'customPort': customPort,
     'octopusNavyTheme': octopusNavyTheme,
     'featureToggles': featureToggles.toJson(),
   };
 
   /// Rebuilds a config from [toJson] output. Returns `null` on any schema
   /// mismatch (enum renamed, missing field) so a stale persisted blob can never
-  /// crash startup — the app just falls back to the Config screen.
+  /// crash startup — the shell falls back to build defaults.
   ///
   /// `userId` is back-filled from the build-time [octopusUserId] seed when
   /// missing (old blob written before the picker landed) or empty, so a
   /// pre-existing on-device config never blocks startup just because the
   /// new field isn't there yet.
-  static DemoConfig? fromJson(Map<String, dynamic> json) {
+  static DemoConfig? fromJson(
+    Map<String, dynamic> json, {
+    String buildHost = octopusApiHost,
+  }) {
     try {
       final injectedId = json['selectedInjectedKeyId'] as String?;
       InjectedApiKey? injected;
@@ -305,8 +344,23 @@ class DemoConfig {
           break;
         }
       }
+      // An injected key that disappeared must not silently select another
+      // community. Restore the build defaults instead.
+      if (injectedId != null && injected == null) return null;
       final rawUserId = (json['userId'] as String?)?.trim() ?? '';
       final resolvedUserId = rawUserId.isEmpty ? octopusUserId : rawUserId;
+      var serverEnv = ServerEnv.values.byName(json['serverEnv'] as String);
+      final customHost = (json['customHost'] as String?)?.trim() ?? '';
+      // Older builds saved the initial host as Custom; #492 could re-save it
+      // with port 443 before migration. Retain other hosts and non-default ports.
+      if (serverEnv == ServerEnv.custom &&
+          (customHost.isEmpty ||
+              ((json['customPort'] == null || json['customPort'] == 443) &&
+                  buildHost.trim().isNotEmpty &&
+                  buildHost.trim() != productionHost &&
+                  customHost == buildHost.trim()))) {
+        serverEnv = ServerEnv.demo;
+      }
       return DemoConfig(
         apiKeySource: ApiKeySource.values.byName(
           json['apiKeySource'] as String,
@@ -318,12 +372,14 @@ class DemoConfig {
         selectedInjectedKey: injected,
         userId: resolvedUserId,
         theme: AppThemeChoice.values.byName(json['theme'] as String),
-        serverEnv: ServerEnv.values.byName(json['serverEnv'] as String),
+        serverEnv: serverEnv,
         // Both fields post-date the first schema, so a blob written by an
         // older build carries neither — read them leniently rather than
         // sending the whole config back to the Config screen over a field
         // whose absence has a perfectly good default.
-        customHost: (json['customHost'] as String?)?.trim() ?? '',
+        customHost: serverEnv == ServerEnv.custom ? customHost : '',
+        customPort: json['customPort'] as int? ?? 443,
+        buildHost: buildHost,
         // `octopusNavyTheme` was `octopusTealTheme` before the navy rollout —
         // a blob written by a pre-rename build still carries the old key, and
         // reading only the new one would silently reset an existing "SDK
@@ -375,7 +431,7 @@ Future<String?> _readPersistedConfigBlob() async {
 /// [DemoConfig.toJson], which carries no key value, so the plaintext key stops
 /// sitting in on-device prefs on the first launch after this change. A blob
 /// this build can't parse is dropped instead of left in place — it sends the
-/// app back to the Config screen either way, so keeping it buys nothing and it
+/// app back to its build defaults either way, so keeping it buys nothing and it
 /// may still hold that plaintext key.
 ///
 /// A top-level function rather than a method on [AppState]: that strip is the
@@ -383,17 +439,22 @@ Future<String?> _readPersistedConfigBlob() async {
 /// would mean standing up the SDK singleton and its channels just to assert on
 /// a prefs entry — so it would have shipped untested.
 @visibleForTesting
-Future<DemoConfig?> loadPersistedDemoConfig() async {
+Future<DemoConfig?> loadPersistedDemoConfig({
+  String buildHost = octopusApiHost,
+}) async {
+  await _configWrites;
   final raw = await _readPersistedConfigBlob();
   if (raw == null || raw.isEmpty) return null;
   try {
     final json = jsonDecode(raw) as Map<String, dynamic>;
-    final restored = DemoConfig.fromJson(json);
+    final restored = DemoConfig.fromJson(json, buildHost: buildHost);
     if (restored == null) {
       await _clearPersistedDemoConfig();
       return null;
     }
-    if (json.containsKey('customApiKey')) {
+    if (json.containsKey('customApiKey') ||
+        json['serverEnv'] != restored.serverEnv.name ||
+        (json['customHost'] ?? '') != restored.customHost) {
       await _persistDemoConfig(restored);
     }
     return restored;
@@ -405,22 +466,79 @@ Future<DemoConfig?> loadPersistedDemoConfig() async {
 
 /// Persists [config] so the next launch auto-restores it. Best-effort: a
 /// storage failure logs but never blocks the run.
-Future<void> _persistDemoConfig(DemoConfig config) async {
+Future<void>? _configWrites;
+
+Future<void> _persistDemoConfig(DemoConfig config) {
+  final write = (_configWrites ?? Future<void>.value()).then(
+    (_) => _writeDemoConfig(config),
+  );
+  _configWrites = write;
+  // Keep only pending work; a completed queue must not retain an old zone.
+  unawaited(
+    write.whenComplete(() {
+      if (identical(_configWrites, write)) _configWrites = null;
+    }),
+  );
+  return write;
+}
+
+Future<void> _writeDemoConfig(DemoConfig config) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(demoConfigPrefsKey, jsonEncode(config.toJson()));
+    if (!await prefs.setString(
+      demoConfigPrefsKey,
+      jsonEncode(config.toJson()),
+    )) {
+      demoLog.note('Configuration could not be saved');
+    }
   } catch (e) {
     demoLog.apiCall('persistConfig failed', {'error': '$e'});
   }
 }
 
-/// Clears the persisted config (Settings → Reset → first-launch flow).
+/// Clears the persisted config (Settings → Reset → build defaults).
 Future<void> _clearPersistedDemoConfig() async {
+  await _configWrites;
+  await _removeSamplePreference(demoConfigPrefsKey);
+}
+
+Future<void> _removeSamplePreference(String key) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(demoConfigPrefsKey);
-  } catch (_) {}
+    if (!await prefs.remove(key)) {
+      demoLog.note('Preference could not be cleared', {'preference': key});
+    }
+  } catch (e) {
+    demoLog.note('Preference clear failed', {'preference': key, 'error': '$e'});
+  }
 }
+
+/// First-launch choices use the build's host, including the SDK default.
+DemoConfig buildInitialDemoConfig({
+  required String host,
+  required String userId,
+}) => DemoConfig(
+  apiKeySource: ApiKeySource.demo,
+  userId: userId,
+  theme: AppThemeChoice.system,
+  serverEnv: host.trim().isEmpty
+      ? ServerEnv.prod
+      : host.trim() == productionHost
+      ? ServerEnv.custom
+      : ServerEnv.demo,
+  customHost: host.trim() == productionHost ? host.trim() : '',
+  buildHost: host.trim(),
+);
+
+/// Host profile values from the last successful connection, separate from drafts.
+typedef ConnectedDemoProfile = ({
+  String userId,
+  String? nickname,
+  String? bio,
+  String? picture,
+});
+
+const _hostProfilePrefsPrefix = 'octopus_host_profile_v1:';
 
 /// Shared, reactive app state for the whole sample.
 ///
@@ -430,28 +548,32 @@ Future<void> _clearPersistedDemoConfig() async {
 /// the SDK stream values that the Home dashboard and scenario result panels
 /// read.
 class AppState extends ChangeNotifier {
+  AppState({DemoConfig? buildConfig})
+    : _buildConfig =
+          buildConfig ??
+          buildInitialDemoConfig(host: octopusApiHost, userId: octopusUserId);
+
+  final DemoConfig _buildConfig;
   final OctopusSDK octopus = OctopusSDK();
+  bool _disposed = false;
 
   DemoConfig? _config;
   DemoConfig? get config => _config;
 
-  /// True while [bootstrap] is still restoring a persisted config. The app
-  /// shows a splash during this window so a saved session doesn't flash the
-  /// Config screen before auto-starting back into the app.
+  /// Choices remain editable before initialization and after a Settings reset.
+  DemoConfig get configurationChoices => _config ?? _buildConfig;
+
+  /// True while [bootstrap] restores the shell's configuration choices.
   bool _restoringConfig = true;
   bool get restoringConfig => _restoringConfig;
 
-  /// The persisted config restored at bootstrap when it could NOT be
-  /// auto-started — i.e. it resolves to no API key. That covers the
-  /// [ApiKeySource.custom] case, now that the pasted key is never persisted
-  /// (see [DemoConfig.toJson]), and also a build that ships no key at all
-  /// (a bare `flutter run`, where the demo source resolves to nothing
-  /// either). Seeds the Config screen so the user gets every other choice
-  /// back and only re-enters the key.
+  /// Non-secret choices loaded at bootstrap, also available through [config]
+  /// when their API key was not persisted and the SDK cannot auto-start.
   DemoConfig? _restoredConfig;
   DemoConfig? get restoredConfig => _restoredConfig;
 
-  /// Live snapshot of the API key the SDK is currently initialized against.
+  /// API key of the last initialized community, retained while stopped so
+  /// Restart can target the same community. UI must hide it while stopped.
   ///
   /// Distinct from [DemoConfig.effectiveApiKey] (which captures the user's
   /// initial Config-screen choice — a SOURCE, not a value). This field
@@ -459,11 +581,15 @@ class AppState extends ChangeNotifier {
   /// which community the SDK is actually talking to right now.
   String? _activeApiKey;
   String? get activeApiKey => _activeApiKey;
+  ApiServer? _activeApiServer;
 
   bool _bootstrapped = false;
 
   bool _initialized = false;
   bool get initialized => _initialized;
+
+  bool _stopped = false;
+  bool get stopped => _stopped;
 
   String? _initError;
   String? get initError => _initError;
@@ -583,7 +709,9 @@ class AppState extends ChangeNotifier {
   }
 
   String _activeThemeLabel = 'Octopus navy';
-  String get activeThemeLabel => _activeThemeLabel;
+  String get activeThemeLabel => _activeOctopusThemeBuilder == null
+      ? ((_config?.octopusNavyTheme ?? true) ? 'Octopus navy' : 'SDK default')
+      : _activeThemeLabel;
 
   LocaleChoice _localeChoice = LocaleChoice.system;
   LocaleChoice get localeChoice => _localeChoice;
@@ -591,6 +719,107 @@ class AppState extends ChangeNotifier {
   OctopusNotification? _pendingCommunityNotification;
   OctopusNotification? get pendingCommunityNotification =>
       _pendingCommunityNotification;
+
+  CommunityNavigation _communityNavigation = CommunityNavigation.inTab;
+  CommunityNavigation get communityNavigation => _communityNavigation;
+
+  // These generations are process-local: never persist an SDK navigation stack.
+  int _communitySession = 0;
+  int get communitySession => _communitySession;
+  DebugScenarioOverrides _debugScenarioOverrides = DebugScenarioOverrides();
+  DebugScenarioOverrides get debugScenarioOverrides => _debugScenarioOverrides;
+  Future<void> applyForceNicknameChoice(bool? enabled, String label) async {
+    final overrides = _debugScenarioOverrides;
+    await octopus.debugOverrideForceNicknameChoice(enabled);
+    if (identical(overrides, _debugScenarioOverrides)) {
+      overrides.forceNicknameChoice = enabled == null
+          ? null
+          : (value: enabled, label: label);
+    }
+  }
+
+  Future<void> applyConsentTexts(
+    OctopusConsentTexts? texts,
+    TermsAcceptanceMode? mode,
+    String label,
+  ) async {
+    final overrides = _debugScenarioOverrides;
+    // Clear texts first, apply mode first. Record each successful native operation
+    // so a failure on the second call does not claim an unapplied value.
+    if (texts == null) {
+      await octopus.debugOverrideConsentTexts(null);
+      if (!identical(overrides, _debugScenarioOverrides)) return;
+      overrides.consentTexts = null;
+      await octopus.debugOverrideTermsAcceptanceMode(null);
+      if (identical(overrides, _debugScenarioOverrides)) {
+        overrides.termsAcceptance = null;
+      }
+    } else {
+      await octopus.debugOverrideTermsAcceptanceMode(mode);
+      if (!identical(overrides, _debugScenarioOverrides)) return;
+      overrides.termsAcceptance = mode == null
+          ? null
+          : (value: mode, label: label);
+      await octopus.debugOverrideConsentTexts(texts);
+      if (identical(overrides, _debugScenarioOverrides)) {
+        overrides.consentTexts = (value: texts, label: label);
+      }
+    }
+  }
+
+  int _communityRootEpoch = 0;
+  int get communityRootEpoch => _communityRootEpoch;
+  OctopusNotification? _communityNotification;
+  OctopusNotification? get communityNotification => _communityNotification;
+
+  OctopusNotification? takeDisplayedCommunityNotification() {
+    final notification = _communityNotification;
+    _communityNotification = null;
+    return notification;
+  }
+
+  Future<void> restoreCommunityNavigation() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(communityNavigationPreferenceKey);
+    _communityNavigation = CommunityNavigation.values.firstWhere(
+      (mode) => mode.name == saved,
+      orElse: () => CommunityNavigation.inTab,
+    );
+  }
+
+  Future<void> setCommunityNavigation(CommunityNavigation mode) async {
+    if (_communityNavigation == mode) return;
+    _communityNavigation = mode;
+    resetCommunityRoot();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(communityNavigationPreferenceKey, mode.name);
+  }
+
+  /// A root reset is intentional; switching tabs never calls this.
+  void resetCommunityRoot() {
+    _communityNotification = null;
+    _communityRootEpoch++;
+    notifyListeners();
+  }
+
+  /// The shell consumes a push only when an initialized surface can mount it.
+  OctopusNotification? takeCommunityNotification() {
+    final notification = _pendingCommunityNotification;
+    _pendingCommunityNotification = null;
+    return notification;
+  }
+
+  void displayCommunityNotification(OctopusNotification notification) {
+    _communityNotification = notification;
+    _communityRootEpoch++;
+    notifyListeners();
+  }
+
+  void _onCommunityTargeted() {
+    _communitySession++;
+    _debugScenarioOverrides = DebugScenarioOverrides();
+    _communityNotification = null;
+  }
 
   /// Bumped whenever a push tap asks the shell to jump to the Community tab.
   int _navEpoch = 0;
@@ -664,14 +893,8 @@ class AppState extends ChangeNotifier {
     // count never updated. Register here so it persists for the lifetime
     // of the app; the scenario reads [lastNavigateObjectId] /
     // [navigateFireCount] off this state.
-    _cancelNavigateCallback = OctopusSDK.setNavigateToClientObjectCallback((
-      objectId,
-    ) {
-      demoLog.apiCall('navigateToClientObject', {'objectId': objectId});
-      _lastNavigateObjectId = objectId;
-      _navigateFireCount += 1;
-      notifyListeners();
-    });
+    await restoreHostIntegration();
+    _installContentCallback();
     _logoBase64 = await loadLogoBase64();
     final packageInfo = await PackageInfo.fromPlatform();
     _sampleVersionLabel = '${packageInfo.version}+${packageInfo.buildNumber}';
@@ -679,75 +902,70 @@ class AppState extends ChangeNotifier {
     // nothing downstream of bootstrap depends on its answer. The card renders
     // "checking" and then whatever came back.
     unawaited(updateChecker.check());
-    // Restore the last config and auto-start so a relaunch lands straight back
-    // in the app instead of the Config screen — and so a cold-start push tap
-    // can deep-link (the main shell, which routes the pending notification,
-    // only mounts once a config exists). `start` is null-safe and swallows its
-    // own init errors. Reconfigure via Settings → Reset (which clears this).
-    final restored = await loadPersistedDemoConfig();
-    _restoringConfig = false;
-    // D2③ (cadrage report 07, narrowed by report 18's D3): a build that
-    // EXPLICITLY injects the real production host
-    // (`--dart-define=OCTOPUS_API_HOST=api.8pus.io`) never auto-restores a
-    // persisted config, unconditionally — mirrors Android's
-    // `SampleApplication`, which clears any persisted env on a `prod`-flavor
-    // launch regardless of which flavor wrote it. Flutter has no separate
-    // flavor artifact, but the same on-device risk exists: demo and prod
-    // builds share one bundle/application id, so installing a build pinned
-    // to the real prod host over a demo-hostname one leaves the demo build's
-    // persisted blob sitting in the same SharedPreferences file. Erase it
-    // here rather than let it auto-start against the prod host with the
-    // previous build's identity/key choices.
-    //
-    // Deliberately narrower than [octopusIsProdServer] (which is also true
-    // for the empty-define case — a bare `flutter run`, or a keyless public
-    // clone): that case has no explicit host opinion at all, so it must not
-    // wipe a persisted config on every launch just because none was passed
-    // this time. Only an explicit, exact match on the production literal
-    // erases; the bundled SDK's own fail-safe (prod unless told otherwise)
-    // still applies everywhere else and is unaffected by this check.
-    if (octopusApiHost.trim() == 'api.8pus.io' && restored != null) {
+    // Restore non-secret choices even when no usable key remains. The shell
+    // stays browsable, and Settings can seed its form from this configuration.
+    await restoreCommunityNavigation();
+    await restoreSdkLocale();
+    var restored = await loadPersistedDemoConfig(
+      buildHost: _buildConfig.buildHost,
+    );
+    // An explicitly production-host build discards choices from a previous
+    // flavour, then starts its injected configuration on every launch.
+    // An empty build host keeps saved choices and uses the SDK default.
+    if (_buildConfig.resolvedHost == productionHost && restored != null) {
       demoLog.apiCall('bootstrap', {
         'warning':
-            'prod build — erasing persisted demo config, falling back to '
-            'the blank Config screen (D2③)',
+            'prod build — replacing persisted choices with build configuration',
       });
       await _clearPersistedDemoConfig();
-      _restoredConfig = null;
-      notifyListeners();
-      return;
+      restored = null;
     }
+    // Android's first launch enters Scenarios and starts the injected demo
+    // configuration. Keyless builds remain browsable, with configuration in
+    // Settings. Keep the build host; never silently route its key to Demo.
+    final initial = restored ?? _buildConfig;
+    _config = initial;
+    _restoredConfig = restored;
+    await _restoreConnectedProfile();
+    _restoringConfig = false;
     // Only auto-start a config that still resolves to a key. A custom-key
     // config never does (the pasted key isn't persisted), and auto-starting it
     // would re-enter the SDK — production by default, see [octopusApiHost] —
-    // on an empty key. Land on the Config screen instead, seeded with the
-    // restored choices. Trimmed, like every other key check in the sample
+    // on an empty key. Keep Scenarios browsable without starting the SDK. Trimmed, like every other key check in the sample
     // (`_start` on the Config screen, [octopusApiHost] below): a build that
     // injects a whitespace-only key resolves to no usable key either.
-    if (restored != null && restored.effectiveApiKey.trim().isNotEmpty) {
-      await start(restored);
+    if (initial.effectiveApiKey.trim().isNotEmpty) {
+      await start(initial);
     } else {
-      _restoredConfig = restored;
       notifyListeners();
     }
   }
 
   /// Applies [config] and initialises the SDK (host-managed / SSO auth).
   ///
-  /// Branches on [_initialized]: a first Start (or one after [reset], which
-  /// clears it) goes through the `initialize()` path below. A Start reached
-  /// via [backToConfig] — SDK still mounted, [_initialized] still true —
-  /// instead performs a live [switchToCommunity], the non-destructive half
-  /// of D5 (see [backToConfig]'s doc comment; mirrors Android's
-  /// `SampleApplication` reactive collector).
+  /// A first Start or one after stopping calls `initialize()`. Applying
+  /// Configuration while the SDK is running switches the community live.
   Future<void> start(DemoConfig config) async {
+    if (config.buildHost != _buildConfig.buildHost) {
+      config = config.copyWith(buildHost: _buildConfig.buildHost);
+    }
     if (_initialized) {
       await _startViaSwitch(config);
+      if (_initError == null) await _applySdkLocale();
       return;
     }
     _config = config;
+    if (_activeApiKey != null &&
+        _hasDifferentCommunityTarget(
+          config.effectiveApiKey,
+          config.apiServer,
+        )) {
+      await _clearConnectedProfile(allUsers: true);
+    }
+    await _restoreConnectedProfile();
     _initError = null;
     _initialized = false;
+    _stopped = false;
     notifyListeners();
 
     try {
@@ -774,7 +992,10 @@ class AppState extends ChangeNotifier {
         apiServer: apiServer,
       );
       _initialized = true;
+      await _applySdkLocale();
       _activeApiKey = config.effectiveApiKey;
+      _activeApiServer = apiServer;
+      _onCommunityTargeted();
       // The override is SDK-process state the native side only accepts once
       // initialized: pose it now so the first Community mount already sees it.
       await _applyExposeClientUserIdOverride();
@@ -814,6 +1035,7 @@ class AppState extends ChangeNotifier {
       // again here would just duplicate that default and risk drifting
       // from it.
       await switchToCommunity(config.effectiveApiKey);
+      await _restoreConnectedProfile();
       // [switchToCommunity] already updates [_activeApiKey] and notifies;
       // still persist here so a relaunch restores the post-switch choice,
       // exactly like the fresh-initialize path does.
@@ -863,6 +1085,133 @@ class AppState extends ChangeNotifier {
   /// whichever the tester pasted. Empty = no picture, render initials.
   String _testAvatarUrl = '';
   String get testAvatarUrl => _testAvatarUrl;
+
+  ConnectedDemoProfile? _connectedProfile;
+  int _connectedProfileGeneration = 0;
+
+  /// Last successfully sent values for the active user. The SDK's profile
+  /// stream does not expose these fields, and local test values may be unsent.
+  ConnectedDemoProfile? get connectedProfile =>
+      _connectedProfile?.userId == effectiveUserId ? _connectedProfile : null;
+
+  /// Complete edit baseline, including after upgrading from an unsaved session.
+  /// Use demo defaults only when no snapshot exists; retain recorded empties.
+  ConnectedDemoProfile get profileForEditing =>
+      connectedProfile ??
+      (
+        userId: effectiveUserId,
+        nickname: effectiveUserId,
+        bio: '',
+        picture: 'https://i.pravatar.cc/150',
+      );
+
+  Future<void>? _profileWrites;
+
+  /// Retains and persists the host payload only after a successful connection.
+  Future<void> noteConnectedProfile({
+    required String userId,
+    required String? nickname,
+    required String? bio,
+    required String? picture,
+    bool notify = true,
+  }) async {
+    final profile = (
+      userId: userId,
+      nickname: nickname,
+      bio: bio,
+      picture: picture,
+    );
+    // Other users are persisted, but never replace the active edit baseline.
+    if (userId == effectiveUserId) {
+      _connectedProfileGeneration++;
+      _connectedProfile = profile;
+      if (notify) notifyListeners();
+    }
+    await _queueProfileWrite((prefs) async {
+      if (!await prefs.setString(
+        '$_hostProfilePrefsPrefix$userId',
+        jsonEncode({
+          'userId': profile.userId,
+          'nickname': profile.nickname,
+          'bio': profile.bio,
+          'picture': profile.picture,
+        }),
+      )) {
+        demoLog.note('Host profile could not be saved');
+      }
+    });
+  }
+
+  Future<void> _queueProfileWrite(
+    Future<void> Function(SharedPreferences) write,
+  ) {
+    final pending = (_profileWrites ?? Future<void>.value()).then((_) async {
+      try {
+        await write(await SharedPreferences.getInstance());
+      } catch (_) {
+        demoLog.note('Host profile storage unavailable');
+      }
+    });
+    _profileWrites = pending;
+    // Retain pending writes only, like the configuration persistence queue.
+    unawaited(
+      pending.whenComplete(() {
+        if (identical(_profileWrites, pending)) _profileWrites = null;
+      }),
+    );
+    return pending;
+  }
+
+  Future<void> _restoreConnectedProfile() async {
+    if (connectedProfile != null) return;
+    final generation = ++_connectedProfileGeneration;
+    final userId = effectiveUserId;
+    await _profileWrites;
+    // A connection/clear for this user, stop, or newer restore supersedes
+    // this read. Notes and clears for other users do not invalidate it.
+    if (generation != _connectedProfileGeneration ||
+        userId != effectiveUserId) {
+      return;
+    }
+    _connectedProfile = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (generation != _connectedProfileGeneration ||
+          userId != effectiveUserId) {
+        return;
+      }
+      final raw = prefs.getString('$_hostProfilePrefsPrefix$userId');
+      if (raw == null) return;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      if (json['userId'] != userId) return;
+      _connectedProfile = (
+        userId: userId,
+        nickname: json['nickname'] as String?,
+        bio: json['bio'] as String?,
+        picture: json['picture'] as String?,
+      );
+    } catch (_) {
+      demoLog.note('Host profile could not be restored');
+    }
+  }
+
+  Future<void> _clearConnectedProfile({bool allUsers = false}) async {
+    final userId = effectiveUserId;
+    _connectedProfileGeneration++;
+    _connectedProfile = null;
+    await _queueProfileWrite((prefs) async {
+      final keys = allUsers
+          ? prefs.getKeys().where(
+              (key) => key.startsWith(_hostProfilePrefsPrefix),
+            )
+          : ['$_hostProfilePrefsPrefix$userId'];
+      for (final key in keys) {
+        if (!await prefs.remove(key)) {
+          demoLog.note('Host profile could not be cleared');
+        }
+      }
+    });
+  }
 
   /// Updates the local test profile. Does not touch the SDK: the change lands
   /// on the next connect / reconnect, which is what the Account screen's help
@@ -953,44 +1302,55 @@ class AppState extends ChangeNotifier {
     final picture = sendTestProfile && _testAvatarUrl.isNotEmpty
         ? _testAvatarUrl
         : null;
-    final OctopusResult<void, ClientUserError> result;
-    if (hasInjectedSsoSecret) {
-      demoLog.apiCall('connectUser (tokenProvider)', {
-        'userId': userId,
-        'entitlements': _currentEntitlements.toList()..sort(),
-        if (nickname != null) 'nickname': nickname,
-        if (bio != null) 'bio': bio,
-        if (picture != null) 'picture': '<set>',
-      });
-      result = await octopus.connectUser(
-        userId: userId,
-        tokenProvider: () async => ClientUserTokenSigner.signClientUserToken(
+    return connectWithProfile(
+      userId: userId,
+      nickname: nickname,
+      bio: bio,
+      picture: picture,
+    );
+  }
+
+  /// Signs with the current entitlement set on every provider invocation.
+  @protected
+  Future<String> createClientUserToken(String userId) async =>
+      hasInjectedSsoSecret
+      ? ClientUserTokenSigner.signClientUserToken(
           userId: userId,
           entitlements: _currentEntitlements,
-        ),
-        nickname: nickname,
-        bio: bio,
-        picture: picture,
-      );
-    } else {
-      // Keyless / public build: no secret to sign with — connect with a
-      // trivial provider returning the pre-baked JWT (from
-      // `--dart-define=OCTOPUS_USER_TOKEN=…`). When that token is empty, the
-      // SDK surfaces `RefreshEntitlementsNoClientTokenProviderError` on
-      // refresh; that's the documented keyless-build behavior.
-      demoLog.apiCall('connectUser (pre-baked token)', {
-        'userId': userId,
-        'token': octopusUserToken.isEmpty ? '<empty>' : '<redacted>',
-      });
-      result = await octopus.connectUser(
+        )
+      : octopusUserToken;
+
+  /// Shared connection path for Account, scenarios and profile edits.
+  Future<OctopusResult<void, ClientUserError>> connectWithProfile({
+    required String userId,
+    String? nickname,
+    String? bio,
+    String? picture,
+  }) async {
+    demoLog.apiCall('connectUser (tokenProvider)', {
+      'userId': userId,
+      'entitlements': _currentEntitlements.toList()..sort(),
+      if (nickname != null) 'nickname': nickname,
+      if (bio != null) 'bio': bio,
+      if (picture != null) 'picture': '<set>',
+    });
+    final result = await octopus.connectUser(
+      userId: userId,
+      tokenProvider: () => createClientUserToken(userId),
+      nickname: nickname,
+      bio: bio,
+      picture: picture,
+    );
+    _lastConnectError = describeConnectUserFailure(result);
+    if (_lastConnectError == null) {
+      await noteConnectedProfile(
         userId: userId,
-        tokenProvider: () async => octopusUserToken,
         nickname: nickname,
         bio: bio,
         picture: picture,
+        notify: false,
       );
     }
-    _lastConnectError = describeConnectUserFailure(result);
     notifyListeners();
     return result;
   }
@@ -1000,6 +1360,8 @@ class AppState extends ChangeNotifier {
   Future<void> disconnectUser() async {
     demoLog.apiCall('disconnectUser');
     await octopus.disconnectUser();
+    await _clearConnectedProfile();
+    // Native debug overrides belong to the SDK instance and survive logout.
     _lastConnectError = null;
     notifyListeners();
   }
@@ -1029,12 +1391,28 @@ class AppState extends ChangeNotifier {
       appManagedFields: appManagedFields,
       apiServer: resolvedServer,
     );
+    if (_hasDifferentCommunityTarget(apiKey, resolvedServer)) {
+      // Storage is user-scoped; snapshots from a previous community must not
+      // become the baseline after the next restart either.
+      await _clearConnectedProfile(allUsers: true);
+    } else {
+      _connectedProfileGeneration++;
+      _connectedProfile = null;
+    }
     _activeApiKey = apiKey;
+    _activeApiServer = resolvedServer;
+    _onCommunityTargeted();
     // A switch fetches the new community's config; re-pose the override on
     // top of it rather than trusting the native side to carry it over.
     await _applyExposeClientUserIdOverride();
     notifyListeners();
   }
+
+  bool _hasDifferentCommunityTarget(String apiKey, ApiServer? server) =>
+      _activeApiKey != apiKey ||
+      (_activeApiServer?.host ?? productionHost) !=
+          (server?.host ?? productionHost) ||
+      (_activeApiServer?.port ?? 443) != (server?.port ?? 443);
 
   /// Changes the app's light/dark choice from Settings → Appearance, without
   /// going back through Config.
@@ -1044,9 +1422,19 @@ class AppState extends ChangeNotifier {
   /// against the forced brightness, so a preset picked in light mode still
   /// hands the SDK its dark colors once Dark is pinned.
   void setThemeChoice(AppThemeChoice choice) {
-    final config = _config;
-    if (config == null || config.theme == choice) return;
+    final config = configurationChoices;
+    if (_config != null && config.theme == choice) return;
     _config = config.copyWith(theme: choice);
+    unawaited(_persistDemoConfig(_config!));
+    notifyListeners();
+  }
+
+  /// Settings presets replace any temporary scenario theme and persist.
+  void setThemePreset(bool navy) {
+    final config = configurationChoices;
+    _config = config.copyWith(octopusNavyTheme: navy);
+    _activeOctopusThemeBuilder = null;
+    _activeThemeLabel = navy ? 'Octopus navy' : 'SDK default';
     unawaited(_persistDemoConfig(_config!));
     notifyListeners();
   }
@@ -1093,13 +1481,25 @@ class AppState extends ChangeNotifier {
   Future<void> Function()? onPushRegistrationEnabled;
 
   /// Overrides the SDK UI locale (Locale scenario + Settings picker).
-  Future<void> setLocale(LocaleChoice choice) async {
-    demoLog.apiCall('overrideDefaultLocale', {'locale': choice.label});
-    await octopus.overrideDefaultLocale(choice.locale);
+  Future<void> _localeUpdates = Future<void>.value();
+
+  Future<void> _queueLocaleUpdate(Future<void> Function() update) {
+    final result = _localeUpdates.then((_) => update());
+    // A failed request is reported to its caller without blocking later choices.
+    _localeUpdates = result.catchError((Object _) {});
+    return result;
+  }
+
+  Future<void> setLocale(LocaleChoice choice) => _queueLocaleUpdate(() async {
+    if (_initialized) {
+      demoLog.apiCall('overrideDefaultLocale', {'locale': choice.label});
+      await octopus.overrideDefaultLocale(choice.locale);
+    }
     _localeChoice = choice;
     _localeTagOverride = null;
+    await _persistLocale();
     notifyListeners();
-  }
+  });
 
   /// A locale tag typed by hand in the Locale scenario's Customize editor, when
   /// it is not one [LocaleChoice] can spell. `null` whenever [localeChoice] is
@@ -1132,22 +1532,66 @@ class AppState extends ChangeNotifier {
       await setLocale(choice);
       return;
     }
-    demoLog.apiCall('overrideDefaultLocale', {'locale': trimmed});
-    await octopus.overrideDefaultLocale(Locale(trimmed));
-    // No enum member spells this one; [localeLabel] and [localeTag] read the
-    // override first, so nothing on screen falls back to "System".
-    _localeChoice = LocaleChoice.system;
-    _localeTagOverride = trimmed;
+    await _queueLocaleUpdate(() async {
+      if (_initialized) {
+        demoLog.apiCall('overrideDefaultLocale', {'locale': trimmed});
+        await octopus.overrideDefaultLocale(Locale(trimmed));
+      }
+      // No enum member spells this one; read-outs show the actual override.
+      _localeChoice = LocaleChoice.system;
+      _localeTagOverride = trimmed;
+      await _persistLocale();
+      notifyListeners();
+    });
+  }
+
+  Future<void> _persistLocale() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!await prefs.setString(sdkLocalePreferenceKey, localeTag)) {
+        demoLog.note('Language preference could not be saved');
+      }
+    } catch (_) {
+      demoLog.note('Language preference save failed');
+    }
+  }
+
+  Future<void> restoreSdkLocale() => _queueLocaleUpdate(() async {
+    String? tag;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      tag = prefs.getString(sdkLocalePreferenceKey);
+    } catch (_) {
+      demoLog.note('Language preference restore failed');
+      return;
+    }
+    if (tag == null) return;
+    _localeChoice = switch (tag) {
+      'en' => LocaleChoice.en,
+      'fr' => LocaleChoice.fr,
+      _ => LocaleChoice.system,
+    };
+    _localeTagOverride = tag.isEmpty || tag == 'en' || tag == 'fr' ? null : tag;
+    // iOS requires initialize before overrideDefaultLocale. Bootstrap restores
+    // the local choice; start applies it before mounting any community view.
+    if (_initialized) await _sendSdkLocale();
     notifyListeners();
+  });
+
+  Future<void> _applySdkLocale() => _queueLocaleUpdate(_sendSdkLocale);
+
+  Future<void> _sendSdkLocale() async {
+    if (!_initialized) return;
+    await octopus.overrideDefaultLocale(
+      localeTag.isEmpty ? null : Locale(localeTag),
+    );
   }
 
   /// Whether the host wires `onNavigateToProfile` on the embedded Community
   /// view — the Unified Profile activation switch.
   ///
-  /// Off by default so the sample shows the SDK's native profile screens, which
-  /// is what an existing integration sees. Flipping it on makes the host handle
-  /// every profile tap instead. Mirrors the native samples' Config-screen
-  /// "profile wired" toggle.
+  /// Off by default, like Android's HostCallbacks. The Unified Profile
+  /// scenario enables the handler together with the backend flag override.
   ///
   /// Activation is an AND gate: this alone does nothing unless the community is
   /// also configured to expose client user ids.
@@ -1164,13 +1608,14 @@ class AppState extends ChangeNotifier {
   void setUnifiedProfileWired(bool wired) {
     if (_unifiedProfileWired == wired) return;
     _unifiedProfileWired = wired;
+    unawaited(_persistHostIntegration());
     notifyListeners();
   }
 
   /// The other half of the Unified Profile AND gate: the community flag
   /// `exposeClientUserId`, set per community on the backend.
   /// [ExposeClientUserIdOverride.backend] (the default) keeps the server value;
-  /// the two Force choices override it locally so the host profile can be
+  /// Force active overrides it locally so the host profile can be
   /// exercised on any community. In-memory, like [unifiedProfileWired].
   ExposeClientUserIdOverride _exposeClientUserIdOverride =
       ExposeClientUserIdOverride.backend;
@@ -1216,13 +1661,18 @@ class AppState extends ChangeNotifier {
   /// Re-reads the effective community config for the read-outs that show it.
   Future<void> refreshCommunityConfig() async {
     if (!_initialized) return;
+    final session = communitySession;
     try {
-      _communityConfig = await octopus.debugGetCommunityConfig();
+      final config = await octopus.debugGetCommunityConfig();
+      if (_disposed || !_initialized || session != communitySession) return;
+      _communityConfig = config;
       _communityConfigReadable = true;
     } on PlatformException catch (e) {
+      if (_disposed || !_initialized || session != communitySession) return;
       _communityConfig = null;
       _communityConfigReadable = e.code != 'UNSUPPORTED_PLATFORM';
     } catch (_) {
+      if (_disposed || !_initialized || session != communitySession) return;
       // Any other failure is transient: "unknown", never "unreadable" — only
       // UNSUPPORTED_PLATFORM means this integration path cannot read it at all.
       // Resetting here keeps an earlier verdict from going stale.
@@ -1242,24 +1692,123 @@ class AppState extends ChangeNotifier {
     return '${config.exposeClientUserId ? 'on' : 'off'} · $source';
   }
 
-  /// The other 6 rows of Config → Host callbacks
-  /// (`onNavigateToContent`, `onAuthenticationRequired`,
-  /// `onPushNotificationTapped`, `onUnreadCountChanged`, `onEvent`,
-  /// `onError`).
-  ///
-  /// **Known spec/SDK gap**: unlike [unifiedProfileWired]
-  /// (`onNavigateToProfile`), the Flutter SDK does not yet expose a
-  /// constructor parameter for any of these — `OctopusSDK`/`OctopusHomeScreen`
-  /// only take `onNavigateToProfile` today. These 6 flags therefore do not
-  /// change SDK behaviour; they exist so the Config screen can show the same
-  /// 7-row layout as the other platforms (design parity) and so Debug info can
-  /// report what the app *would* wire once the SDK grows the callback. Wiring
-  /// real behaviour behind them is follow-up work, not part of this pass —
-  /// flagged rather than silently faked.
-  ///
-  /// Defaults mirror the design spec: the 5 navigation/auth-flavoured
-  /// callbacks default on, the 2 telemetry ones (`onEvent`, `onError`)
-  /// default off.
+  bool _hostGroupAccessWired = true;
+  bool get hostGroupAccessWired => _hostGroupAccessWired;
+  void setHostGroupAccessWired(bool value) {
+    _hostGroupAccessWired = value;
+    unawaited(_persistHostIntegration());
+    notifyListeners();
+  }
+
+  bool _hostProfileEditWired = true;
+  bool get hostProfileEditWired => _hostProfileEditWired;
+  HostUrlHandling _hostUrlHandling = HostUrlHandling.sdk;
+  HostUrlHandling get hostUrlHandling => _hostUrlHandling;
+
+  void setHostProfileEditWired(bool value) {
+    _hostProfileEditWired = value;
+    unawaited(_persistHostIntegration());
+    notifyListeners();
+  }
+
+  void setHostUrlHandling(HostUrlHandling value) {
+    _hostUrlHandling = value == HostUrlHandling.sampleRule
+        ? HostUrlHandling.sdk
+        : value;
+    unawaited(_persistHostIntegration());
+    notifyListeners();
+  }
+
+  void _installContentCallback() {
+    _cancelNavigateCallback?.call();
+    _cancelNavigateCallback = null;
+    if (!onNavigateToContentWired) return;
+    _cancelNavigateCallback = OctopusSDK.setNavigateToClientObjectCallback((
+      objectId,
+    ) {
+      demoLog.apiCall('navigateToClientObject', {'objectId': objectId});
+      _lastNavigateObjectId = objectId;
+      _navigateFireCount += 1;
+      notifyListeners();
+    });
+  }
+
+  Future<void> _persistHostIntegration() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = await prefs.setString(
+        'host_integration_v1',
+        jsonEncode({
+          'profile': unifiedProfileWired,
+          'edit': hostProfileEditWired,
+          'group': hostGroupAccessWired,
+          'login': onAuthenticationRequiredWired,
+          'content': onNavigateToContentWired,
+          'url': hostUrlHandling.name,
+        }),
+      );
+      if (!saved) {
+        demoLog.note('Host integration preferences could not be saved');
+      }
+    } catch (error) {
+      demoLog.note(
+        'Host integration preference save failed: ${error.runtimeType}',
+      );
+    }
+  }
+
+  Future<void> restoreHostIntegration() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('host_integration_v1');
+      if (raw == null) return;
+      try {
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        // Parse before assigning so a malformed field cannot partially restore.
+        final profile = map['profile'] as bool? ?? false;
+        final edit = map['edit'] as bool? ?? true;
+        final group = map['group'] as bool? ?? true;
+        final login = map['login'] as bool? ?? true;
+        final content = map['content'] as bool? ?? true;
+        final url = HostUrlHandling.values.byName(
+          map['url'] as String? ?? 'sdk',
+        );
+        _unifiedProfileWired = profile;
+        _hostProfileEditWired = edit;
+        _hostGroupAccessWired = group;
+        _onAuthenticationRequiredWired = login;
+        _onNavigateToContentWired = content;
+        _hostUrlHandling = url == HostUrlHandling.sampleRule
+            ? HostUrlHandling.sdk
+            : url;
+      } catch (error) {
+        _unifiedProfileWired = false;
+        _hostProfileEditWired = true;
+        _hostGroupAccessWired = true;
+        _onAuthenticationRequiredWired = true;
+        _onNavigateToContentWired = true;
+        _hostUrlHandling = HostUrlHandling.sdk;
+        demoLog.note(
+          'Malformed host integration preferences dropped: ${error.runtimeType}',
+        );
+        if (!await prefs.remove('host_integration_v1')) {
+          demoLog.note(
+            'Malformed host integration preferences could not be removed',
+          );
+        }
+      } finally {
+        if (!_disposed) notifyListeners();
+      }
+    } catch (error) {
+      demoLog.note(
+        'Host integration preference restore failed: ${error.runtimeType}',
+      );
+    }
+  }
+
+  // The content and login flags control real host callbacks. The remaining
+  // legacy flags have no corresponding optional mount callback in the plugin
+  // and are never offered as editable Settings controls.
   bool _onNavigateToContentWired = true;
   bool _onAuthenticationRequiredWired = true;
   bool _onPushNotificationTappedWired = true;
@@ -1276,11 +1825,14 @@ class AppState extends ChangeNotifier {
 
   void setOnNavigateToContentWired(bool v) {
     _onNavigateToContentWired = v;
+    _installContentCallback();
+    unawaited(_persistHostIntegration());
     notifyListeners();
   }
 
   void setOnAuthenticationRequiredWired(bool v) {
     _onAuthenticationRequiredWired = v;
+    unawaited(_persistHostIntegration());
     notifyListeners();
   }
 
@@ -1304,25 +1856,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Comma-separated summary of every wired host callback, for Debug info.
-  ///
-  /// Only [unifiedProfileWired] (`onNavigateToProfile`) actually reaches the
-  /// Flutter binding today — the other six toggles are UI-only (see
-  /// `ConfigScreen`'s Host callbacks section), so each is suffixed
-  /// `(ui-only)` here too: a copied debug dump must not read as if the SDK
-  /// received them.
-  String get hostCallbacksSummary {
-    final wired = <String>[
-      if (unifiedProfileWired) 'onNavigateToProfile',
-      if (onNavigateToContentWired) 'onNavigateToContent (ui-only)',
-      if (onAuthenticationRequiredWired) 'onAuthenticationRequired (ui-only)',
-      if (onPushNotificationTappedWired) 'onPushNotificationTapped (ui-only)',
-      if (onUnreadCountChangedWired) 'onUnreadCountChanged (ui-only)',
-      if (onEventWired) 'onEvent (ui-only)',
-      if (onErrorWired) 'onError (ui-only)',
-    ];
-    return wired.isEmpty ? 'none' : wired.join(', ');
-  }
+  List<(String, bool)> get hostCallbacks => [
+    ('onNavigateToProfile', unifiedProfileWired),
+    ('onNavigateToProfileEdit (onModifyUser)', hostProfileEditWired),
+    ('onGroupAccessDenied', hostGroupAccessWired),
+    ('onNavigateToLogin', onAuthenticationRequiredWired),
+    ('onNavigateToClientObject', onNavigateToContentWired),
+  ];
+
+  int get wiredHostCallbackCount => hostCallbacks.where((row) => row.$2).length;
+
+  String get hostCallbacksSummary => [
+    for (final (name, wired) in hostCallbacks)
+      if (wired) name,
+    'onNavigateToUrl (${hostUrlHandling.label})',
+  ].join(', ');
 
   /// Sets the custom [OctopusTheme] applied to the embedded Community view.
   ///
@@ -1354,16 +1902,16 @@ class AppState extends ChangeNotifier {
   /// Tab index the shell should show, when something outside the shell asks
   /// for one (a Community status band's action, a scenario's "Verify in
   /// Community"). Consumed by the shell through [navEpoch].
-  int _requestedTab = 0;
+  int _requestedTab = SampleTab.scenarios.index;
   int get requestedTab => _requestedTab;
 
   /// The last place the tester was that was not part of the Settings tree —
-  /// "Scenarios › connection", "Community", "Home".
+  /// "Scenarios › connection", "Community".
   ///
   /// Send feedback is opened from Settings, so without this the one field a
   /// defect report cannot be reconstructed without would read "Settings" every
   /// time.
-  String _lastContentBreadcrumb = 'Home';
+  String _lastContentBreadcrumb = 'Scenarios';
   String get lastContentBreadcrumb => _lastContentBreadcrumb;
 
   /// Records [where] as the current content location. Deliberately does not
@@ -1373,8 +1921,7 @@ class AppState extends ChangeNotifier {
     _lastContentBreadcrumb = where;
   }
 
-  /// Asks the shell to switch to [index] (canonical order: Home 0, Scenarios
-  /// 1, Community 2, Settings 3).
+  /// Asks the shell to switch to [index] in [SampleTab] order.
   void requestTab(int index) {
     _requestedTab = index;
     _navEpoch++;
@@ -1387,7 +1934,7 @@ class AppState extends ChangeNotifier {
   /// (`scenarios-section-<id>`): unfolded and scrolled into view.
   void requestScenariosSection(String sectionId) {
     _requestedScenariosSection = sectionId;
-    requestTab(1);
+    requestTab(SampleTab.scenarios.index);
   }
 
   /// Hands the section asked for by [requestScenariosSection] to the Scenarios
@@ -1403,26 +1950,86 @@ class AppState extends ChangeNotifier {
   /// Asks the shell to switch to the Community tab, optionally deep-linked to
   /// the content referenced by [notification] (push tap).
   void requestCommunityTab(OctopusNotification? notification) {
-    _requestedTab = 2;
+    _requestedTab = SampleTab.community.index;
     _pendingCommunityNotification = notification;
     _navEpoch++;
     notifyListeners();
   }
 
-  /// Clears a consumed deep link so returning to Community shows its root.
+  /// Discards an unhandled push (for example during a reset).
   void clearPendingNotification() {
     if (_pendingCommunityNotification == null) return;
     _pendingCommunityNotification = null;
     notifyListeners();
   }
 
-  /// Destructive reset (`settings-reset-button`, D5, cadrage report 07):
-  /// unmounts the native SDK, clears the persisted config blob, and returns
-  /// to a blank Config screen — the first-launch flow. Distinct from
-  /// [backToConfig], the non-destructive sibling action: this one throws the
-  /// persisted blob away (so the *next* launch also starts blank, not just
-  /// this session) and clears [restoredConfig] rather than seeding it, so
-  /// Config re-opens empty rather than pre-filled.
+  /// Scenario reset keeps the selected community, persisted configuration and
+  /// debug overrides, matching the native SDK instance that stays initialized.
+  Future<void> resetSessionForScenario() async {
+    await octopus.reset();
+    await _clearConnectedProfile();
+    _profile = null;
+    _connectionState = null;
+    _currentEntitlements = const {};
+    _notSeenCount = null;
+    _hasAccess = null;
+    notifyListeners();
+  }
+
+  /// Stop while retaining the configuration so the scenario can start it again.
+  Future<void> stopForScenario() async {
+    await octopus.stop();
+    _connectedProfileGeneration++;
+    _connectedProfile = null;
+    _debugScenarioOverrides = DebugScenarioOverrides();
+    _initialized = false;
+    _stopped = true;
+    _isInitialised = false;
+    _profile = null;
+    _connectionState = null;
+    _groups = const [];
+    _currentEntitlements = const {};
+    _notSeenCount = null;
+    _hasAccess = null;
+    _communityConfig = null;
+    _pendingCommunityNotification = null;
+    _communityNotification = null;
+    notifyListeners();
+  }
+
+  /// Restarts the last live community, including a scenario's runtime switch.
+  Future<void> restartForScenario() async {
+    var config = _config;
+    if (config == null) {
+      throw StateError('Configure the SDK in Settings first.');
+    }
+    final activeKey = _activeApiKey;
+    if (activeKey != null && activeKey != config.effectiveApiKey) {
+      InjectedApiKey? selectedKey;
+      for (final key in injectedApiKeys) {
+        if (key.key == activeKey) {
+          selectedKey = key;
+          break;
+        }
+      }
+      config = config.copyWith(
+        apiKeySource: selectedKey == null
+            ? ApiKeySource.custom
+            : ApiKeySource.demo,
+        customApiKey: selectedKey == null ? activeKey : '',
+        selectedInjectedKey: selectedKey,
+        clearSelectedInjectedKey: selectedKey == null,
+      );
+    }
+    if (config.effectiveApiKey.trim().isEmpty) {
+      throw StateError('Configure the SDK in Settings first.');
+    }
+    if (_initialized) await stopForScenario();
+    await start(config);
+  }
+
+  /// Settings reset stops the SDK and clears saved configuration and session
+  /// state. The shell stays open; Configuration then opens with fresh choices.
   ///
   /// Awaits [OctopusSDK.stop] before clearing local state — the SDK instance
   /// this session held is fully torn down, not just abandoned in memory.
@@ -1432,18 +2039,26 @@ class AppState extends ChangeNotifier {
   /// emit a final post-stop value — belt and suspenders, since nothing in
   /// their contract guarantees one.
   Future<void> reset() async {
+    await _localeUpdates;
     await octopus.stop();
+    await _clearConnectedProfile(allUsers: true);
+    _debugScenarioOverrides = DebugScenarioOverrides();
     _config = null;
-    // Reset means first-launch flow: don't re-seed the Config screen from the
-    // config being thrown away.
+    // The permanent shell remains; fresh choices come from the build config.
     _restoredConfig = null;
     _activeApiKey = null;
+    _activeApiServer = null;
     _initialized = false;
+    _stopped = false;
     _initError = null;
     _activeOctopusThemeBuilder = null;
     _activeThemeLabel = 'Octopus navy';
     _localeChoice = LocaleChoice.system;
+    _localeTagOverride = null;
     _pendingCommunityNotification = null;
+    _communityNotification = null;
+    _communitySession++;
+    _communityNavigation = CommunityNavigation.inTab;
     _profile = null;
     _groups = const [];
     _connectionState = null;
@@ -1453,44 +2068,30 @@ class AppState extends ChangeNotifier {
     _currentEntitlements = const {};
     _communityConfig = null;
     _communityConfigReadable = true;
-    // Forget the saved config so the next launch shows the first-launch flow.
+    // The next launch uses the build's initial configuration.
     await _clearPersistedDemoConfig();
+    for (final key in [
+      communityNavigationPreferenceKey,
+      sdkLocalePreferenceKey,
+      'host_integration_v1',
+    ]) {
+      await _removeSamplePreference(key);
+    }
+    _unifiedProfileWired = false;
+    _hostProfileEditWired = true;
+    _hostGroupAccessWired = true;
+    _onAuthenticationRequiredWired = true;
+    _onNavigateToContentWired = true;
+    _hostUrlHandling = HostUrlHandling.sdk;
+    _installContentCallback();
     notifyListeners();
   }
 
-  /// Non-destructive "Change Configuration" (`settings-reconfigure-button`,
-  /// D5, cadrage report 07): returns to the Config screen *without*
-  /// unmounting the SDK.
-  ///
-  /// Mirrors the Android sample's own "Back to Config" exactly: there,
-  /// `onNavigateToConfig` is a plain navigation call
-  /// (`ui/navigation/MainScaffold.kt`) — no `stop()`, no `reset()`. The
-  /// non-destructive half of D5 is delivered entirely by `Start SDK`
-  /// resolving to a live `OctopusSDK.switchCommunity(...)` instead of a
-  /// fresh `initialize()` once the SDK is already up (Android's
-  /// `SampleApplication`: `if (isInitialised) switchCommunity else
-  /// initialize`) — "le socle existe", cadrage report 07 §D5. [start] below
-  /// applies the same branch via the existing [switchToCommunity].
-  ///
-  /// Only [_config] changes here, to flip the root's routing (`main.dart`:
-  /// `config == null` routes to [ConfigScreen]) — [_initialized],
-  /// [_activeApiKey] and the streamed session values are left untouched
-  /// because the underlying instance is still live and still theirs.
-  /// [restoredConfig] is seeded with the config being left, so Config
-  /// re-opens with every choice (server, theme, locale, user id, key
-  /// source) still filled in — the distinction from [reset], which clears
-  /// it instead.
-  void backToConfig() {
-    _restoredConfig = _config;
-    _config = null;
-    notifyListeners();
-  }
-
-  String _redactKey(String key) =>
-      key.isEmpty ? '<empty>' : '${key.substring(0, key.length.clamp(0, 4))}…';
+  String _redactKey(String key) => key.isEmpty ? '<empty>' : '<redacted>';
 
   @override
   void dispose() {
+    _disposed = true;
     _countSub?.cancel();
     _accessSub?.cancel();
     _profileSub?.cancel();

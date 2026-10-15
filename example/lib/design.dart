@@ -16,273 +16,298 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-// ── Palette ────────────────────────────────────────────────────────────────
-
-/// App bar, primary buttons (light mode), section-label text (both modes).
-///
-/// Refresh-2026 charter: navy, replacing the previous teal. 17.28:1 on white.
+// ── Tokens ────────────────────────────────────────────────────────────────
+// DS roles from the Android sample's SampleTokens.kt. All host screens and
+// buildAppTheme consume these values; native SDK theme capabilities stay separate.
 const Color sampleNavy = Color(0xFF0F1B2D);
-
-/// The brand blue as a **fill**: switch tracks, segmented selection, chips —
-/// light theme only. 3.50:1 on white — under the text-contrast floor, so this
-/// value must never be a label or icon color; use [sampleAccentDark] for that
-/// role in dark theme, via [sampleControlAccent]/[sampleAccent]. Its readable
-/// ink is [sampleAccentInk] (4.56:1), where white would be 3.50:1.
 const Color sampleAccentBlue = Color(0xFF1D88FE);
-
-// Dark ladder, aligned on the octopuscommunity.com site: ink → navy →
-// navy-2, each step a bluish navy rather than a neutral grey, so depth reads
-// as depth instead of flat grey slabs.
-// Dark role → flat sRGB → OctopusTheme token (shell-only if absent).
-// Page / onPrimary → #070D17 (site `--ink`) → background / onPrimary.
-// Card → #0F1B2D (brand navy) → shell surface (SDK has no surface token).
-// Hairline → #1E2A3D (site `--line`) → shell outlineVariant (SDK has no
-// divider token).
-// Strong hairline → #243349 → shell only (current-configuration frame).
-// Elevated → #16243A (site `--navy-2`) → shell overlays (SDK has no elevated
-// token).
-// Hover / pressed → #1D2E48 → shell states (SDK has no hover token).
-// Heading → #F2F6FC → shell onSurface (SDK has no gray ramp).
-// Body → #E9F0FA → shell body text (SDK has no gray ramp).
-// Caption → #8C9AB0 → shell onSurfaceVariant (SDK has no gray ramp).
-// Accent → #66B0FF → primaryMain / link.
-// Tinted container → #16273C → primaryLowContrast.
-// Progress / focus → #8FC6FF → primaryHighContrast.
-//
-// Text ladder measured on page / card / elevated / hover: heading
-// 17.95 / 15.94 / 14.37 / 12.60:1, body 16.97 / 15.07 / 13.59 / 11.92:1,
-// caption 6.83 / 6.06 / 5.46 / 4.79:1 — the caption clears 4.5:1 on hover too.
-const Color sampleDarkSurface = Color(0xFF070D17);
-const Color sampleDarkCard = sampleNavy;
-// Decorative only (1.06–1.35:1 on the ladder) — never a control boundary.
-const Color sampleDarkDivider = Color(0xFF1E2A3D);
-// One step above [sampleDarkDivider], for a block that has to stand out from
-// its neighbours. Still decorative (1.22:1 on [sampleDarkElevated]).
-const Color sampleDarkBorderStrong = Color(0xFF243349);
-const Color sampleDarkElevated = Color(0xFF16243A);
-const Color sampleDarkHover = Color(0xFF1D2E48);
-const Color sampleDarkText = Color(0xFFF2F6FC);
-const Color sampleDarkBody = Color(0xFFE9F0FA);
-const Color sampleDarkSecondary = Color(0xFF8C9AB0);
-const Color sampleAccentDark = Color(0xFF66B0FF);
-const Color sampleDarkPrimaryLow = Color(0xFF16273C);
-const Color sampleDarkPrimaryHigh = Color(0xFF8FC6FF);
-
-// off-table: non-text control boundary ≥ 3:1 (WCAG 1.4.11)
-// 4.65:1 on page, 4.13:1 on card, 3.72:1 on elevated, 3.27:1 on hover —
-// the bluish hairlines above measure 1.06–1.52:1 and cannot carry this role.
-const Color sampleDarkControlOutline = Color(0xFF6A7D9B);
-
-// off-table: the light twin of [sampleDarkControlOutline], the Android
-// sample's light scheme `outline` (grey/500). 5.06:1 on the white card and
-// page — the light framed-block border is transparent ([sampleBorderFor]) and
-// cannot carry a control boundary.
-const Color sampleLightControlOutline = Color(0xFF6D6E78);
-
-// off-table: semantic error colour, AA on card and elevated
-const Color sampleDarkDanger = Color(0xFFFF6B8F);
-// off-table: Material semantic error foreground
-const Color sampleDarkError = Color(0xFFFFB4AB);
-// off-table: Material semantic ink on error
-const Color sampleDarkOnError = Color(0xFF690005);
-// off-table: semantic warning text
-const Color sampleDarkAmber = Color(0xFFF1D390);
-// off-table: semantic success text
-const Color sampleDarkGreen = Color(0xFF6FD98A);
-// off-table: semantic error band fill
-const Color sampleDarkDangerTint = Color(0xFF2A171C);
-// off-table: semantic error border
-const Color sampleDarkDangerBorder = Color(0xFF5E3038);
-// off-table: semantic warning band fill
-const Color sampleDarkAmberTint = Color(0xFF2A2216);
-// off-table: semantic warning border
-const Color sampleDarkAmberBorder = Color(0xFF5C4A24);
-// off-table: semantic success band fill
-const Color sampleDarkGreenTint = Color(0xFF16281B);
-// off-table: semantic success border
-const Color sampleDarkGreenBorder = Color(0xFF2E5537);
-
-/// Ink on the light theme's control fills; preserved for light-mode contrast.
-const Color sampleAccentInk = Color(0xFF142238);
-
-// off-table: translucent accent chip fill, 10% Signal blue
-Color get sampleDarkChipFill => sampleAccentDark.withValues(alpha: 0.10);
-// off-table: translucent accent badge border, 28% Signal blue. Decorative
-// (1.69–1.75:1 on the ladder): non-interactive badges only (platform badge,
-// API and source pills, the Custom marker). An interactive chip takes
-// [sampleControlOutlineFor], or [sampleAccentDark] when selected.
-Color get sampleDarkChipBorder => sampleAccentDark.withValues(alpha: 0.28);
-
-// off-table: the dark-theme radial halo, the brand blue at 12%. Flattens to
-// #0A1C33 over the page at its peak, where [sampleDarkSecondary] still reads
-// 6.0:1, and the app-bar title and icons ([sampleDarkText]) far more.
-Color get sampleDarkHalo => sampleAccentBlue.withValues(alpha: 0.12);
-
-/// Ground of a framed sample block (light mode). The charter's surfaces carry
-/// no tint of their own — this is the plain light surface.
+const Color sampleAccentLight = Color(0xFF095FBF);
+const Color sampleLightBackground = Color(0xFFF5F7FA);
 const Color sampleTint = Color(0xFFFFFFFF);
+const Color sampleLightSurface2 = Color(0xFFE4E8EE);
+const Color sampleLightSurface3 = Color(0xFFDAE0E8);
+const Color sampleLightSecondary = Color(0xFF566170);
+const Color sampleLightBorder = Color(0xFFC2CAD5);
+const Color sampleLightHairline = Color(0xFFE4E7EC);
+const Color sampleLightControlOutline = Color(0xFF747E8C);
+const Color sampleLightAccentTint = Color(0xFFE8F2FF);
+const Color sampleLightAccentContainer = Color(0xFFD4E6FF);
+const Color sampleLightOnAccentContainer = Color(0xFF0A3D7A);
+const Color sampleDarkSurface = Color(0xFF070D17);
+const Color sampleDarkCard = Color(0xFF18253B);
+const Color sampleDarkElevated = Color(0xFF22324C);
+const Color sampleDarkHover = Color(0xFF2E405C);
+const Color sampleDarkDivider = Color(0x14FFFFFF);
+const Color sampleDarkBorderStrong = Color(0xFF8093AB);
+const Color sampleDarkControlOutline = Color(0xFFB7C7DD);
+const Color sampleDarkText = Color(0xFFF2F5F9);
+const Color sampleDarkBody = sampleDarkText;
+const Color sampleDarkSecondary = Color(0xFFA3B0C2);
+const Color sampleAccentDark = Color(0xFF7FB8FF);
+const Color sampleDarkPrimaryLow = Color(0xFF1B3556);
+const Color sampleDarkPrimaryHigh = sampleAccentDark;
+const Color sampleDarkAccentContainer = Color(0xFF2A5EA0);
+const Color sampleDarkOnAccentContainer = Color(0xFFE3EFFF);
+const Color sampleDarkButton = Color(0xFF1570D9);
+const Color sampleDanger = Color(0xFFB03A4E);
+const Color sampleDarkDanger = Color(0xFFF0A0A8);
+const Color sampleDarkError = sampleDarkDanger;
+const Color sampleDarkOnError = Color(0xFF0A121E);
+const Color sampleDangerTint = Color(0xFFF8EDEF);
+const Color sampleDarkDangerTint = Color(0xFF3F2E43);
+const Color sampleDangerBorder = sampleLightBorder;
+const Color sampleDarkDangerBorder = sampleDarkBorderStrong;
+const Color sampleAmber = Color(0xFF7A5716);
+const Color sampleDarkAmber = Color(0xFFE2BD78);
+const Color sampleAmberTint = Color(0xFFF9F2E6);
+const Color sampleDarkAmberTint = Color(0xFF3A3222);
+const Color sampleAmberBorder = sampleLightBorder;
+const Color sampleDarkAmberBorder = sampleDarkBorderStrong;
+const Color sampleGuestAmber = Color(0xFFD6A54C);
+const Color sampleGuestAmberText = sampleAmber;
+// Success fill and text are different roles: the bright fill is not AA text.
+const Color sampleGreenFill = Color(0xFF30B653);
+const Color sampleGreen = Color(0xFF176830);
+const Color sampleDarkGreen = Color(0xFF8FE0A8);
+const Color sampleGreenTint = Color(0xFFE3F5E8);
+const Color sampleDarkGreenTint = Color(0xFF14301F);
+const Color sampleGreenBorder = sampleLightBorder;
+const Color sampleDarkGreenBorder = sampleDarkBorderStrong;
+const Color sampleAccentInk = sampleNavy;
+const Color sampleCodeSurface = sampleNavy;
+const Color sampleDarkCodeSurface = Color(0xFF03060C);
+const Color sampleDemoBackground = Color(0xFF1B1035);
+const Color sampleDemoLink = Color(0xFFFFC857);
+const Color sampleCodeText = Color(0xFFD7E3F2);
+const Color sampleDarkSnackBarBackground = Color(0xFFE6EAF0);
+const Color sampleDarkSnackBarAction = Color(0xFF0A66CC);
 
-/// Danger text and icons (Disconnect, Reset data).
-const Color sampleDanger = Color(0xFF9E243F);
-
-/// Danger border / tint — the blocking Community band, the Danger zone frame.
-const Color sampleDangerBorder = Color(0xFFE4B7C0);
-const Color sampleDangerTint = Color(0xFFFCEDEF);
-
-/// Degraded state (read-only, warning band) — the band's *text* color, not
-/// the guest-status role (see [sampleGuestAmber], a distinct token for a
-/// distinct role even though both are amber).
-const Color sampleAmber = Color(0xFF7A4B08);
-const Color sampleAmberBorder = Color(0xFFF1D390);
-const Color sampleAmberTint = Color(0xFFFFF7E6);
-
-/// Guest connection status (Home's CONNECTED/GUEST/OFF chip and dot) — fixed
-/// `#D99A2B` in both brightnesses per the 2026-08-28 design delta. Distinct
-/// from [sampleAmber]/[sampleAmberFor], which color the degraded-band body
-/// text and stay contrast-adjusted per brightness: same amber family, a
-/// different role that does not need the same adjustment.
-// off-table: semantic guest status dot
-const Color sampleGuestAmber = Color(0xFFD99A2B);
-
-/// Guest connection status **text** — `#8A5A00`, the darker member of the
-/// same amber pair as [sampleGuestAmber]. Spec 02 draws the GUEST chip's dot
-/// and text in two different shades of the same hue (the dot stays the
-/// brighter `#D99A2B`, only the label text uses this darker one) rather than
-/// painting both the same color.
-// off-table: semantic guest status text
-const Color sampleGuestAmberText = Color(0xFF8A5A00);
-
-/// Success / connected.
-// off-table: semantic connected status
-const Color sampleGreen = Color(0xFF30B653);
-
-/// Ground of the `Result` code block on a scenario screen.
-const Color sampleCodeSurface = Color(0xFF0F1B2D);
-
-/// The accent as a **label**: nav-item accent, section-label and API-pill
-/// text, app-bar-adjacent text buttons, row icons, outline buttons. Navy in
-/// light theme, [sampleAccentDark] in dark. The saturated [sampleAccentBlue]
-/// remains reserved for light-theme control fills.
-Color sampleAccent(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleAccentDark : sampleNavy;
-
-/// The accent as a control **fill**: switch tracks, radio marks, the
-/// selected segment/chip. A fill answers to a lower bar than a label, so
-/// light theme keeps the saturated [sampleAccentBlue] that would be
-/// unreadable as text; dark theme takes the same lighter step as
-/// [sampleAccent], so one accent hue is in force per theme rather than two.
-Color sampleControlAccent(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleAccentDark : sampleAccentBlue;
-
-/// Foreground on primary controls: white in light mode, Signal ink in dark.
-Color sampleOnAccentColor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkSurface : Colors.white;
-
-/// Text on selected control fills, with the light theme's ink preserved.
-Color sampleOnControlAccent(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkSurface : sampleAccentInk;
-
-/// Ordinary card surface.
-Color sampleTintFor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkCard : sampleTint;
-
-/// Navy hairline in dark mode; light cards remain borderless.
-///
-/// Decorative only — framed blocks, clickable card frames, the non-interactive
-/// API pill. A card is identified by its title and content, so its frame is
-/// not the boundary WCAG 1.4.11 asks to hold 3:1. An unfilled control whose
-/// outline *is* its only boundary takes [sampleControlOutlineFor] instead.
-Color sampleBorderFor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkDivider : Colors.transparent;
-
-/// Boundary of an unfilled control — outlined button or pill, unselected chip
-/// or segment — held to 3:1 against the surface in both themes (WCAG 1.4.11):
-/// [sampleDarkControlOutline] 3.27–4.65:1 on the dark ladder,
-/// [sampleLightControlOutline] 5.06:1 on white.
-Color sampleControlOutlineFor(Brightness brightness) =>
-    brightness == Brightness.dark
-    ? sampleDarkControlOutline
-    : sampleLightControlOutline;
-
-/// Danger color that holds contrast under [brightness] (the light-mode
-/// [sampleDanger] measures under 4.5:1 on the dark ground).
-Color sampleDangerFor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkDanger : sampleDanger;
-
-/// Amber that holds contrast under [brightness], same reason as above.
-Color sampleAmberFor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkAmber : sampleAmber;
-
-/// Success green that holds contrast under [brightness].
-Color sampleGreenFor(Brightness brightness) =>
-    brightness == Brightness.dark ? sampleDarkGreen : sampleGreen;
-
-/// The monospace family used by every code block and API pill. `monospace`
-/// resolves to the platform's own (Roboto Mono / Menlo) — no bundled font.
+Color get sampleDarkChipFill => sampleAccentDark.withValues(alpha: 0.10);
+Color get sampleDarkChipBorder => sampleAccentDark.withValues(alpha: 0.28);
+Color sampleAccent(Brightness b) =>
+    b == Brightness.dark ? sampleAccentDark : sampleAccentLight;
+Color sampleButtonBackground(Brightness b) =>
+    b == Brightness.dark ? sampleDarkButton : sampleNavy;
+Color sampleControlAccent(Brightness b) => sampleAccentBlue;
+Color sampleOnAccentColor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkSurface : sampleTint;
+Color sampleOnControlAccent(Brightness b) => Colors.white;
+Color sampleAccentTintFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkPrimaryLow : sampleLightAccentTint;
+Color sampleSurface2For(Brightness b) =>
+    b == Brightness.dark ? sampleDarkElevated : sampleLightSurface2;
+Color sampleSurface3For(Brightness b) =>
+    b == Brightness.dark ? sampleDarkHover : sampleLightSurface3;
+Color sampleTintFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkCard : sampleTint;
+Color sampleBorderFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkBorderStrong : sampleLightBorder;
+Color sampleControlOutlineFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkControlOutline : sampleLightControlOutline;
+// Two dark-mode pixels keep a full-color stroke visible between antialiased
+// edges. A one-pixel outline can otherwise blend entirely into the surface.
+double sampleOutlineWidthFor(Brightness b) => b == Brightness.dark ? 2 : 1;
+Color sampleScenarioBorderFor(Brightness b) => b == Brightness.dark
+    ? sampleDarkBorderStrong
+    : sampleAccent(b).withValues(alpha: .35);
+Color sampleDangerFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkDanger : sampleDanger;
+Color sampleAmberFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkAmber : sampleAmber;
+Color sampleGreenFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkGreen : sampleGreen;
+Color sampleSnackBarBackgroundFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkSnackBarBackground : sampleNavy;
+Color sampleSnackBarContentFor(Brightness b) =>
+    b == Brightness.dark ? sampleNavy : sampleDarkText;
+Color sampleSnackBarActionFor(Brightness b) =>
+    b == Brightness.dark ? sampleDarkSnackBarAction : sampleAccentDark;
 const String sampleMonoFamily = 'monospace';
 
-// ── App bar ────────────────────────────────────────────────────────────────
+/// Shared four-point spacing grid.
+abstract final class SampleSpacing {
+  static const double space1 = 4,
+      space2 = 8,
+      space3 = 12,
+      space4 = 16,
+      space5 = 20,
+      space6 = 24,
+      space8 = 32,
+      space10 = 40;
+  static const double gutter = space4, groupGap = space6;
+  static const screen = EdgeInsets.fromLTRB(gutter, space4, gutter, space6);
+}
 
-/// App-bar title: the screen name plus the platform badge glued to it.
-///
-/// The badge is part of the *title*, not an action: it says which sample you
-/// are holding, which matters the moment three of them are installed on one
-/// device. Signal blue in dark mode; translucent white in light mode.
-class SampleAppBarTitle extends StatelessWidget {
-  const SampleAppBarTitle(this.title, {super.key});
+abstract final class SampleRadius {
+  static const double sm = 6, md = 8, lg = 12, xl = 16, pill = 999;
+}
 
-  final String title;
+abstract final class SampleSize {
+  // 48 logical pixels also clears the iOS 44pt minimum.
+  static const double touchMin = 48,
+      rowMin = 56,
+      scenarioRowMin = 64,
+      badgeHeight = 28,
+      searchHeight = 64,
+      actionHeight = 56;
+}
 
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Flexible(child: Text(title, overflow: TextOverflow.ellipsis)),
-      const SizedBox(width: 8),
-      const PlatformBadge(),
-    ],
+/// Platform system font, no bundled commercial font. Sizes never below 12.
+abstract final class SampleTypography {
+  static const double captionSize = 12;
+  static TextStyle _style(double size, double line, FontWeight weight) =>
+      TextStyle(fontSize: size, height: line / size, fontWeight: weight);
+  static final textTheme = TextTheme(
+    displayLarge: _style(34, 40, FontWeight.w600),
+    displayMedium: _style(30, 38, FontWeight.w600),
+    displaySmall: _style(28, 36, FontWeight.w600),
+    headlineLarge: _style(28, 36, FontWeight.w600),
+    headlineMedium: _style(26, 34, FontWeight.w600),
+    headlineSmall: _style(26, 34, FontWeight.w600),
+    titleLarge: _style(22, 28, FontWeight.w600),
+    titleMedium: _style(18, 24, FontWeight.w600),
+    titleSmall: _style(14, 20, FontWeight.w600),
+    bodyLarge: _style(16, 22, FontWeight.w400),
+    bodyMedium: _style(14, 20, FontWeight.w400),
+    bodySmall: _style(12, 16, FontWeight.w500),
+    labelLarge: _style(14, 20, FontWeight.w600),
+    labelMedium: _style(12, 16, FontWeight.w600),
+    labelSmall: _style(12, 16, FontWeight.w600),
+  );
+  static const scenarioTitle = TextStyle(
+    fontSize: 12.5,
+    height: 20 / 12.5,
+    fontWeight: FontWeight.w600,
+  );
+  static const buttonLabel = TextStyle(
+    fontSize: 16,
+    height: 22 / 16,
+    fontWeight: FontWeight.w600,
+  );
+  static const monoSmall = TextStyle(
+    fontFamily: sampleMonoFamily,
+    fontSize: 12,
+    height: 16 / 12,
+  );
+  static const mono = TextStyle(
+    fontFamily: sampleMonoFamily,
+    fontSize: 13,
+    height: 18 / 13,
   );
 }
 
-/// The « Flutter » platform pill.
-///
-/// `Icons.flutter_dash` is Material's own monochrome Flutter glyph, so the
-/// badge needs no bundled asset and cannot drift into the multicolor logo.
+// ── App bar ────────────────────────────────────────────────────────────────
+
+/// Text title kept for existing small sample bars.
+class SampleAppBarTitle extends StatelessWidget {
+  const SampleAppBarTitle(this.title, {super.key});
+  final String title;
+  @override
+  Widget build(BuildContext context) => Text(title);
+}
+
+/// Compact platform marker: a 28 dp circle, accessible platform name.
 class PlatformBadge extends StatelessWidget {
   const PlatformBadge({super.key});
-
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final fg = dark ? sampleAccentDark : const Color(0xD9FFFFFF);
-    return Semantics(
-      identifier: 'platform-badge',
-      label: 'Flutter',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: dark ? sampleDarkChipFill : const Color(0x1FFFFFFF),
-          border: dark ? Border.all(color: sampleDarkChipBorder) : null,
-          borderRadius: BorderRadius.circular(99),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.flutter_dash, size: 13, color: fg),
-            const SizedBox(width: 4),
-            Text(
-              'Flutter',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: fg,
-              ),
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) => Semantics(
+    identifier: 'platform-badge',
+    label: 'Flutter',
+    child: Container(
+      width: SampleSize.badgeHeight,
+      height: SampleSize.badgeHeight,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        shape: BoxShape.circle,
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
+      child: const Icon(Icons.flutter_dash, size: 16, color: sampleAccentBlue),
+    ),
+  );
+}
+
+enum SampleTopBarSize { small, medium, large }
+
+/// Android's 64 / 112 / 152 dp bars. Expanded titles grow when text wraps.
+///
+/// Use as [SampleScaffold.appBar]: that scaffold calls [bar] with the current
+/// context to obtain the actual height at the current text scale and scroll
+/// position. [preferredSize] is only the unscaled baseline; passing this widget
+/// directly to [Scaffold.appBar] cannot reserve the height of a scaled title.
+class SampleTopAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const SampleTopAppBar({
+    super.key,
+    required this.title,
+    this.size = SampleTopBarSize.small,
+    this.collapsed = false,
+    this.showPlatformBadge = false,
+    this.leading,
+    this.actions = const [],
+  });
+  final String title;
+  final SampleTopBarSize size;
+  final bool collapsed, showPlatformBadge;
+  final Widget? leading;
+  final List<Widget> actions;
+  @override
+  Size get preferredSize => Size.fromHeight(
+    collapsed || size == SampleTopBarSize.small
+        ? 64
+        : size == SampleTopBarSize.large
+        ? 152
+        : 112,
+  );
+
+  PreferredSizeWidget bar(BuildContext context, {bool scrolled = false}) {
+    final expanded = !collapsed && !scrolled && size != SampleTopBarSize.small;
+    final style = Theme.of(context).textTheme.headlineLarge!.copyWith(
+      fontSize: size == SampleTopBarSize.large ? 36 : 28,
+      height: size == SampleTopBarSize.large ? 44 / 36 : 36 / 28,
+    );
+    final scaler = MediaQuery.textScalerOf(context);
+    final painter = TextPainter(
+      text: TextSpan(text: title, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      maxLines: 3,
+    )..layout(maxWidth: math.max(1, MediaQuery.sizeOf(context).width - 32));
+    final titleHeight = math.max(
+      size == SampleTopBarSize.large ? 88.0 : 48.0,
+      painter.height + 12,
+    );
+    return AppBar(
+      toolbarHeight: math.max(64, scaler.scale(22) + 24),
+      leading: leading,
+      title: expanded ? null : Text(title),
+      actions: [
+        ...actions,
+        if (showPlatformBadge)
+          const Padding(
+            padding: EdgeInsets.only(left: 4, right: 12),
+            child: PlatformBadge(),
+          ),
+      ],
+      bottom: expanded
+          ? PreferredSize(
+              preferredSize: Size.fromHeight(titleHeight),
+              child: SizedBox(
+                width: double.infinity,
+                height: titleHeight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Align(
+                    alignment: AlignmentDirectional.bottomStart,
+                    child: Text(title, style: style, maxLines: 3),
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
+
+  @override
+  Widget build(BuildContext context) => bar(context);
 }
 
 // ── Building blocks ────────────────────────────────────────────────────────
@@ -318,15 +343,16 @@ class SampleSection extends StatelessWidget {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final colors = tone.resolve(brightness);
-    final neutralDark =
-        brightness == Brightness.dark && tone == SampleTone.neutral;
     final section = Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(SampleSpacing.space4),
       decoration: BoxDecoration(
         color: colors.background,
-        border: Border.all(color: borderColor ?? colors.border),
-        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: borderColor ?? colors.border,
+          width: sampleOutlineWidthFor(brightness),
+        ),
+        borderRadius: BorderRadius.circular(SampleRadius.md),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,16 +365,17 @@ class SampleSection extends StatelessWidget {
                   style: theme.textTheme.labelLarge?.copyWith(
                     // Dark theme: a neutral card's title is primary text, not
                     // the accent, so it never reads as a link on the navy.
-                    color: neutralDark ? sampleDarkText : colors.foreground,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
+                    color: tone == SampleTone.neutral
+                        ? theme.colorScheme.onSurface
+                        : colors.foreground,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               if (trailing != null) trailing!,
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: SampleSpacing.space3),
           // The frame paints a background, and a ListTile-family widget paints
           // its own background + ink on the NEAREST Material ancestor — which
           // would be behind that frame, hiding the splash. A transparent
@@ -398,8 +425,8 @@ extension SampleToneX on SampleTone {
         sampleAmberFor(brightness),
       ),
       SampleTone.success => SampleToneColors(
-        dark ? sampleDarkGreenTint : const Color(0xFFE7F6EA),
-        dark ? sampleDarkGreenBorder : const Color(0xFFB7E2C2),
+        dark ? sampleDarkGreenTint : sampleGreenTint,
+        dark ? sampleDarkGreenBorder : sampleGreenBorder,
         sampleGreenFor(brightness),
       ),
     };
@@ -408,46 +435,59 @@ extension SampleToneX on SampleTone {
 
 /// A `label → value` row, the unit of every summary block in the sample.
 class SampleKeyValue extends StatelessWidget {
-  const SampleKeyValue(this.label, this.value, {super.key, this.mono = false});
-
-  final String label;
-  final String value;
-  final bool mono;
-
+  const SampleKeyValue(
+    this.label,
+    this.value, {
+    super.key,
+    this.mono = false,
+    this.caption = false,
+  });
+  final String label, value;
+  final bool mono, caption;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 150,
-            child: Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+    final style = caption
+        ? theme.textTheme.bodySmall!
+        : theme.textTheme.bodyMedium!;
+    final labelStyle = style.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final valueStyle = style.copyWith(
+      color: theme.colorScheme.onSurface,
+      fontWeight: FontWeight.w500,
+      fontFamily: mono ? sampleMonoFamily : null,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        double width(String text, TextStyle style) => (TextPainter(
+          text: TextSpan(text: text, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout()).width;
+        final fits =
+            width(label, labelStyle) + 12 + width(value, valueStyle) <=
+            constraints.maxWidth;
+        if (!fits) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: labelStyle),
+              Text(value, style: valueStyle),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: labelStyle),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(value, style: valueStyle, textAlign: TextAlign.end),
             ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: mono
-                  ? theme.textTheme.bodySmall?.copyWith(
-                      fontFamily: sampleMonoFamily,
-                      // bodySmall is the caption grey in dark theme; a value
-                      // is body text whatever its family.
-                      color: theme.brightness == Brightness.dark
-                          ? sampleDarkBody
-                          : null,
-                    )
-                  : theme.textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 }
@@ -466,23 +506,12 @@ class ApiPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: brightness == Brightness.dark
-            ? sampleDarkChipFill
-            : sampleTintFor(brightness),
-        border: Border.all(
-          color: brightness == Brightness.dark
-              ? sampleDarkChipBorder
-              : sampleBorderFor(brightness),
-        ),
+        color: sampleAccentTintFor(brightness),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         api,
-        style: TextStyle(
-          fontFamily: sampleMonoFamily,
-          fontSize: 11.5,
-          // A label, not a fill — same accent/brightness split as
-          // [SampleTone.neutral]'s section-label text.
+        style: SampleTypography.monoSmall.copyWith(
           color: sampleAccent(brightness),
         ),
       ),
@@ -531,19 +560,53 @@ class SampleNavTile extends StatelessWidget {
     final color = danger
         ? sampleDangerFor(theme.brightness)
         : theme.colorScheme.onSurface;
-    // Same reason as in [SampleSection]: this tile is also used inside bare
-    // decorated frames, so it carries its own transparent ink surface.
     final tile = Material(
       type: MaterialType.transparency,
-      child: ListTile(
-        leading: Icon(icon, color: color),
-        title: Text(title, style: TextStyle(color: color)),
-        subtitle: subtitle == null ? null : Text(subtitle!),
-        trailing: Icon(
-          Icons.chevron_right,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
+      child: InkWell(
         onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: SampleSize.rowMin),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 24,
+                  color: danger ? color : theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: color,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Icon(
+                  Icons.chevron_right,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
     if (identifier == null) return tile;
@@ -562,12 +625,12 @@ class SampleCodeBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final block = Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(SampleSpacing.space3),
       decoration: BoxDecoration(
         color: Theme.of(context).brightness == Brightness.dark
-            ? sampleDarkCard
+            ? sampleDarkCodeSurface
             : sampleCodeSurface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SampleRadius.md),
       ),
       // Wraps rather than scrolls sideways. Inside the scenario's vertical
       // ListView a horizontal scroller was a truncated single line for anyone
@@ -578,11 +641,9 @@ class SampleCodeBlock extends StatelessWidget {
         text,
         style: TextStyle(
           fontFamily: sampleMonoFamily,
-          fontSize: 12,
-          height: 1.45,
-          color: Theme.of(context).brightness == Brightness.dark
-              ? sampleDarkText
-              : Colors.white.withValues(alpha: 0.92),
+          fontSize: SampleTypography.mono.fontSize,
+          height: SampleTypography.mono.height,
+          color: sampleCodeText,
         ),
       ),
     );
@@ -631,38 +692,72 @@ class SampleBand extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = tone.resolve(theme.brightness);
+    final messageRow = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(_icon, size: 20, color: colors.foreground),
+        const SizedBox(width: SampleSpacing.space3),
+        Expanded(
+          child: Text(
+            message,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: colors.foreground,
+            ),
+          ),
+        ),
+      ],
+    );
+    final actions = <Widget>[
+      if (secondaryActionLabel case final label? when onSecondaryAction != null)
+        _identified(
+          secondaryActionIdentifier,
+          TextButton(
+            onPressed: onSecondaryAction,
+            style: TextButton.styleFrom(foregroundColor: colors.foreground),
+            child: Text(label),
+          ),
+        ),
+      TextButton(
+        onPressed: onAction,
+        style: TextButton.styleFrom(foregroundColor: colors.foreground),
+        child: Text(actionLabel),
+      ),
+    ];
     final band = Container(
       width: double.infinity,
-      color: colors.background,
-      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-      child: Row(
-        children: [
-          Icon(_icon, size: 18, color: colors.foreground),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.foreground,
-              ),
-            ),
-          ),
-          if (secondaryActionLabel case final label?
-              when onSecondaryAction != null)
-            _identified(
-              secondaryActionIdentifier,
-              TextButton(
-                onPressed: onSecondaryAction,
-                style: TextButton.styleFrom(foregroundColor: colors.foreground),
-                child: Text(label),
-              ),
-            ),
-          TextButton(
-            onPressed: onAction,
-            style: TextButton.styleFrom(foregroundColor: colors.foreground),
-            child: Text(actionLabel),
-          ),
-        ],
+      decoration: BoxDecoration(
+        color: tone == SampleTone.neutral
+            ? sampleAccentTintFor(theme.brightness)
+            : colors.background,
+        border: Border.all(color: colors.foreground.withValues(alpha: .45)),
+        borderRadius: BorderRadius.circular(SampleRadius.lg),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      child: Material(
+        type: MaterialType.transparency,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (MediaQuery.textScalerOf(context).scale(12) > 18) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  messageRow,
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: SampleSpacing.space2,
+                    children: actions,
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: messageRow),
+                ...actions,
+              ],
+            );
+          },
+        ),
       ),
     );
     if (identifier == null) return band;
@@ -702,8 +797,8 @@ class SampleLink extends StatelessWidget {
           onPressed: onTap,
           style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 4),
-            minimumSize: const Size(0, 48),
-            foregroundColor: theme.colorScheme.primary,
+            minimumSize: const Size(SampleSize.touchMin, SampleSize.touchMin),
+            foregroundColor: sampleAccent(theme.brightness),
           ),
           child: Text('$label ›'),
         ),
@@ -712,18 +807,15 @@ class SampleLink extends StatelessWidget {
   }
 }
 
-/// Style for a danger action: white pill, danger border, danger text.
+/// Danger capsule: tonal fill, danger border and ink.
 ButtonStyle sampleDangerButtonStyle(BuildContext context) {
   final brightness = Theme.of(context).brightness;
   final danger = sampleDangerFor(brightness);
   return OutlinedButton.styleFrom(
     foregroundColor: danger,
-    side: BorderSide(
-      color: brightness == Brightness.dark
-          ? sampleDarkDangerBorder
-          : sampleDangerBorder,
-    ),
-    minimumSize: const Size.fromHeight(48),
+    backgroundColor: SampleTone.danger.resolve(brightness).background,
+    side: BorderSide(color: danger),
+    minimumSize: const Size(SampleSize.touchMin, SampleSize.touchMin),
     shape: const StadiumBorder(),
   );
 }
@@ -758,139 +850,633 @@ void showSampleSnackBar(
   );
 }
 
-/// The [Scaffold] of every sample-owned screen: the page colour and, in dark
-/// theme only, the brand halo — a radial glow of [sampleDarkHalo] fading to
-/// transparent, centred on the top-right corner of the screen with a radius
-/// of the screen width (the design shared by the five samples).
-///
-/// The halo is painted around the [Scaffold], not inside its body, so it is
-/// fixed to the viewport and runs behind the [appBar] too: the scaffold is
-/// transparent and, in dark theme, so is the app bar — which also never tints
-/// on scroll — so the glow shows through the header with no hard edge or
-/// lighter band. Light theme renders as before (the page colour, the navy
-/// app bar).
-///
-/// Routes that embed the SDK's community view keep a plain [Scaffold]; the
-/// shell passes [halo] false on its Community tab, which keeps the tree shape
-/// (and so the scaffold's state) while painting only the page colour.
-class SampleScaffold extends StatelessWidget {
+/// Page ground shared with Android.
+class SampleScaffold extends StatefulWidget {
   const SampleScaffold({
     super.key,
-    this.halo = true,
     this.appBar,
     required this.body,
     this.bottomNavigationBar,
   });
-
-  /// Whether the dark-theme halo is painted. Light theme never paints it.
-  final bool halo;
   final PreferredSizeWidget? appBar;
   final Widget body;
   final Widget? bottomNavigationBar;
+  @override
+  State<SampleScaffold> createState() => _SampleScaffoldState();
+}
+
+class _SampleScaffoldState extends State<SampleScaffold> {
+  bool _scrolled = false;
+
+  @override
+  void didUpdateWidget(SampleScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldBar = oldWidget.appBar;
+    final newBar = widget.appBar;
+    if (oldBar is! SampleTopAppBar ||
+        newBar is! SampleTopAppBar ||
+        oldBar.title != newBar.title) {
+      _scrolled = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    return ColoredBox(
-      color: theme.scaffoldBackgroundColor,
-      child: CustomPaint(
-        painter: dark && halo ? SampleHaloPainter(sampleDarkHalo) : null,
-        child: Theme(
-          data: theme.copyWith(
-            scaffoldBackgroundColor: Colors.transparent,
-            appBarTheme: dark
-                ? theme.appBarTheme.copyWith(
-                    backgroundColor: Colors.transparent,
-                    scrolledUnderElevation: 0,
-                  )
-                : null,
+    final bar = widget.appBar;
+    return Scaffold(
+      appBar: bar is SampleTopAppBar
+          ? bar.bar(context, scrolled: _scrolled)
+          : bar,
+      body: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (bar is SampleTopAppBar &&
+              bar.size != SampleTopBarSize.small &&
+              notification.depth == 0 &&
+              notification.metrics.axis == Axis.vertical) {
+            // Collapsing the bar can itself clamp a short list to zero. Keep
+            // it collapsed when the content now fits so its bottom stays visible.
+            if (notification is ScrollEndNotification &&
+                notification.metrics.extentBefore == 0 &&
+                notification.metrics.maxScrollExtent > 0) {
+              if (_scrolled) setState(() => _scrolled = false);
+            } else if ((notification is ScrollUpdateNotification &&
+                    notification.dragDetails != null) ||
+                (notification is OverscrollNotification &&
+                    notification.dragDetails != null)) {
+              // Drag updates control collapse; programmatic and ballistic
+              // endings use the guarded reset above.
+              final scrolled =
+                  notification.metrics.extentBefore > 0 ||
+                  (notification is OverscrollNotification &&
+                      notification.overscroll > 0);
+              if (scrolled != _scrolled) setState(() => _scrolled = scrolled);
+            }
+          }
+          return false;
+        },
+        child: widget.body,
+      ),
+      bottomNavigationBar: widget.bottomNavigationBar,
+    );
+  }
+}
+
+/// Tinted, 16 dp scenario block with its own 48 dp header.
+class SampleScenarioBlock extends StatelessWidget {
+  const SampleScenarioBlock({
+    super.key,
+    required this.title,
+    required this.child,
+    this.icon = Icons.play_arrow_outlined,
+    this.identifier,
+  });
+  final String title;
+  final Widget child;
+  final IconData icon;
+  final String? identifier;
+  @override
+  Widget build(BuildContext context) {
+    final b = Theme.of(context).brightness;
+    final block = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      decoration: BoxDecoration(
+        color: sampleAccentTintFor(b),
+        border: Border.all(
+          color: sampleScenarioBorderFor(b),
+          width: sampleOutlineWidthFor(b),
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: sampleAccent(b)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(title, style: SampleTypography.buttonLabel),
+                ),
+              ],
+            ),
           ),
-          child: Scaffold(
-            appBar: appBar,
-            body: body,
-            bottomNavigationBar: bottomNavigationBar,
+          const SizedBox(height: 12),
+          Material(type: MaterialType.transparency, child: child),
+        ],
+      ),
+    );
+    return identifier == null
+        ? block
+        : Semantics(identifier: identifier!, container: true, child: block);
+  }
+}
+
+/// Nested Parameters / live-config panel, 12 dp radius and padding.
+class SamplePanel extends StatelessWidget {
+  const SamplePanel({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: sampleAccentTintFor(Theme.of(context).brightness),
+      border: Border.all(
+        color: sampleBorderFor(Theme.of(context).brightness),
+        width: sampleOutlineWidthFor(Theme.of(context).brightness),
+      ),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Material(type: MaterialType.transparency, child: child),
+  );
+}
+
+class SampleTypePill extends StatelessWidget {
+  const SampleTypePill(this.type, {super.key});
+  final String type;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: sampleSurface3For(Theme.of(context).brightness),
+      border: Border.all(color: Theme.of(context).colorScheme.outline),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(type, style: SampleTypography.monoSmall),
+  );
+}
+
+class SampleParameterRow extends StatelessWidget {
+  const SampleParameterRow({
+    super.key,
+    required this.name,
+    required this.value,
+    this.type,
+  });
+  final String name, value;
+  final String? type;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(name, style: SampleTypography.monoSmall),
+            if (type != null) SampleTypePill(type!),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(value, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    ),
+  );
+}
+
+class SampleGroupHeader extends StatelessWidget {
+  const SampleGroupHeader(this.title, {super.key, this.count, this.identifier});
+  final String title;
+  final String? count, identifier;
+  @override
+  Widget build(BuildContext context) {
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      child: Row(
+        children: [
+          Flexible(
+            child: Text(title, style: Theme.of(context).textTheme.titleSmall),
           ),
+          if (count != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: sampleSurface3For(Theme.of(context).brightness),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                count!,
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    return identifier == null
+        ? header
+        : Semantics(identifier: identifier!, child: header);
+  }
+}
+
+class SampleListDivider extends StatelessWidget {
+  const SampleListDivider({super.key, this.leading = 16});
+  final double leading;
+  @override
+  Widget build(BuildContext context) =>
+      Divider(height: 1, thickness: 1, indent: leading, endIndent: 16);
+}
+
+class SampleListGroup extends StatelessWidget {
+  const SampleListGroup({super.key, required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surface,
+    borderRadius: BorderRadius.circular(8),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        for (final (i, child) in children.indexed) ...[
+          if (i > 0) const SampleListDivider(),
+          child,
+        ],
+      ],
+    ),
+  );
+}
+
+class SampleSwitchRow extends StatelessWidget {
+  const SampleSwitchRow({
+    super.key,
+    required this.title,
+    this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    title: Text(title, style: Theme.of(context).textTheme.bodyLarge),
+    subtitle: subtitle == null
+        ? null
+        : Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
+    value: value,
+    onChanged: onChanged,
+  );
+}
+
+/// Horizontal capsules; long labels use the Android chip-row fallback.
+class SampleSegmentedChoice<T> extends StatelessWidget {
+  const SampleSegmentedChoice({
+    super.key,
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+    this.disabledOptions = const {},
+  });
+  final List<(T, String)> options;
+  final T selected;
+  final ValueChanged<T>? onChanged;
+  final Set<T> disabledOptions;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final longest = options.fold<int>(0, (n, o) => math.max(n, o.$2.length));
+      final scaler = MediaQuery.textScalerOf(context);
+      final neededWidth = options.fold<double>(
+        0,
+        (n, o) =>
+            n +
+            40 +
+            (TextPainter(
+              text: TextSpan(
+                text: o.$2,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              textDirection: Directionality.of(context),
+              textScaler: scaler,
+            )..layout()).width,
+      );
+      final chips =
+          options.length > 4 ||
+          longest > 12 ||
+          (options.length > 3 && longest > 8) ||
+          neededWidth > constraints.maxWidth;
+      if (chips) {
+        return _SampleScrollableChoice<T>(
+          options: options,
+          selected: selected,
+          onChanged: onChanged,
+          disabledOptions: disabledOptions,
+        );
+      }
+      return SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<T>(
+          segments: [
+            for (final (value, label) in options)
+              ButtonSegment<T>(
+                value: value,
+                label: Text(label),
+                enabled: onChanged != null && !disabledOptions.contains(value),
+              ),
+          ],
+          selected: {selected},
+          onSelectionChanged: onChanged == null
+              ? null
+              : (values) => onChanged!(values.single),
+          style: const ButtonStyle(
+            shape: WidgetStatePropertyAll(StadiumBorder()),
+            padding: WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _SampleScrollableChoice<T> extends StatefulWidget {
+  const _SampleScrollableChoice({
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+    required this.disabledOptions,
+  });
+  final List<(T, String)> options;
+  final T selected;
+  final ValueChanged<T>? onChanged;
+  final Set<T> disabledOptions;
+  @override
+  State<_SampleScrollableChoice<T>> createState() =>
+      _SampleScrollableChoiceState<T>();
+}
+
+class _SampleScrollableChoiceState<T>
+    extends State<_SampleScrollableChoice<T>> {
+  final _controller = ScrollController();
+  final _selectedKey = GlobalKey();
+  T? _lastSelected;
+  double? _lastWidth, _lastScale;
+  bool _centered = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(16);
+      if (!_centered ||
+          _lastSelected != widget.selected ||
+          _lastWidth != constraints.maxWidth ||
+          _lastScale != scale) {
+        _lastSelected = widget.selected;
+        _lastWidth = constraints.maxWidth;
+        _lastScale = scale;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_controller.hasClients) return;
+          final target = _selectedKey.currentContext?.findRenderObject();
+          if (target == null) return;
+          _controller.position.ensureVisible(
+            target,
+            alignment: .5,
+            duration: _centered
+                ? const Duration(milliseconds: 160)
+                : Duration.zero,
+          );
+          _centered = true;
+        });
+      }
+      return ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (bounds) {
+          final edge = math.min(20 / bounds.width, .5);
+          return LinearGradient(
+            colors: const [
+              Colors.transparent,
+              Colors.white,
+              Colors.white,
+              Colors.transparent,
+            ],
+            stops: [0, edge, 1 - edge, 1],
+          ).createShader(bounds);
+        },
+        child: SingleChildScrollView(
+          controller: _controller,
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(
+            children: [
+              for (final (i, option) in widget.options.indexed) ...[
+                if (i > 0) const SizedBox(width: 8),
+                ChoiceChip(
+                  key: widget.selected == option.$1 ? _selectedKey : null,
+                  label: Text(option.$2),
+                  selected: widget.selected == option.$1,
+                  onSelected:
+                      widget.onChanged == null ||
+                          widget.disabledOptions.contains(option.$1)
+                      ? null
+                      : (_) => widget.onChanged!(option.$1),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class SampleSearchField extends StatelessWidget {
+  const SampleSearchField({
+    super.key,
+    required this.onChanged,
+    this.hint = 'Search scenarios',
+  });
+  final ValueChanged<String> onChanged;
+  final String hint;
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(minHeight: SampleSize.searchHeight),
+    child: TextField(
+      onChanged: onChanged,
+      maxLines: 1,
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search),
+        hintText: hint,
+        constraints: const BoxConstraints(minHeight: SampleSize.searchHeight),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 21,
+        ),
+        border: const OutlineInputBorder(),
+      ),
+    ),
+  );
+}
+
+/// Fixed bottom action on a surface with a hairline, clear of system insets.
+class SampleActionBar extends StatelessWidget {
+  const SampleActionBar({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.surface,
+      border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+    ),
+    child: SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: FilledButtonTheme(
+        data: FilledButtonThemeData(
+          style:
+              (Theme.of(context).filledButtonTheme.style ?? const ButtonStyle())
+                  .copyWith(
+                    minimumSize: const WidgetStatePropertyAll(
+                      Size(double.infinity, 56),
+                    ),
+                  ),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: SampleSize.actionHeight),
+          child: child,
+        ),
+      ),
+    ),
+  );
+}
+
+enum SampleStatus { ready, running, passed, failed, blocked, notApplicable }
+
+class SampleStatusBadge extends StatelessWidget {
+  const SampleStatusBadge({
+    super.key,
+    required this.status,
+    required this.label,
+  });
+  final SampleStatus status;
+  final String label;
+  @override
+  Widget build(BuildContext context) {
+    final b = Theme.of(context).brightness;
+    final (fill, ink, icon) = switch (status) {
+      SampleStatus.passed => (
+        SampleTone.success.resolve(b).background,
+        sampleGreenFor(b),
+        Icons.check,
+      ),
+      SampleStatus.failed => (
+        SampleTone.danger.resolve(b).background,
+        sampleDangerFor(b),
+        Icons.close,
+      ),
+      SampleStatus.blocked => (
+        SampleTone.warning.resolve(b).background,
+        sampleAmberFor(b),
+        Icons.lock_outline,
+      ),
+      SampleStatus.running => (
+        sampleAccentTintFor(b),
+        sampleAccent(b),
+        Icons.play_arrow,
+      ),
+      SampleStatus.ready => (
+        Colors.transparent,
+        sampleAccent(b),
+        Icons.play_arrow,
+      ),
+      SampleStatus.notApplicable => (
+        Colors.transparent,
+        Theme.of(context).colorScheme.onSurfaceVariant,
+        Icons.remove,
+      ),
+    };
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 28),
+        padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+        decoration: BoxDecoration(
+          color: fill,
+          border: Border.all(color: ink, width: 1.5),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: ink),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                label,
+                style: Theme.of(
+                  context,
+                ).textTheme.labelMedium?.copyWith(color: ink),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Paints the dark-theme halo of [SampleScaffold]. Public for tests only, so
-/// the geometry — centre, radius, colour stops — can be asserted rather than
-/// taken on trust.
-@visibleForTesting
-class SampleHaloPainter extends CustomPainter {
-  const SampleHaloPainter(this.color);
-
-  final Color color;
-
-  /// The gradient painted over a viewport of [size]: centred on the top-right
-  /// corner with a radius of the viewport width. [RadialGradient.radius] is a
-  /// fraction of the shorter side, hence the ratio. The end stop is the halo
-  /// colour at zero alpha, so the fade never interpolates through black.
-  RadialGradient gradientFor(Size size) => RadialGradient(
-    center: Alignment.topRight,
-    radius: size.width / math.min(size.width, size.height),
-    colors: [color, color.withValues(alpha: 0)],
-  );
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    final rect = Offset.zero & size;
-    canvas.drawRect(
-      rect,
-      Paint()..shader = gradientFor(size).createShader(rect),
-    );
-  }
-
-  @override
-  bool shouldRepaint(SampleHaloPainter oldDelegate) =>
-      oldDelegate.color != color;
-}
-
-/// Wraps the scrolling content that sits above a sample screen's bottom
-/// action area (Home's dock, Config's `Start SDK`, a scenario's `Run`).
-///
-/// Dark theme: the action area has no opaque band and no hairline — its
-/// buttons sit on the page and the halo — so the content scrolling out
-/// fades to transparent over its last [height] instead of being cut at a hard
-/// edge. It is a mask on the content, not a page-coloured overlay: whatever
-/// is behind shows through unchanged, including the halo where a wide window
-/// (tablet, landscape) lets it reach the bottom — an overlay ending on the
-/// opaque page colour left a faint step there. Light theme returns [child]
-/// untouched.
-class SampleDockFade extends StatelessWidget {
-  const SampleDockFade({super.key, required this.child});
-
+/// Shared primary / secondary / danger capsule. Leading icons use 16dp padding.
+class SamplePillButton extends StatelessWidget {
+  const SamplePillButton({
+    super.key,
+    required this.child,
+    required this.onPressed,
+    this.secondary = false,
+    this.danger = false,
+    this.minHeight = 48,
+    this.icon,
+  });
   final Widget child;
-
-  /// Height of the fade at the bottom of [child].
-  static const double height = 24;
-
+  final VoidCallback? onPressed;
+  final bool secondary, danger;
+  final double minHeight;
+  final IconData? icon;
   @override
   Widget build(BuildContext context) {
-    if (Theme.of(context).brightness != Brightness.dark) return child;
-    return ShaderMask(
-      blendMode: BlendMode.dstIn,
-      shaderCallback: (bounds) =>
-          maskFor(bounds.size).createShader(Offset.zero & bounds.size),
-      child: child,
-    );
-  }
-
-  /// The alpha mask over content of [size]: opaque down to [height] above the
-  /// bottom, then linearly transparent. Public for tests only.
-  @visibleForTesting
-  static LinearGradient maskFor(Size size) {
-    final start = size.height <= height ? 0.0 : 1 - height / size.height;
-    return LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
-      stops: [0, start, 1],
-    );
+    final style =
+        (danger ? sampleDangerButtonStyle(context) : const ButtonStyle())
+            .copyWith(
+              minimumSize: WidgetStatePropertyAll(Size(48, minHeight)),
+              padding: WidgetStatePropertyAll(
+                EdgeInsetsDirectional.only(
+                  start: icon == null ? 24 : 16,
+                  end: 24,
+                ),
+              ),
+              shape: const WidgetStatePropertyAll(StadiumBorder()),
+              textStyle: const WidgetStatePropertyAll(
+                SampleTypography.buttonLabel,
+              ),
+            );
+    final content = icon == null
+        ? child
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20),
+              const SizedBox(width: 8),
+              Flexible(child: child),
+            ],
+          );
+    return secondary || danger
+        ? OutlinedButton(onPressed: onPressed, style: style, child: content)
+        : FilledButton(onPressed: onPressed, style: style, child: content);
   }
 }

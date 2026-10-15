@@ -44,7 +44,7 @@ object OctopusEventEmitter {
 
     fun sendEvent(eventName: String, data: Map<String, Any?>?) {
         val sink = eventSink
-        Log.d("OctopusEventEmitter", "Sending event: $eventName, hasSink: ${sink != null}, data: $data")
+        Log.d("OctopusEventEmitter", "Sending event: $eventName, hasSink: ${sink != null}")
         if (sink == null) return
         val eventData = mutableMapOf<String, Any?>("event" to eventName)
         data?.let { eventData.putAll(it) }

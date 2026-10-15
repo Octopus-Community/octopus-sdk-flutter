@@ -8,32 +8,29 @@ import Foundation
 @_spi(OctopusInternalTesting) import Octopus
 
 // `ProfileFieldsLock` / `ContentOptions` / `TermsAcceptanceMode` (the
-// parameter types the three methods above need to construct) are declared
-// in `OctopusCore`, not in `Octopus`. Whether that module is reachable here
-// depends on the iOS integration path:
+// parameter types the three methods above take, in their native SPI
+// signatures) and `OctopusSDKCore` are declared in `OctopusCore`, not in
+// `Octopus`. octopus-sdk-swift declares only two SwiftPM products, `Octopus`
+// and `OctopusUI`; `OctopusCore` is an internal target that `Octopus` imports
+// without re-exporting. No declared product carries these types, so the
+// import below is the only way to build the real implementation, and making
+// it reachable through a product is an upstream change (#470).
 //
-// - CocoaPods: `OctopusCore` is not a Swift Package "product" of
-//   octopus-sdk-swift, but it *is* a first-class published pod
-//   (`OctopusCommunityCore`) that `OctopusCommunity` already pulls in
-//   transitively — CocoaPods has no concept of "products", so declaring
-//   `OctopusCommunityCore` as a dependency in `octopus_sdk_flutter.podspec`
-//   is enough to `import OctopusCore` directly. Verified by building
-//   `example/` with `flutter config --no-enable-swift-package-manager` +
-//   `pod install` + `flutter build ios --simulator`: it compiles.
-// - SPM (this plugin's own `Package.swift`): `OctopusCore` is a plain
-//   internal `.target` of octopus-sdk-swift, never declared under that
-//   package's `products:`. A remote package dependency can only see a
-//   consumer's declared products, so `OctopusCore` is NOT reachable here —
-//   confirmed by the same build with `flutter config
-//   --enable-swift-package-manager` instead: `error: no such module
-//   'OctopusCore'`. This is the genuine, narrower version of the original
-//   stub's blocker: only the parameter *types* are unreachable via SPM, not
-//   the three `debugOverride*` entry points themselves (those are on
-//   `OctopusSDK` in the `Octopus` module, reachable on both paths).
+// - CocoaPods: `OctopusCore` is a first-class published pod
+//   (`OctopusCommunityCore`, module name `OctopusCore`) declared in
+//   `octopus_sdk_flutter.podspec`, so this import is a declared dependency.
+// - SPM (this plugin's own `Package.swift`): the import is not backed by a
+//   declared product. It still resolves through the module search path the
+//   `Octopus` product brings along: the Integration `spm` leg on Flutter
+//   3.44.5 compiles the real implementation (checked for #470 with a
+//   temporary `#error` probe behind `#if SWIFT_PACKAGE && canImport(OctopusCore)`;
+//   PR #471 has the probe and the CI run that printed it). If a
+//   toolchain stops exposing it, `canImport` turns false and the stub compiles.
 //
-// `#if canImport(OctopusCore)` lets each integration path compile its own
-// half: CocoaPods gets the real implementation below, SPM falls back to the
-// typed-error stub, without one path's outcome regressing the other's.
+// `#if canImport(OctopusCore)` keeps both outcomes compiling: the real
+// implementation where the module is reachable, otherwise a stub that
+// reports "unsupported" so the plugin answers `UNSUPPORTED_PLATFORM` instead
+// of failing the build.
 #if canImport(OctopusCore)
 import OctopusCore
 #endif
@@ -44,7 +41,7 @@ import OctopusCore
 enum OctopusDebugCommunityConfigRead {
   /// The effective config as a wire map, or `nil` while none has been fetched yet.
   case config([String: Any]?)
-  /// This integration path cannot read the config (Swift Package Manager).
+  /// This build cannot reach `OctopusCore`, so it cannot read the config.
   case unsupported
   /// CocoaPods, but the `Mirror` lookup of the SDK core failed (a native release renamed it).
   case unreachable
@@ -87,6 +84,13 @@ enum OctopusDebugOverridesBridge {
     return true
   }
 
+  /// Applies verbatim wordings, or clears with nil, without changing acceptance mode.
+  @discardableResult
+  static func debugOverrideConsentTexts(_ octopus: OctopusSDK, textsMap: [String: Any]?) async -> Bool {
+    await octopus.debugOverrideConsentTexts(parseConsentTexts(textsMap))
+    return true
+  }
+
   /// Reads the community config the native SDK currently holds (backend GetConfig + any local
   /// `debugOverride*`), as the wire map `OctopusDebugCommunityConfig.fromWire` decodes. `config` is
   /// `nil` while no config has been fetched yet.
@@ -117,6 +121,8 @@ enum OctopusDebugOverridesBridge {
       "exposeClientUserId": config.exposeClientUserId,
       "forceLoginOnStrongActions": config.forceLoginOnStrongActions,
       "displayAccountAge": config.displayAccountAge,
+      "forceNicknameChoice": config.forceNicknameChoice,
+      "consentTexts": serializeConsentTexts(config.consentTexts) as Any? ?? NSNull(),
       "termsAcceptanceMode": mode,
     ])
   }
@@ -153,7 +159,7 @@ enum OctopusDebugOverridesBridge {
   /// Parses the `options` wire map into a native `ContentOptions`. `nil` clears the override.
   /// Mirrors the Android Kotlin bridge's `parseContentOptions`: a missing sub-map or a wrong-typed
   /// flag falls back to `true`, matching both the native default and the Dart default.
-  private static func parseContentOptions(_ map: [String: Any]?) -> ContentOptions? {
+  static func parseContentOptions(_ map: [String: Any]?) -> ContentOptions? {
     guard let map else { return nil }
     let post = map["post"] as? [String: Any]
     let comment = map["comment"] as? [String: Any]
@@ -161,7 +167,8 @@ enum OctopusDebugOverridesBridge {
     return ContentOptions(
       post: ContentOptions.PostOptions(
         enablePictures: post?["enablePictures"] as? Bool ?? true,
-        enablePolls: post?["enablePolls"] as? Bool ?? true
+        enablePolls: post?["enablePolls"] as? Bool ?? true,
+        textRequired: post?["textRequired"] as? Bool ?? true
       ),
       comment: ContentOptions.CommentOptions(
         enablePictures: comment?["enablePictures"] as? Bool ?? true
@@ -170,6 +177,35 @@ enum OctopusDebugOverridesBridge {
         enablePictures: reply?["enablePictures"] as? Bool ?? true
       )
     )
+  }
+
+  static func parseConsentTexts(_ map: [String: Any]?) -> OctopusCore.ConsentTexts? {
+    guard let map else { return nil }
+    switch map["mode"] as? String {
+    case "implicit": return .implicit(notice: map["notice"] as? String)
+    case "multiCheckbox": return .multiCheckbox(
+      termsLabel: map["termsLabel"] as? String,
+      privacyLabel: map["privacyLabel"] as? String,
+      rulesLabel: map["rulesLabel"] as? String
+    )
+    case "singleCheckbox": return .singleCheckbox(
+      label: map["label"] as? String, belowText: map["belowText"] as? String
+    )
+    default: return nil
+    }
+  }
+
+  static func serializeConsentTexts(_ texts: OctopusCore.ConsentTexts?) -> [String: Any]? {
+    func wire(_ text: String?) -> Any { text as Any? ?? NSNull() }
+    switch texts {
+    case nil: return nil
+    case .implicit(let notice): return ["mode": "implicit", "notice": wire(notice)]
+    case .multiCheckbox(let termsLabel, let privacyLabel, let rulesLabel):
+      return ["mode": "multiCheckbox", "termsLabel": wire(termsLabel),
+              "privacyLabel": wire(privacyLabel), "rulesLabel": wire(rulesLabel)]
+    case .singleCheckbox(let label, let belowText):
+      return ["mode": "singleCheckbox", "label": wire(label), "belowText": wire(belowText)]
+    }
   }
 
   /// Parses the `mode` wire value into a native `TermsAcceptanceMode`. `nil` clears the override.
@@ -191,10 +227,9 @@ enum OctopusDebugOverridesBridge {
     }
   }
 #else
-  // `OctopusCore` is not reachable on this integration path (see the
-  // file-level comment) — fall back to a no-op that reports "unsupported"
-  // so the caller can surface a typed `FlutterError` instead of silently
-  // doing nothing.
+  // `OctopusCore` is not reachable in this build (see the file-level
+  // comment) — fall back to a no-op that reports "unsupported" so the caller
+  // can surface a typed `FlutterError` instead of silently doing nothing.
   @discardableResult
   static func debugOverrideProfileFieldsLock(_ octopus: OctopusSDK, lockMap: [String: Any]?) async -> Bool {
     false
@@ -210,11 +245,21 @@ enum OctopusDebugOverridesBridge {
     false
   }
 
+  @discardableResult
+  static func debugOverrideConsentTexts(_ octopus: OctopusSDK, textsMap: [String: Any]?) async -> Bool {
+    false
+  }
+
   @MainActor
   static func debugGetCommunityConfig(_ octopus: OctopusSDK) -> OctopusDebugCommunityConfigRead {
     .unsupported
   }
 #endif
+
+  /// A nullable boolean needs no Core type, so both integration paths support this SPI.
+  static func debugOverrideForceNicknameChoice(_ octopus: OctopusSDK, enabled: Bool?) async {
+    await octopus.debugOverrideForceNicknameChoice(enabled)
+  }
 
   /// Applies (or clears, with `nil`) the `debugOverrideExposeClientUserId` override — the Unified
   /// Profile activation flag. Outside the `#if` on purpose: its parameter is a plain `Bool?`, so it

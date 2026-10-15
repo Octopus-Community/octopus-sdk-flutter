@@ -58,8 +58,9 @@ sealed class ClientUserError implements OctopusServerError {
   /// [ClientUserOtherError], and a missing/non-String `message` falls back to
   /// a placeholder.
   factory ClientUserError.fromWire(Map<String, dynamic> wire) {
-    final message =
-        wire['message'] is String ? wire['message'] as String : 'Unknown error';
+    final message = wire['message'] is String
+        ? wire['message'] as String
+        : 'Unknown error';
     switch (wire['type']) {
       case 'missingToken':
         return ClientUserMissingTokenError(message);

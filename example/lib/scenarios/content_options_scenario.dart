@@ -7,19 +7,6 @@ import '../app_state.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
 
-/// The content options currently overridden on the SDK, and the label of the
-/// preset that applied them — `null` / "none (backend default)" when no
-/// override is in effect.
-///
-/// Process-level rather than [State] fields, iso the Android sample's
-/// `HostOverrides`: "Verify in Community" pops back to the shell and destroys
-/// this scenario's State, so a per-widget field would render "none" on the way
-/// back while the SDK is still overridden — the exact confusion the Android
-/// override-UX pass removed. Same reasoning as the `_expanded` map of
-/// `scenarios_screen.dart`.
-ContentOptions? _applied;
-String _appliedLabel = _noOverrideLabel;
-
 const String _noOverrideLabel = 'none (backend default)';
 
 /// Content Options scenario — `debugOverrideContentOptions`.
@@ -52,14 +39,17 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
     String label,
     ContentOptions? options,
   ) async {
-    final octopus = AppScope.of(context).octopus;
+    final app = AppScope.of(context);
+    final overrides = app.debugScenarioOverrides;
     demoLog.apiCall('debugOverrideContentOptions', {
       'options': options?.toString() ?? 'null (clear)',
     });
     try {
-      await octopus.debugOverrideContentOptions(options);
-      _applied = options;
-      _appliedLabel = options == null ? _noOverrideLabel : label;
+      await app.octopus.debugOverrideContentOptions(options);
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
+      overrides.contentOptions = options == null
+          ? null
+          : (value: options, label: label);
       if (!mounted) return;
       setState(() {});
       setResult(
@@ -70,6 +60,7 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
                   '(or a comment / reply) to see the matching affordance gone.',
       );
     } on PlatformException catch (e) {
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
       setResult(
         e.code == 'UNSUPPORTED_PLATFORM'
             ? 'debugOverrideContentOptions is unavailable on this build: '
@@ -79,6 +70,7 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
         isError: true,
       );
     } catch (e) {
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
       setResult('debugOverrideContentOptions threw: $e', isError: true);
     }
   }
@@ -98,9 +90,11 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
 
   @override
   Widget build(BuildContext context) {
-    final applied = _applied;
+    final overrides = AppScope.of(context).debugScenarioOverrides;
+    final applied = overrides.contentOptions?.value;
     String flag(bool? value) => value == null ? '— (backend)' : '$value';
     return ScenarioScaffold(
+      key: ObjectKey(overrides),
       title: 'Content Options',
       api: 'debugOverrideContentOptions',
       verifyInCommunity: true,
@@ -108,22 +102,29 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
           'Debug-only: override the community content options locally, then '
           'open the post composer (or a comment / reply input) to see the '
           'matching picture / poll affordance disappear. It governs creation, '
-          'not the display of content that already exists.',
+          'not the display of content that already exists. Preset 7 allows an '
+          'image without text; a poll alone still requires text. Publishing '
+          'also requires a matching backend configuration.',
       youWillSee: 'the composer offering only the allowed content types.',
       note:
           'This is an internal test affordance, not supported public API — it '
           'may change or be removed at any time. It is in-memory and not '
           'persisted: relaunching the app, or switching community, goes back '
-          'to the backend config. On iOS it is available through the CocoaPods '
-          'integration only; the Swift Package Manager integration answers '
-          'UNSUPPORTED_PLATFORM.',
+          'to the backend config. '
+          'On iOS it works through CocoaPods; through Swift Package Manager it '
+          'works when the build reaches the native core module, and otherwise '
+          'answers UNSUPPORTED_PLATFORM.',
       resultTestId: 'contentOptions-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
-          ('Applied override', _appliedLabel),
+          (
+            'Applied override',
+            overrides.contentOptions?.label ?? _noOverrideLabel,
+          ),
           ('post.enablePictures', flag(applied?.post.enablePictures)),
           ('post.enablePolls', flag(applied?.post.enablePolls)),
+          ('post.textRequired', flag(applied?.post.textRequired)),
           ('comment.enablePictures', flag(applied?.comment.enablePictures)),
           ('reply.enablePictures', flag(applied?.reply.enablePictures)),
         ],
@@ -177,6 +178,12 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
         // sample-added UX sugar: it stays rendered even with nothing to clear,
         // so a QA teardown — or an up-front resolve of the id from a clean
         // state — always finds it. Clearing twice is a harmless no-op.
+        _preset(
+          testId: 'qa-preset-contentOptions-7',
+          label: 'Preset 7 · Post: text optional with an image',
+          shortLabel: 'Post: text optional with an image',
+          options: const ContentOptions(post: PostOptions(textRequired: false)),
+        ),
         _preset(
           testId: 'qa-preset-contentOptions-clear',
           label: 'Clear override (backend default)',

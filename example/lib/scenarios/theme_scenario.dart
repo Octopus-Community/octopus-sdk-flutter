@@ -132,6 +132,7 @@ class ThemeScenario extends StatelessWidget {
                   screenStates: OctopusScreenStateIcons(emptyContent: reaction),
                   common: OctopusCommonIcons(
                     moreActions: more,
+                    clearText: more,
                     activityButton: more,
                   ),
                   content: OctopusContentIcons(
@@ -148,6 +149,7 @@ class ThemeScenario extends StatelessWidget {
               'Open Community: custom comment and overflow icons; the heart '
               'reaction uses the full-color logo. The activity icon appears '
               'when Unified Profile is active for a connected user. '
+              'The nickname choice field also uses the custom clear-text icon. '
               'Use SDK default to reset all icons.',
             );
           },

@@ -198,8 +198,10 @@ final class OctopusUnknownReaction extends OctopusReactionKind {
   String get unicode => serverValue;
 
   @override
-  Map<String, dynamic> toWire() =>
-      {'kind': 'unknown', 'serverValue': serverValue};
+  Map<String, dynamic> toWire() => {
+    'kind': 'unknown',
+    'serverValue': serverValue,
+  };
 
   @override
   bool operator ==(Object other) =>

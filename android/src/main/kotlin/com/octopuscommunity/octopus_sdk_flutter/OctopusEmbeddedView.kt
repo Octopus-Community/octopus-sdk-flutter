@@ -12,20 +12,19 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.Lifecycle.Event.ON_CREATE
-import androidx.lifecycle.Lifecycle.Event.ON_DESTROY
-import androidx.lifecycle.Lifecycle.Event.ON_PAUSE
-import androidx.lifecycle.Lifecycle.Event.ON_RESUME
-import androidx.lifecycle.Lifecycle.Event.ON_START
-import androidx.lifecycle.Lifecycle.Event.ON_STOP
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.octopuscommunity.sdk.OctopusSDK
@@ -33,11 +32,16 @@ import com.octopuscommunity.sdk.domain.model.ProfileField
 import com.octopuscommunity.sdk.ui.components.NavigationIconType
 import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
 import io.flutter.plugin.common.StandardMessageCodec
+import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 
 private const val DEFAULT_PRIMARY_MAIN = 0xFF2196F3L
 private const val DEFAULT_ON_PRIMARY = 0xFFFFFFFFL
+
+internal fun embeddedViewLifecycleState(visible: Boolean, parent: Lifecycle.State): Lifecycle.State =
+    if (visible || parent < Lifecycle.State.STARTED) parent else Lifecycle.State.CREATED
 
 class OctopusEmbeddedView(
     private val context: Context,
@@ -73,8 +77,14 @@ class OctopusEmbeddedView(
     private val navBarLeadingAction: NavigationIconType? = null
 ) : PlatformView, LifecycleOwner, ViewModelStoreOwner {
 
-    class Factory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-        override fun create(context: Context, viewId: Int, args: Any?): PlatformView = when (args) {
+    class Factory(private val messenger: BinaryMessenger) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+        override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
+            val view = createView(context, args)
+            view.attachVisibilityChannel(messenger, viewId)
+            return view
+        }
+
+        private fun createView(context: Context, args: Any?): OctopusEmbeddedView = when (args) {
             is Map<*, *> -> {
                 val deepLink = args["linkPath"] as? String
                 // Precedence rule: a non-empty `linkPath` (push-notification deep
@@ -174,6 +184,51 @@ class OctopusEmbeddedView(
     override val viewModelStore = ViewModelStore()
 
     private val lifecycleRegistry = lifecycle as LifecycleRegistry
+    private var visible = false
+    private var parentLifecycle: Lifecycle? = null
+    private var visibilityChannel: MethodChannel? = null
+    private var disposed = false
+
+    private fun updateLifecycle() {
+        if (disposed) return
+        lifecycleRegistry.currentState = embeddedViewLifecycleState(
+            visible, parentLifecycle?.currentState ?: Lifecycle.State.CREATED
+        )
+    }
+
+    private fun attachVisibilityChannel(messenger: BinaryMessenger, viewId: Int) {
+        visibilityChannel = MethodChannel(messenger, "octopus_sdk_flutter/native_view/$viewId").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method == "setVisible" && call.arguments is Boolean) {
+                    visible = call.arguments as Boolean
+                    updateLifecycle()
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
+    }
+
+    // NavHost and every native BackHandler use this lifecycle. CREATED disables
+    // their callbacks while preserving the remembered navigation stack.
+    @Composable
+    internal fun EmbeddedContent(content: @Composable () -> Unit) {
+        val parent = LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(parent) {
+            parentLifecycle = parent
+            val observer = LifecycleEventObserver { _, _ -> updateLifecycle() }
+            parent.addObserver(observer)
+            updateLifecycle()
+            onDispose {
+                parent.removeObserver(observer)
+                parentLifecycle = null
+            }
+        }
+        CompositionLocalProvider(LocalLifecycleOwner provides this) {
+            MaterialTheme(content = content)
+        }
+    }
 
     init {
         containerView.addView(
@@ -183,54 +238,54 @@ class OctopusEmbeddedView(
                 isHorizontalScrollBarEnabled = false
 
                 setContent {
-                    // The SDK is initialised from Dart only (`OctopusSDK.initialize()`),
-                    // never at Application startup, so this PlatformView can be mounted
-                    // on an uninitialised SDK in two routine ways: a host that builds the
-                    // widget before `await OctopusSDK.initialize(...)` resolves, and
-                    // Android restoring the host activity in a fresh process (low-memory
-                    // kill, "Don't keep activities") before the Flutter engine has re-run
-                    // the host's initialisation. Composing then reached
-                    // `OctopusSDK.getKoinApp` and brought the process down with
-                    // `UninitializedPropertyAccessException`.
-                    //
-                    // Native SDK 1.13.4 closed most of that: `OctopusHomeScreen` and every
-                    // screen from `octopusComposables` wrap themselves in the native
-                    // `OctopusContent`, which carries the same guard. `OctopusHomeContent`
-                    // — the `showNavBar = false` branch below — does not: it resolves
-                    // `koinViewModel<OctopusHomeViewModel>()` directly, since the SDK
-                    // expects a host embedding it to supply the `OctopusContent` wrapper
-                    // itself. Gating here covers that branch and keeps the whole embedded
-                    // view's behaviour one thing rather than a function of which native
-                    // composable each option happens to mount.
-                    //
-                    // The gate is `isInitialised` rather than a `lateinit` check on
-                    // `koinApp`: `initialize()` assigns the container before announcing the
-                    // SDK as initialised, while `stop()` announces the stop before closing
-                    // a container that stays assigned — so a `lateinit` check would also
-                    // pass on a stopped SDK and hand composition a closed Koin scope.
-                    //
-                    // Collected as state rather than read once, so the view fills in on its
-                    // own as soon as `initialize()` completes, with no further recomposition
-                    // trigger and no host-side remount needed. Same shape as the guard
-                    // the native Android SDK carries in its own `OctopusContent`.
-                    val isInitialised by OctopusSDK.isInitialisedFlow.collectAsState()
-                    if (!isInitialised) {
-                        LaunchedEffect(Unit) {
-                            Log.w(
-                                "OctopusEmbeddedView",
-                                "The Octopus embedded view was mounted while the SDK is " +
-                                    "not initialised (OctopusSDK.initialize() has not " +
-                                    "completed yet, or stop() has been called since), so " +
-                                    "it rendered nothing. The community appears on its " +
-                                    "own once initialisation lands; await " +
-                                    "OctopusSDK.initialize() before showing Octopus UI " +
-                                    "to avoid the empty frame."
-                            )
+                    EmbeddedContent {
+                        // The SDK is initialised from Dart only (`OctopusSDK.initialize()`),
+                        // never at Application startup, so this PlatformView can be mounted
+                        // on an uninitialised SDK in two routine ways: a host that builds the
+                        // widget before `await OctopusSDK.initialize(...)` resolves, and
+                        // Android restoring the host activity in a fresh process (low-memory
+                        // kill, "Don't keep activities") before the Flutter engine has re-run
+                        // the host's initialisation. Composing then reached
+                        // `OctopusSDK.getKoinApp` and brought the process down with
+                        // `UninitializedPropertyAccessException`.
+                        //
+                        // Native SDK 1.13.4 closed most of that: `OctopusHomeScreen` and every
+                        // screen from `octopusComposables` wrap themselves in the native
+                        // `OctopusContent`, which carries the same guard. `OctopusHomeContent`
+                        // — the `showNavBar = false` branch below — does not: it resolves
+                        // `koinViewModel<OctopusHomeViewModel>()` directly, since the SDK
+                        // expects a host embedding it to supply the `OctopusContent` wrapper
+                        // itself. Gating here covers that branch and keeps the whole embedded
+                        // view's behaviour one thing rather than a function of which native
+                        // composable each option happens to mount.
+                        //
+                        // The gate is `isInitialised` rather than a `lateinit` check on
+                        // `koinApp`: `initialize()` assigns the container before announcing the
+                        // SDK as initialised, while `stop()` announces the stop before closing
+                        // a container that stays assigned — so a `lateinit` check would also
+                        // pass on a stopped SDK and hand composition a closed Koin scope.
+                        //
+                        // Collected as state rather than read once, so the view fills in on its
+                        // own as soon as `initialize()` completes, with no further recomposition
+                        // trigger and no host-side remount needed. Same shape as the guard
+                        // the native Android SDK carries in its own `OctopusContent`.
+                        val isInitialised by OctopusSDK.isInitialisedFlow.collectAsState()
+                        if (!isInitialised) {
+                            LaunchedEffect(Unit) {
+                                Log.w(
+                                    "OctopusEmbeddedView",
+                                    "The Octopus embedded view was mounted while the SDK is " +
+                                        "not initialised (OctopusSDK.initialize() has not " +
+                                        "completed yet, or stop() has been called since), so " +
+                                        "it rendered nothing. The community appears on its " +
+                                        "own once initialisation lands; await " +
+                                        "OctopusSDK.initialize() before showing Octopus UI " +
+                                        "to avoid the empty frame."
+                                )
+                            }
+                            Box(modifier = Modifier.fillMaxSize())
+                            return@EmbeddedContent
                         }
-                        Box(modifier = Modifier.fillMaxSize())
-                        return@setContent
-                    }
-                    MaterialTheme {
                         OctopusHomeScreen(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -314,7 +369,7 @@ class OctopusEmbeddedView(
                             onNavigateToUrl = if (interceptUrls) { url ->
                                 Log.d(
                                     "OctopusEmbeddedView",
-                                    "onNavigateToUrl called - sending event for: $url"
+                                    "onNavigateToUrl called - sending event"
                                 )
                                 OctopusSDKFlutterPlugin.sendEvent(
                                     "navigateToUrl",
@@ -341,7 +396,7 @@ class OctopusEmbeddedView(
                             onNavigateToClientObject = { objectId ->
                                 Log.d(
                                     "OctopusEmbeddedView",
-                                    "onNavigateToClientObject called - sending event for: $objectId"
+                                    "onNavigateToClientObject called - sending event"
                                 )
                                 OctopusSDKFlutterPlugin.sendEvent(
                                     "navigateToClientObject",
@@ -363,17 +418,15 @@ class OctopusEmbeddedView(
             )
         )
 
-        listOf(ON_CREATE, ON_START, ON_RESUME).forEach {
-            lifecycleRegistry.handleLifecycleEvent(it)
-        }
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
     override fun getView() = containerView
 
     override fun dispose() {
-        listOf(ON_PAUSE, ON_STOP, ON_DESTROY).forEach {
-            lifecycleRegistry.handleLifecycleEvent(it)
-        }
+        disposed = true
+        visibilityChannel?.setMethodCallHandler(null)
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         viewModelStore.clear()
     }
 }

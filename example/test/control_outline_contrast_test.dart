@@ -16,9 +16,12 @@ Color _outlinedButtonSide(Brightness brightness) => buildAppTheme(
   brightness,
 ).outlinedButtonTheme.style!.side!.resolve(<WidgetState>{})!.color;
 
-Color _segmentSide(Brightness brightness) => buildAppTheme(
+Color _segmentSide(
+  Brightness brightness, [
+  Set<WidgetState> states = const {},
+]) => buildAppTheme(
   brightness,
-).segmentedButtonTheme.style!.side!.resolve(<WidgetState>{})!.color;
+).segmentedButtonTheme.style!.side!.resolve(states)!.color;
 
 BorderSide? _chipSide(Brightness brightness, Set<WidgetState> states) =>
     WidgetStateProperty.resolveAs<BorderSide?>(
@@ -62,15 +65,28 @@ void main() {
       );
     });
 
-    test('a selected chip keeps the Material default', () {
+    test('a selected chip has no outline', () {
       expect(
         _chipSide(Brightness.light, <WidgetState>{WidgetState.selected}),
-        isNull,
+        const BorderSide(color: Colors.transparent),
       );
     });
 
-    test('the decorative card border stays invisible', () {
-      expect(sampleBorderFor(Brightness.light), Colors.transparent);
+    test('the decorative card border uses the shared border token', () {
+      expect(sampleBorderFor(Brightness.light), sampleLightBorder);
+    });
+
+    test('light borders retain their original color and one-pixel width', () {
+      final theme = buildAppTheme(Brightness.light);
+      expect(sampleOutlineWidthFor(Brightness.light), 1);
+      expect(
+        sampleScenarioBorderFor(Brightness.light),
+        sampleAccent(Brightness.light).withValues(alpha: .35),
+      );
+      expect(theme.outlinedButtonTheme.style!.side!.resolve({})!.width, 1);
+      expect(theme.segmentedButtonTheme.style!.side!.resolve({})!.width, 1);
+      expect(_chipSide(Brightness.light, {})!.width, 1);
+      expect((theme.cardTheme.shape! as OutlinedBorder).side.width, 1);
     });
 
     testWidgets('a rendered OutlinedButton picks up the light outline', (
@@ -95,7 +111,135 @@ void main() {
     });
   });
 
-  group('dark theme: interactive chips hold 3:1', () {
+  group('dark theme: control and card boundaries hold 3:1', () {
+    final theme = buildAppTheme(Brightness.dark);
+    final surfaces = <String, Color>{
+      'page': theme.scaffoldBackgroundColor,
+      'card': sampleDarkCard,
+      'scenario card': sampleDarkPrimaryLow,
+      'elevated surface': sampleDarkElevated,
+      'hover surface': sampleDarkHover,
+    };
+
+    test('preset and segmented outlines clear 3:1 on adjacent fills', () {
+      for (final side in [
+        _outlinedButtonSide(Brightness.dark),
+        _segmentSide(Brightness.dark),
+        _segmentSide(Brightness.dark, {WidgetState.selected}),
+        _chipSide(Brightness.dark, <WidgetState>{})!.color,
+      ]) {
+        for (final entry in {
+          ...surfaces,
+          'selected segment': sampleDarkAccentContainer,
+        }.entries) {
+          expect(
+            _contrast(Color.alphaBlend(side, entry.value), entry.value),
+            greaterThanOrEqualTo(3.0),
+            reason: 'control outline on ${entry.key}',
+          );
+        }
+      }
+    });
+
+    test('card borders clear 3:1 on their inside and outside surfaces', () {
+      for (final border in [
+        sampleBorderFor(Brightness.dark),
+        sampleScenarioBorderFor(Brightness.dark),
+      ]) {
+        for (final entry in surfaces.entries) {
+          expect(
+            _contrast(Color.alphaBlend(border, entry.value), entry.value),
+            greaterThanOrEqualTo(3.0),
+            reason: 'card border against ${entry.key}',
+          );
+        }
+      }
+    });
+
+    testWidgets('rendered scenario frames and preset use the contrast roles', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  SampleScenarioBlock(
+                    title: 'Try it',
+                    child: SamplePanel(
+                      child: Column(
+                        children: [
+                          SamplePillButton(
+                            secondary: true,
+                            onPressed: () {},
+                            child: const Text('Preset'),
+                          ),
+                          SampleSegmentedChoice<int>(
+                            options: const [(0, 'First'), (1, 'Second')],
+                            selected: 0,
+                            onChanged: (_) {},
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SampleSection(title: 'Live state', child: Text('Idle')),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      for (final type in [SampleScenarioBlock, SamplePanel, SampleSection]) {
+        final frame = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byType(type),
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Container && widget.decoration is BoxDecoration,
+                ),
+              )
+              .first,
+        );
+        final decoration = frame.decoration! as BoxDecoration;
+        final side = (decoration.border! as Border).top;
+        expect(side.width, greaterThanOrEqualTo(2));
+        for (final adjacent in [
+          decoration.color!,
+          type == SamplePanel
+              ? sampleDarkPrimaryLow
+              : theme.scaffoldBackgroundColor,
+        ]) {
+          expect(
+            _contrast(Color.alphaBlend(side.color, adjacent), adjacent),
+            greaterThanOrEqualTo(3.0),
+            reason: '$type frame against $adjacent',
+          );
+        }
+      }
+      final material = tester.widget<Material>(
+        find.descendant(
+          of: find.byType(OutlinedButton),
+          matching: find.byType(Material),
+        ),
+      );
+      final side = (material.shape! as OutlinedBorder).side;
+      expect(side.width, greaterThanOrEqualTo(2));
+      expect(
+        _contrast(side.color, sampleDarkPrimaryLow),
+        greaterThanOrEqualTo(3.0),
+      );
+      expect(
+        theme.segmentedButtonTheme.style!.side!.resolve({})!.width,
+        greaterThanOrEqualTo(2),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     test('an unselected chip draws the dark control outline', () {
       expect(
         _chipSide(Brightness.dark, <WidgetState>{})?.color,
@@ -103,11 +247,11 @@ void main() {
       );
     });
 
-    test('a selected chip draws the accent', () {
+    test('a selected chip has no outline', () {
       final side = _chipSide(Brightness.dark, <WidgetState>{
         WidgetState.selected,
       });
-      expect(side?.color, sampleAccentDark);
+      expect(side?.color, Colors.transparent);
       expect(
         _contrast(sampleAccentDark, sampleDarkCard),
         greaterThanOrEqualTo(3.0),

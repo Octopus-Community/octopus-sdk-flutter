@@ -142,7 +142,7 @@ class _AccountScreenState extends State<AccountScreen> {
           ..sort());
 
     return SampleScaffold(
-      appBar: AppBar(title: const SampleAppBarTitle('Account')),
+      appBar: SampleTopAppBar(title: 'Account'),
       // A pushed route: nothing above it consumes the bottom system inset the
       // way the app shell's own `SafeArea` does. Without this, the last action
       // of the list — "Connect SSO User" / "Reconnect", or "Disconnect" once
@@ -152,7 +152,7 @@ class _AccountScreenState extends State<AccountScreen> {
         child: Semantics(
           identifier: 'account-screen',
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(SampleSpacing.space4),
             children: [
               // ── Identity ────────────────────────────────────────────────
               SampleSection(
@@ -165,7 +165,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     Row(
                       children: [
                         _Avatar(url: app.testAvatarUrl, name: app.displayName),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: SampleSpacing.space3),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,7 +199,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: SampleSpacing.space3),
                     Semantics(
                       identifier: 'account-nickname-input',
                       container: true,
@@ -244,7 +244,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: SampleSpacing.space4),
 
               // ── Entitlements ────────────────────────────────────────────
               SampleSection(
@@ -265,14 +265,14 @@ class _AccountScreenState extends State<AccountScreen> {
                             value,
                             style: const TextStyle(
                               fontFamily: sampleMonoFamily,
-                              fontSize: 12,
+                              fontSize: SampleTypography.captionSize,
                             ),
                           ),
                           value: _entitlements.contains(value),
                           onChanged: (on) => _toggle(value, on),
                         ),
                       ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: SampleSpacing.space2),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -292,7 +292,7 @@ class _AccountScreenState extends State<AccountScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: SampleSpacing.space2),
                         Semantics(
                           identifier: 'account-custom-entitlement-add',
                           button: true,
@@ -331,7 +331,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: SampleSpacing.space4),
 
               // ── Session ─────────────────────────────────────────────────
               SampleSection(
@@ -352,7 +352,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       onPressed: _busy ? null : _connect,
                     ),
                     if (connected) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: SampleSpacing.space3),
                       _Action(
                         label: 'Refresh entitlements',
                         help: 'Lighter SDK-side refresh, keeps the session.',
@@ -360,7 +360,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         filled: false,
                         onPressed: _busy ? null : _refresh,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: SampleSpacing.space3),
                       _Action(
                         label: 'Disconnect',
                         help:
@@ -405,28 +405,15 @@ class _Action extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Navy on light / accent blue on dark for a non-danger outline action —
-    // same swap as the app-wide button theme, which the filled variant
-    // inherits directly by passing a null style below.
-    final accent = danger
-        ? sampleDangerFor(theme.brightness)
-        : sampleAccent(theme.brightness);
-    final button = filled
-        ? FilledButton(
+    final button = danger
+        ? OutlinedButton(
             onPressed: onPressed,
-            style: danger
-                ? FilledButton.styleFrom(backgroundColor: accent)
-                : null,
+            style: sampleDangerButtonStyle(context),
             child: Text(label),
           )
-        : OutlinedButton(
-            onPressed: onPressed,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: accent,
-              side: BorderSide(color: accent),
-            ),
-            child: Text(label),
-          );
+        : filled
+        ? FilledButton(onPressed: onPressed, child: Text(label))
+        : OutlinedButton(onPressed: onPressed, child: Text(label));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -434,10 +421,13 @@ class _Action extends StatelessWidget {
           child: Semantics(
             identifier: identifier,
             button: true,
-            child: SizedBox(height: 48, child: button),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: SampleSize.touchMin),
+              child: button,
+            ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: SampleSpacing.space1),
         Text(help, style: theme.textTheme.bodySmall),
       ],
     );

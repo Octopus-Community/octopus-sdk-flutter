@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show immutable;
 
+import 'consent_texts.dart';
 import 'terms_acceptance_mode.dart';
 
 /// Debug-only snapshot of the community config the native SDK currently holds
@@ -29,12 +30,21 @@ class OctopusDebugCommunityConfig {
   /// reported a mode this plugin version does not know.
   final TermsAcceptanceMode? termsAcceptanceMode;
 
+  /// Whether an unconfirmed member must type a nickname before contributing.
+  /// Missing flags from older native bridges default to `false`.
+  final bool forceNicknameChoice;
+
+  /// Effective community consent wordings, or `null` for native wordings.
+  final OctopusConsentTexts? consentTexts;
+
   /// Creates a snapshot. Apps never need to build one outside of tests.
   const OctopusDebugCommunityConfig({
     required this.exposeClientUserId,
     required this.forceLoginOnStrongActions,
     required this.displayAccountAge,
     this.termsAcceptanceMode,
+    this.forceNicknameChoice = false,
+    this.consentTexts,
   });
 
   /// Decodes the platform-channel representation. Reads defensively: a
@@ -45,6 +55,8 @@ class OctopusDebugCommunityConfig {
       exposeClientUserId: flag('exposeClientUserId'),
       forceLoginOnStrongActions: flag('forceLoginOnStrongActions'),
       displayAccountAge: flag('displayAccountAge'),
+      forceNicknameChoice: flag('forceNicknameChoice'),
+      consentTexts: OctopusConsentTexts.fromWire(wire['consentTexts']),
       termsAcceptanceMode: _parseTermsAcceptanceMode(
         wire['termsAcceptanceMode'],
       ),
@@ -67,20 +79,25 @@ class OctopusDebugCommunityConfig {
       other.exposeClientUserId == exposeClientUserId &&
       other.forceLoginOnStrongActions == forceLoginOnStrongActions &&
       other.displayAccountAge == displayAccountAge &&
-      other.termsAcceptanceMode == termsAcceptanceMode;
+      other.termsAcceptanceMode == termsAcceptanceMode &&
+      other.forceNicknameChoice == forceNicknameChoice &&
+      other.consentTexts == consentTexts;
 
   @override
   int get hashCode => Object.hash(
-        exposeClientUserId,
-        forceLoginOnStrongActions,
-        displayAccountAge,
-        termsAcceptanceMode,
-      );
+    exposeClientUserId,
+    forceLoginOnStrongActions,
+    displayAccountAge,
+    termsAcceptanceMode,
+    forceNicknameChoice,
+    consentTexts,
+  );
 
   @override
   String toString() =>
       'OctopusDebugCommunityConfig(exposeClientUserId: $exposeClientUserId, '
       'forceLoginOnStrongActions: $forceLoginOnStrongActions, '
       'displayAccountAge: $displayAccountAge, '
-      'termsAcceptanceMode: $termsAcceptanceMode)';
+      'termsAcceptanceMode: $termsAcceptanceMode, '
+      'forceNicknameChoice: $forceNicknameChoice, consentTexts: $consentTexts)';
 }

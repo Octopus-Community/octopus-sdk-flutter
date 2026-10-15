@@ -42,17 +42,14 @@ void main() {
       final icons = brightness == Brightness.dark
           ? Brightness.light
           : Brightness.dark;
-      expect(
-        SystemChrome.latestStyle!.statusBarIconBrightness,
-        Brightness.light,
-      );
+      expect(SystemChrome.latestStyle!.statusBarIconBrightness, icons);
       expect(
         SystemChrome.latestStyle!.systemNavigationBarIconBrightness,
         icons,
       );
       expect(
         SystemChrome.latestStyle!.systemNavigationBarColor,
-        brightness == Brightness.dark ? sampleDarkCard : Colors.white,
+        sampleSurface2For(brightness),
       );
       expect(
         SystemChrome.latestStyle!.systemNavigationBarContrastEnforced,
@@ -96,12 +93,9 @@ void main() {
       navigator.currentState!.pop();
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
-      await tester.tap(find.text('Home').last);
+      await tester.tap(find.text('Scenarios').last);
       await tester.pumpAndSettle();
-      expect(
-        SystemChrome.latestStyle!.statusBarIconBrightness,
-        Brightness.light,
-      );
+      expect(SystemChrome.latestStyle!.statusBarIconBrightness, icons);
     });
   }
 }

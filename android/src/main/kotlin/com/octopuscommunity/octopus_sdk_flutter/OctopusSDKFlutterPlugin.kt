@@ -2,10 +2,12 @@ package com.octopuscommunity.octopus_sdk_flutter
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Base64
 import android.util.Log
 import com.octopuscommunity.sdk.ApiServer
 import com.octopuscommunity.sdk.InternalOctopusApi
+import com.octopuscommunity.sdk.SdkFamily
 import com.octopuscommunity.sdk.OctopusSDK
 import com.octopuscommunity.sdk.domain.model.ClientPost
 import com.octopuscommunity.sdk.domain.model.ClientUser
@@ -65,7 +67,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     lateinit var channel: MethodChannel
     private lateinit var eventChannel: EventChannel
     private lateinit var context: Context
-    private var isOctopusAuthMode: Boolean = false
     // Sink this plugin instance handed to [OctopusEventEmitter] in [onListen],
     // remembered so [onCancel] can compare-and-clear without wiping a sink
     // that belongs to another FlutterEngine.
@@ -100,26 +101,20 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
         fun getInstance(): OctopusSDKFlutterPlugin? = INSTANCE
 
+        /** Forwards a legacy callback ID to the Flutter method channel. */
+        @Deprecated("No Dart handler listens to this call; it will be removed in the next major version.", level = DeprecationLevel.WARNING)
         fun triggerCallback(method: String, callbackId: String) {
-            Log.d(
-                "OctopusSDKFlutterPlugin",
-                "triggerCallback called: method=$method, callbackId=$callbackId"
-            )
             INSTANCE?.channel?.invokeMethod(method, callbackId)
-            Log.d("OctopusSDKFlutterPlugin", "triggerCallback completed")
         }
 
+        /** Forwards legacy callback arguments to the Flutter method channel. */
+        @Deprecated("No Dart handler listens to this call; it will be removed in the next major version.", level = DeprecationLevel.WARNING)
         fun triggerCallbackWithArgs(method: String, args: Map<String, Any>) {
-            Log.d(
-                "OctopusSDKFlutterPlugin",
-                "triggerCallbackWithArgs called: method=$method, args=$args"
-            )
             INSTANCE?.channel?.invokeMethod(method, args)
-            Log.d("OctopusSDKFlutterPlugin", "triggerCallbackWithArgs completed")
         }
 
         fun sendEvent(eventName: String, data: Map<String, Any?>?) {
-            Log.d("OctopusSDKFlutterPlugin", "sendEvent called: eventName=$eventName, data=$data")
+            Log.d("OctopusSDKFlutterPlugin", "sendEvent called: eventName=$eventName")
             // Route through the process-static [OctopusEventEmitter] singleton.
             // Do NOT look up a plugin/emitter `INSTANCE` reference: a secondary
             // FlutterEngine attaching this plugin (e.g. firebase_messaging's
@@ -164,7 +159,15 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                         mapOf("requestId" to requestId, "fingerprint" to fingerprint)
                     )
                 }
-                deferred.await()
+                val reply = withTimeoutOrNull(CLIENT_USER_TOKEN_TIMEOUT_MS) {
+                    // Keep explicit replies distinct from a timeout for diagnostics;
+                    // both an explicit null and a timeout return no bridge token.
+                    BridgeTokenReply(deferred.await())
+                }
+                if (reply != null) reply.token else {
+                    Log.w("OctopusSdkFlutter", "Bridge token request timed out")
+                    null
+                }
             } finally {
                 bridgeTokenDeferreds.remove(requestId)
             }
@@ -187,7 +190,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         // Register platform view factory for embedded Octopus UI
         flutterPluginBinding.platformViewRegistry.registerViewFactory(
             "octopus_sdk_flutter/native_view",
-            OctopusEmbeddedView.Factory()
+            OctopusEmbeddedView.Factory(flutterPluginBinding.binaryMessenger)
         )
 
         // Track the SDK init state from attach (it is process-static and
@@ -220,16 +223,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 initializeOctopusSdk(call, result)
             }
 
-            "initializeOctopusAuth" -> {
-                initializeOctopusAuth(call, result)
-            }
-
             "switchCommunity" -> {
                 switchCommunity(call, result)
-            }
-
-            "switchCommunityOctopusAuth" -> {
-                switchCommunityOctopusAuth(call, result)
             }
 
             "reset" -> {
@@ -393,12 +388,19 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                     try {
                         // Android names the Octopus id `userId`; the wrapper calls it
                         // `profileId` throughout (matching iOS + the screen events).
-                        val data = if (profileId != null) {
-                            OctopusSDK.fetchCommunityData(profileId)
+                        val lookup = if (profileId != null) {
+                            OctopusSDK.fetchCommunityDataResult(profileId)
                         } else {
-                            OctopusSDK.fetchCommunityDataByClientUserId(clientUserId!!)
+                            OctopusSDK.fetchCommunityDataByClientUserIdResult(clientUserId!!)
                         }
-                        result.success(data?.let { serializeCommunityData(it) })
+                        when (lookup) {
+                            is OctopusResult.Success ->
+                                result.success(lookup.data?.let { serializeCommunityData(it) })
+                            is OctopusResult.Failure ->
+                                result.error("FETCH_FAILED", "Community data lookup failed", null)
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         Log.e("OctopusSdkFlutter", "fetchCommunityData failed", e)
                         result.error("FETCH_FAILED", e.message, null)
@@ -482,21 +484,33 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             }
 
             "debugOverrideProfileFieldsLock" -> {
-                val lock = parseProfileFieldsLock(call)
-                OctopusSDK.debugOverrideProfileFieldsLock(lock)
-                result.success(null)
+                try {
+                    val lock = parseProfileFieldsLock(call)
+                    OctopusSDK.debugOverrideProfileFieldsLock(lock)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("OVERRIDE_ERROR", e.message, null)
+                }
             }
 
             "debugOverrideContentOptions" -> {
-                val options = parseContentOptions(call)
-                OctopusSDK.debugOverrideContentOptions(options)
-                result.success(null)
+                try {
+                    val options = parseContentOptions(call)
+                    OctopusSDK.debugOverrideContentOptions(options)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("OVERRIDE_ERROR", e.message, null)
+                }
             }
 
             "debugOverrideTermsAcceptanceMode" -> {
-                val mode = parseTermsAcceptanceMode(call)
-                OctopusSDK.debugOverrideTermsAcceptanceMode(mode)
-                result.success(null)
+                try {
+                    val mode = parseTermsAcceptanceMode(call)
+                    OctopusSDK.debugOverrideTermsAcceptanceMode(mode)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("OVERRIDE_ERROR", e.message, null)
+                }
             }
 
             "debugOverrideExposeClientUserId" -> {
@@ -508,6 +522,30 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 // Native bridge, instead of escaping the method-call handler.
                 try {
                     OctopusSDK.debugOverrideExposeClientUserId(call.argument<Boolean?>("enabled"))
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("OVERRIDE_ERROR", e.message, null)
+                }
+            }
+
+            "debugOverrideForceNicknameChoice" -> {
+                if (!OctopusSDK.isInitialised) {
+                    return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+                }
+                try {
+                    OctopusSDK.debugOverrideForceNicknameChoice(call.argument<Boolean?>("enabled"))
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("OVERRIDE_ERROR", e.message, null)
+                }
+            }
+
+            "debugOverrideConsentTexts" -> {
+                if (!OctopusSDK.isInitialised) {
+                    return result.error("NOT_INITIALIZED", "Call initialize() first", null)
+                }
+                try {
+                    OctopusSDK.debugOverrideConsentTexts(parseConsentTexts(call.argument<Map<String, Any?>>("texts")))
                     result.success(null)
                 } catch (e: Exception) {
                     result.error("OVERRIDE_ERROR", e.message, null)
@@ -529,6 +567,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                                     "exposeClientUserId" to it.exposeClientUserId,
                                     "forceLoginOnStrongActions" to it.forceLoginOnStrongActions,
                                     "displayAccountAge" to it.displayAccountAge,
+                                    "forceNicknameChoice" to it.forceNicknameChoice,
+                                    "consentTexts" to serializeConsentTexts(it.consentTexts),
                                     "termsAcceptanceMode" to it.termsAcceptanceMode.name,
                                 )
                             }
@@ -582,19 +622,17 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             }
 
             "syncFollowGroups" -> {
-                @Suppress("UNCHECKED_CAST")
-                val rawActions =
-                    call.argument<List<Map<String, Any>>>("actions") ?: emptyList()
-                if (rawActions.isEmpty()) {
+                val rawActions = call.argument<List<Any?>>("actions") ?: emptyList()
+                val actions = rawActions.mapNotNull { entry ->
+                    val m = entry as? Map<*, *> ?: return@mapNotNull null
+                    val groupId = m["groupId"] as? String ?: return@mapNotNull null
+                    val followed = m["followed"] as? Boolean ?: return@mapNotNull null
+                    val ms = m["actionDateMs"] as? Number ?: return@mapNotNull null
+                    SyncFollowGroupAction(groupId, followed, Date(ms.toLong()))
+                }
+                if (actions.isEmpty()) {
                     result.success(emptyList<Map<String, Any>>())
                     return
-                }
-                val actions = rawActions.map { m ->
-                    SyncFollowGroupAction(
-                        groupId = m["groupId"] as String,
-                        followed = m["followed"] as Boolean,
-                        actionDate = Date((m["actionDateMs"] as Number).toLong())
-                    )
                 }
                 scope.launch {
                     try {
@@ -677,7 +715,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     }
 
     /** Parses the `options` argument of `debugOverrideContentOptions`. `null` clears the override. */
-    private fun parseContentOptions(call: MethodCall): CommunityConfig.ContentOptions? {
+    internal fun parseContentOptions(call: MethodCall): CommunityConfig.ContentOptions? {
         val map = call.argument<Map<String, Any>>("options") ?: return null
         val post = map["post"] as? Map<*, *>
         val comment = map["comment"] as? Map<*, *>
@@ -686,6 +724,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             post = CommunityConfig.ContentOptions.PostOptions(
                 enablePictures = post?.get("enablePictures") as? Boolean ?: true,
                 enablePolls = post?.get("enablePolls") as? Boolean ?: true,
+                textRequired = post?.get("textRequired") as? Boolean ?: true,
             ),
             comment = CommunityConfig.ContentOptions.CommentOptions(
                 enablePictures = comment?.get("enablePictures") as? Boolean ?: true,
@@ -695,6 +734,36 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             ),
         )
     }
+
+    /** Consent wordings are forwarded verbatim; native code owns all rendering/fallback. */
+    internal fun parseConsentTexts(map: Map<String, Any?>?): CommunityConfig.ConsentTexts? {
+        if (map == null) return null
+        return when (map["mode"]) {
+            "implicit" -> CommunityConfig.ConsentTexts.Implicit(notice = map["notice"] as? String)
+            "multiCheckbox" -> CommunityConfig.ConsentTexts.MultiCheckbox(
+                termsLabel = map["termsLabel"] as? String,
+                privacyLabel = map["privacyLabel"] as? String,
+                rulesLabel = map["rulesLabel"] as? String,
+            )
+            "singleCheckbox" -> CommunityConfig.ConsentTexts.SingleCheckbox(
+                label = map["label"] as? String, belowText = map["belowText"] as? String,
+            )
+            else -> null
+        }
+    }
+
+    internal fun serializeConsentTexts(texts: CommunityConfig.ConsentTexts?): Map<String, Any?>? =
+        when (texts) {
+            null -> null
+            is CommunityConfig.ConsentTexts.Implicit -> mapOf("mode" to "implicit", "notice" to texts.notice)
+            is CommunityConfig.ConsentTexts.MultiCheckbox -> mapOf(
+                "mode" to "multiCheckbox", "termsLabel" to texts.termsLabel,
+                "privacyLabel" to texts.privacyLabel, "rulesLabel" to texts.rulesLabel,
+            )
+            is CommunityConfig.ConsentTexts.SingleCheckbox -> mapOf(
+                "mode" to "singleCheckbox", "label" to texts.label, "belowText" to texts.belowText,
+            )
+        }
 
     /** Parses the `mode` argument of `debugOverrideTermsAcceptanceMode`. `null` clears the override. */
     private fun parseTermsAcceptanceMode(call: MethodCall): CommunityConfig.TermsAcceptanceMode? {
@@ -737,16 +806,19 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }.toSet()
     }
 
+    @OptIn(InternalOctopusApi::class)
     private fun initializeOctopusSdk(call: MethodCall, result: Result) {
         try {
             val apiKey = call.argument<String>("apiKey")
                 ?: return result.error("INVALID_ARGS", "apiKey is required", null)
+            val wrapperVersion = call.argument<String>("wrapperVersion")
+                ?: return result.error("INVALID_ARGS", "wrapperVersion is required", null)
 
             val connectionMode = connectionModeFor(
-                octopusAuth = false,
                 appManagedFields = parseAppManagedFields(call),
             )
 
+            OctopusSDK.setSdkFamily(SdkFamily.FLUTTER, version = wrapperVersion)
             OctopusSDK.initialize(
                 context = context,
                 apiKey = apiKey,
@@ -754,7 +826,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 apiServer = parseApiServer(call)
             )
 
-            isOctopusAuthMode = false // SSO mode
             startNotSeenNotificationsCollection()
             startHasAccessToCommunityCollection()
             startProfileCollection()
@@ -768,44 +839,17 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
     }
 
-    private fun initializeOctopusAuth(call: MethodCall, result: Result) {
-        try {
-            val apiKey = call.argument<String>("apiKey")
-                ?: return result.error("INVALID_ARGS", "apiKey is required", null)
-
-            // Explicit on purpose: the native default is `ConnectionMode.SSO()`, so omitting
-            // the argument would start the SDK in SSO mode (#423). The Dart `deepLink` is not
-            // bridged on Android yet (native reads `deepLinksBasePaths` instead), see #437.
-            OctopusSDK.initialize(
-                context = context,
-                apiKey = apiKey,
-                connectionMode = connectionModeFor(octopusAuth = true),
-                apiServer = parseApiServer(call)
-            )
-
-            isOctopusAuthMode = true // Octopus Auth mode
-            startNotSeenNotificationsCollection()
-            startHasAccessToCommunityCollection()
-            startProfileCollection()
-            startGroupsCollection()
-            startConnectionStateCollection()
-            startEventsCollection()
-            result.success(null)
-        } catch (e: Exception) {
-            Log.e("OctopusSdkFlutter", "Error initializing Octopus Auth", e)
-            result.error("INITIALIZATION_ERROR", e.message, null)
-        }
-    }
-
     /// Switches to a different community in SSO mode. Mirrors
     /// [initializeOctopusSdk]; [OctopusSDK.switchCommunity] resets the current
     /// instance (disconnect + clear cached data) before reinitializing.
+    @OptIn(InternalOctopusApi::class)
     private fun switchCommunity(call: MethodCall, result: Result) {
         val apiKey = call.argument<String>("apiKey")
             ?: return result.error("INVALID_ARGS", "apiKey is required", null)
+        val wrapperVersion = call.argument<String>("wrapperVersion")
+            ?: return result.error("INVALID_ARGS", "wrapperVersion is required", null)
 
         val connectionMode = connectionModeFor(
-            octopusAuth = false,
             appManagedFields = parseAppManagedFields(call),
         )
         val apiServer = try {
@@ -816,13 +860,14 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
         scope.launch {
             try {
+                OctopusSDK.setSdkFamily(SdkFamily.FLUTTER, version = wrapperVersion)
                 OctopusSDK.switchCommunity(
                     context = context,
                     apiKey = apiKey,
                     connectionMode = connectionMode,
                     apiServer = apiServer
                 )
-                isOctopusAuthMode = false // SSO mode
+
                 startNotSeenNotificationsCollection()
                 startHasAccessToCommunityCollection()
                 startProfileCollection()
@@ -832,42 +877,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 result.success(null)
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error switching community", e)
-                result.error("SWITCH_COMMUNITY_ERROR", e.message, null)
-            }
-        }
-    }
-
-    /// Switches to a different community in Octopus Auth mode. Mirrors
-    /// [initializeOctopusAuth].
-    private fun switchCommunityOctopusAuth(call: MethodCall, result: Result) {
-        val apiKey = call.argument<String>("apiKey")
-            ?: return result.error("INVALID_ARGS", "apiKey is required", null)
-
-        val apiServer = try {
-            parseApiServer(call)
-        } catch (e: Exception) {
-            return result.error("SWITCH_COMMUNITY_ERROR", e.message, null)
-        }
-
-        scope.launch {
-            try {
-                OctopusSDK.switchCommunity(
-                    context = context,
-                    apiKey = apiKey,
-                    // Explicit: the native default is SSO, see initializeOctopusAuth (#423).
-                    connectionMode = connectionModeFor(octopusAuth = true),
-                    apiServer = apiServer
-                )
-                isOctopusAuthMode = true // Octopus Auth mode
-                startNotSeenNotificationsCollection()
-                startHasAccessToCommunityCollection()
-                startProfileCollection()
-                startGroupsCollection()
-                startConnectionStateCollection()
-                startEventsCollection()
-                result.success(null)
-            } catch (e: Exception) {
-                Log.e("OctopusSdkFlutter", "Error switching community (Octopus Auth)", e)
                 result.error("SWITCH_COMMUNITY_ERROR", e.message, null)
             }
         }
@@ -908,16 +917,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     }
 
     private fun connectUser(call: MethodCall, result: Result) {
-        // In Octopus Auth mode, connectUser is not needed - authentication is automatic
-        if (isOctopusAuthMode) {
-            result.error(
-                "INVALID_OPERATION",
-                "connectUser is not needed in Octopus Auth mode. Authentication is handled automatically by the UI.",
-                null
-            )
-            return
-        }
-
         val userId = call.argument<String>("userId")
             ?: return result.error("INVALID_ARGS", "userId is required", null)
 
@@ -930,7 +929,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
         Log.d(
             "OctopusSdkFlutter",
-            "ConnectUser - nickname: $nickname, bio: $bio, picture: $picture"
+            "ConnectUser called"
         )
 
         val clientUser = ClientUser(
@@ -954,6 +953,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error connecting user", e)
                 result.error("CONNECT_ERROR", e.message, null)
+            } finally {
+                deleteProfilePicture(clientUser.profile?.picture)
             }
         }
     }
@@ -966,14 +967,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     /// static token. The Dart side keys its provider on `providerId`, the
     /// requestId scopes one invocation.
     private fun connectUserWithTokenProvider(call: MethodCall, result: Result) {
-        if (isOctopusAuthMode) {
-            result.error(
-                "INVALID_OPERATION",
-                "connectUserWithTokenProvider is not needed in Octopus Auth mode.",
-                null
-            )
-            return
-        }
         if (!OctopusSDK.isInitialised) {
             result.error("NOT_INITIALIZED", "Call initialize() first", null)
             return
@@ -1035,6 +1028,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error connecting user with tokenProvider", e)
                 result.error("CONNECT_ERROR", e.message, null)
+            } finally {
+                deleteProfilePicture(clientUser.profile?.picture)
             }
         }
     }
@@ -1058,6 +1053,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error disconnecting user", e)
                 result.error("DISCONNECT_ERROR", e.message, null)
+            } finally {
+                cleanProfilePictures()
             }
         }
     }
@@ -1105,48 +1102,59 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
     }
 
-    private fun toSdkImage(value: String?): Resource? {
-        Log.d("OctopusSdkFlutter", "toSdkImage - input value: $value")
-        if (value.isNullOrBlank()) {
-            Log.d("OctopusSdkFlutter", "toSdkImage - value is null or blank")
-            return null
-        }
+    // Internal so JVM tests can verify the fallback without initializing the SDK.
+    internal fun toSdkImage(raw: String?): Resource? {
+        val input = OctopusProfilePictureInput.parse(raw) ?: return null
 
         return try {
-            if (value.startsWith("http")) {
-                // It's a URL
-                Log.d("OctopusSdkFlutter", "toSdkImage - treating as URL")
-                val image = Resource.Remote(url = value)
-                Log.d("OctopusSdkFlutter", "toSdkImage - created Remote image: $image")
-                image
-            } else {
-                // It's base64 - decode and save as temp file
-                val pure = if (value.startsWith("data:")) {
-                    value.substringAfter(",")
-                } else {
-                    value
+            when (input) {
+                is OctopusProfilePictureInput.Url -> {
+                    // Same rule and log line as iOS: a URL without a host is rejected here.
+                    if (Uri.parse(input.value)?.host.isNullOrEmpty()) {
+                        Log.w("OctopusSDK", "Profile picture URL is invalid; connecting without a picture.")
+                        return null
+                    }
+                    Resource.Remote(url = input.value)
                 }
+                is OctopusProfilePictureInput.Base64 -> {
+                    val bytes = Base64.decode(input.payload, Base64.DEFAULT)
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?: throw IllegalArgumentException("Unsupported profile picture image")
 
-                val bytes = Base64.decode(pure, Base64.DEFAULT)
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    ?: return null
-
-                // Create temp file
-                val tempFile = File.createTempFile("octopus_image", ".png", context.cacheDir)
-                tempFile.outputStream().use { out ->
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    val tempFile = File.createTempFile("octopus_image", ".png", context.cacheDir)
+                    try {
+                        tempFile.outputStream().use { out ->
+                            check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out))
+                        }
+                        Resource.Local(tempFile.absolutePath)
+                    } catch (e: Exception) {
+                        tempFile.delete()
+                        throw e
+                    } finally {
+                        bitmap.recycle()
+                    }
                 }
-
-                Log.d(
-                    "OctopusSdkFlutter",
-                    "toSdkImage - created Local image: ${tempFile.absolutePath}"
-                )
-                Resource.Local(tempFile.absolutePath)
             }
         } catch (e: Exception) {
-            Log.e("OctopusSdkFlutter", "Error converting image", e)
+            // Same tag as the native SDK. Never log the host's picture payload or URL.
+            Log.w("OctopusSDK", "Profile picture could not be decoded; connecting without a picture.")
             null
         }
+    }
+
+    private fun deleteProfilePicture(picture: Resource?) {
+        if (picture is Resource.Local) {
+            val file = File(picture.uri.path ?: return)
+            if (file.parentFile == context.cacheDir && isProfilePictureFile(file)) file.delete()
+        }
+    }
+
+    private fun isProfilePictureFile(file: File): Boolean =
+        file.name.matches(Regex("octopus_image-?\\d+\\.png"))
+
+    private fun cleanProfilePictures() {
+        if (!::context.isInitialized) return
+        context.cacheDir.listFiles()?.filter(::isProfilePictureFile)?.forEach { it.delete() }
     }
 
     // region Bridge (client object related post)
@@ -1870,7 +1878,9 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     }
 }
 
-/// How long this bridge waits for Dart to answer a `clientUserTokenRequest`
+private data class BridgeTokenReply(val token: String?)
+
+/// How long this bridge waits for Dart to answer a client-user-token request
 /// before falling back to an empty token, which this native SDK refuses locally
 /// as `ClientUserError.MissingToken`. Generous on purpose: the host's provider
 /// usually calls its own backend.
@@ -1921,15 +1931,7 @@ private fun SyncFollowGroupStatus.toWireValue(): String = when (this) {
     SyncFollowGroupStatus.UnknownError -> "unknown_error"
 }
 
-/**
- * The native [ConnectionMode] for each of the two Dart entry points.
- *
- * Always pass the result explicitly: `OctopusSDK.initialize` and `OctopusSDK.switchCommunity`
- * both default to `ConnectionMode.SSO()` on Android, so leaving the argument out selects SSO
- * even on the Octopus Auth path (#423). iOS passes `.octopus(deepLink:)` there.
- */
+/** The SSO connection mode used by initialize and switchCommunity. */
 internal fun connectionModeFor(
-    octopusAuth: Boolean,
     appManagedFields: Set<ProfileField> = emptySet(),
-): ConnectionMode =
-    if (octopusAuth) ConnectionMode.OctopusAuth else ConnectionMode.SSO(appManagedFields = appManagedFields)
+): ConnectionMode = ConnectionMode.SSO(appManagedFields = appManagedFields)

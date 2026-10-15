@@ -26,13 +26,6 @@ const _summary = SampleSection(
   ),
 );
 
-const _content = SampleDockFade(child: SizedBox.expand());
-
-Finder get _mask => find.descendant(
-  of: find.byType(SampleDockFade),
-  matching: find.byType(ShaderMask),
-);
-
 void main() {
   testWidgets('dark: summary card title, labels and values', (tester) async {
     await _pump(tester, Brightness.dark, _summary);
@@ -48,30 +41,5 @@ void main() {
     await _pump(tester, Brightness.light, _summary);
 
     expect(_textColor(tester, 'Current configuration'), sampleNavy);
-  });
-
-  testWidgets('dark: the content above the dock fades out as a mask', (
-    tester,
-  ) async {
-    await _pump(tester, Brightness.dark, _content);
-
-    expect(_mask, findsOneWidget);
-    // A mask keeps what the content covers and drops the rest: whatever is
-    // behind — page colour or halo — shows through, with no colour of its own.
-    expect(tester.widget<ShaderMask>(_mask).blendMode, BlendMode.dstIn);
-  });
-
-  test('the dock fade mask: opaque, then transparent over the last 24dp', () {
-    final mask = SampleDockFade.maskFor(const Size(400, 600));
-    expect(mask.colors.map((c) => c.a), [1, 1, 0]);
-    expect(mask.stops, [0, 1 - SampleDockFade.height / 600, 1]);
-    // Shorter than the fade: fades over the whole height, never a negative stop.
-    expect(SampleDockFade.maskFor(const Size(400, 10)).stops, [0, 0, 1]);
-  });
-
-  testWidgets('light: the content is the child alone', (tester) async {
-    await _pump(tester, Brightness.light, _content);
-
-    expect(_mask, findsNothing);
   });
 }

@@ -7,18 +7,6 @@ import '../app_state.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
 
-/// The per-field lock currently overridden on the SDK, and the label of the
-/// preset that applied it — `null` / "none (backend default)" when no override
-/// is in effect.
-///
-/// Process-level rather than [State] fields, iso the Android sample's
-/// `HostOverrides`: "Verify in Community" pops back to the shell and destroys
-/// this scenario's State, so a per-widget field would render "none" on the way
-/// back while the SDK is still overridden. Same reasoning as the `_expanded`
-/// map of `scenarios_screen.dart`.
-ProfileFieldsLock? _applied;
-String _appliedLabel = _noOverrideLabel;
-
 const String _noOverrideLabel = 'none (backend default)';
 
 /// Profile Field Lock scenario — `debugOverrideProfileFieldsLock`.
@@ -52,14 +40,17 @@ class _ProfileFieldsLockScenarioState extends State<ProfileFieldsLockScenario> {
     String label,
     ProfileFieldsLock? lock,
   ) async {
-    final octopus = AppScope.of(context).octopus;
+    final app = AppScope.of(context);
+    final overrides = app.debugScenarioOverrides;
     demoLog.apiCall('debugOverrideProfileFieldsLock', {
       'lock': lock?.toString() ?? 'null (clear)',
     });
     try {
-      await octopus.debugOverrideProfileFieldsLock(lock);
-      _applied = lock;
-      _appliedLabel = lock == null ? _noOverrideLabel : label;
+      await app.octopus.debugOverrideProfileFieldsLock(lock);
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
+      overrides.profileFieldsLock = lock == null
+          ? null
+          : (value: lock, label: label);
       if (!mounted) return;
       setState(() {});
       setResult(
@@ -70,6 +61,7 @@ class _ProfileFieldsLockScenarioState extends State<ProfileFieldsLockScenario> {
                   'see the locked fields.',
       );
     } on PlatformException catch (e) {
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
       setResult(
         e.code == 'UNSUPPORTED_PLATFORM'
             ? 'debugOverrideProfileFieldsLock is unavailable on this build: '
@@ -79,6 +71,7 @@ class _ProfileFieldsLockScenarioState extends State<ProfileFieldsLockScenario> {
         isError: true,
       );
     } catch (e) {
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
       setResult('debugOverrideProfileFieldsLock threw: $e', isError: true);
     }
   }
@@ -98,9 +91,11 @@ class _ProfileFieldsLockScenarioState extends State<ProfileFieldsLockScenario> {
 
   @override
   Widget build(BuildContext context) {
-    final applied = _applied;
+    final overrides = AppScope.of(context).debugScenarioOverrides;
+    final applied = overrides.profileFieldsLock?.value;
     String state(ProfileFieldLockState? value) => value?.name ?? '— (backend)';
     return ScenarioScaffold(
+      key: ObjectKey(overrides),
       title: 'Profile Field Lock',
       api: 'debugOverrideProfileFieldsLock',
       verifyInCommunity: true,
@@ -115,14 +110,18 @@ class _ProfileFieldsLockScenarioState extends State<ProfileFieldsLockScenario> {
           'may change or be removed at any time. Only the bio may be disabled: '
           'nickname and avatar are editable or read-only. It is in-memory and '
           'not persisted: relaunching the app, or switching community, goes '
-          'back to the backend config. On iOS it is available through the '
-          'CocoaPods integration only; the Swift Package Manager integration '
+          'back to the backend config. '
+          'On iOS it works through CocoaPods; through Swift Package Manager it '
+          'works when the build reaches the native core module, and otherwise '
           'answers UNSUPPORTED_PLATFORM.',
       resultTestId: 'profileFieldsLock-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
-          ('Applied override', _appliedLabel),
+          (
+            'Applied override',
+            overrides.profileFieldsLock?.label ?? _noOverrideLabel,
+          ),
           ('nickname', state(applied?.nickname)),
           ('avatar', state(applied?.avatar)),
           ('bio', state(applied?.bio)),

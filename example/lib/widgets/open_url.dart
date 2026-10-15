@@ -15,20 +15,28 @@ Future<void> openUrlOrCopy(
   BuildContext context,
   String url, {
   required String clipLabel,
+  LaunchMode mode = LaunchMode.externalApplication,
 }) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
   var opened = false;
   try {
-    opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
+    final uri = Uri.parse(url);
+    final isWeb = uri.scheme == 'http' || uri.scheme == 'https';
+    if (uri.hasScheme && (!isWeb || uri.host.isNotEmpty)) {
+      // Browser views accept only HTTP(S); mailto/tel/custom links need the OS.
+      final effectiveMode = mode == LaunchMode.inAppBrowserView && !isWeb
+          ? LaunchMode.externalApplication
+          : mode;
+      opened = await launchUrl(uri, mode: effectiveMode);
+    }
   } on PlatformException {
     opened = false;
   } on MissingPluginException {
     // `flutter test` and any host without the plugin registered.
     opened = false;
   } on FormatException {
+    opened = false;
+  } on ArgumentError {
     opened = false;
   }
   if (opened) return;

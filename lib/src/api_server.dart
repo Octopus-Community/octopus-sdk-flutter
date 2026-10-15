@@ -34,7 +34,7 @@ class ApiServerValidationError extends ArgumentError {
   final ApiServerValidationErrorKind kind;
 
   ApiServerValidationError(this.kind, String message)
-      : super.value(message, 'host');
+    : super.value(message, 'host');
 
   @override
   String toString() => 'ApiServerValidationError.${kind.name}: $message';
@@ -42,9 +42,8 @@ class ApiServerValidationError extends ArgumentError {
 
 /// Server endpoint the SDK targets at initialization time.
 ///
-/// Pass an [ApiServer] to [OctopusSDK.initialize] (or
-/// [OctopusSDK.initializeOctopusAuth]) to route the SDK's gRPC traffic to a
-/// custom [host] and [port]. When no [ApiServer] is provided, the SDK uses the
+/// Pass an [ApiServer] to [OctopusSDK.initialize] to route the SDK's gRPC traffic
+/// to a custom [host] and [port]. When no [ApiServer] is provided, the SDK uses the
 /// Octopus default endpoint over TLS.
 ///
 /// The [host] is validated when the [ApiServer] is constructed; an invalid
@@ -85,10 +84,7 @@ class ApiServer {
   }
 
   /// The platform-channel representation handed to the native bridges.
-  Map<String, dynamic> toMap() => <String, dynamic>{
-        'host': host,
-        'port': port,
-      };
+  Map<String, dynamic> toMap() => <String, dynamic>{'host': host, 'port': port};
 
   /// Validates [host] against the same rules as the native SDK, in the same
   /// order. Throws [ApiServerValidationError] on the first violation.

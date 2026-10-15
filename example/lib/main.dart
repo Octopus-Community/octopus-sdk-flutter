@@ -12,13 +12,14 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import 'app_state.dart';
 import 'branding.dart';
 import 'community/community_screen.dart';
-import 'config/config_screen.dart';
+import 'community/community_navigation.dart';
+import 'community/present_community.dart';
 import 'debug/debug_console.dart';
 import 'design.dart';
 import 'feature_toggles.dart';
-import 'home/home_screen.dart';
 import 'octopus_demo_config.dart';
 import 'push_permission_gate.dart';
+import 'sample_tab.dart';
 import 'scenarios/scenarios_screen.dart';
 import 'settings/settings_screen.dart';
 import 'widgets/production_warning_banner.dart';
@@ -208,8 +209,8 @@ Widget octopusDemoAppBuilderWith(
   ),
 );
 
-/// Root widget: owns [AppState], wires push notifications, and chooses between
-/// the Config screen and the main bottom-nav shell.
+/// Root widget: owns [AppState], wires push notifications, and always shows
+/// the bottom-nav shell. Configuration is reached from Settings.
 class OctopusDemoApp extends StatefulWidget {
   const OctopusDemoApp({super.key});
 
@@ -459,10 +460,10 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
 
   // ── Build ───────────────────────────────────────────────────────────────
 
-  ThemeMode get _themeMode => switch (_app.config?.theme) {
+  ThemeMode get _themeMode => switch (_app.configurationChoices.theme) {
     AppThemeChoice.light => ThemeMode.light,
     AppThemeChoice.dark => ThemeMode.dark,
-    AppThemeChoice.system || null => ThemeMode.system,
+    AppThemeChoice.system => ThemeMode.system,
   };
 
   @override
@@ -483,24 +484,13 @@ class _OctopusDemoAppState extends State<OctopusDemoApp> {
           child,
           showWarning: _app.showsProductionWarning,
         ),
-        // While bootstrap restores a persisted config, show a splash so a saved
-        // session doesn't flash the Config screen before auto-starting back in.
-        home: _app.restoringConfig
-            ? const SampleScaffold(
-                body: Center(child: CircularProgressIndicator()),
-              )
-            : (_app.config == null
-                  ? ConfigScreen(initialConfig: _app.restoredConfig)
-                  : MainScreen(app: _app)),
+        home: MainScreen(app: _app),
       ),
     );
   }
 }
 
-/// Main bottom-navigation shell — exactly 4 tabs, in this order (D1, cadrage
-/// report 07): Home / Scenarios / Community / Settings. Debug is not a tab —
-/// the Events log is a screen pushed from Settings → Developer tools
-/// (`lib/debug/events_log_screen.dart`).
+/// Three persistent tabs: Scenarios / Community / Settings.
 class MainScreen extends StatefulWidget {
   final AppState app;
 
@@ -511,8 +501,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  static const int _communityIndex = 2;
-  static const int _settingsIndex = 3;
+  static final int _communityIndex = SampleTab.community.index;
+  static final int _settingsIndex = SampleTab.settings.index;
   // Land directly on Community when there's a pending deep link from a push.
   // A cold-start tap on a notification calls `requestCommunityTab` BEFORE this
   // screen mounts, so the `navEpoch` diff in `_onAppChanged` can't trip — the
@@ -521,13 +511,25 @@ class _MainScreenState extends State<MainScreen> {
   late int _index = widget.app.pendingCommunityNotification != null
       ? _communityIndex
       : 0;
-  late int _seenNavEpoch = widget.app.navEpoch;
+  late int _seenNavEpoch;
+  late bool _communityVisited;
+  late int _seenCommunitySession;
+  late CommunityNavigation _seenCommunityMode;
+  bool _routeScheduled = false;
+  bool _scenariosScrolled = false;
+  final _leavingPresentations = <Future<dynamic>>[];
+  bool _openFullScreenRequested = false;
 
-  static const _titles = ['Home', 'Scenarios', 'Community', 'Settings'];
+  static final _titles = SampleTab.values.map((tab) => tab.label).toList();
 
   @override
   void initState() {
     super.initState();
+    _seenNavEpoch = widget.app.navEpoch;
+    _communityVisited = _index == _communityIndex;
+    _seenCommunitySession = widget.app.communitySession;
+    _seenCommunityMode = widget.app.communityNavigation;
+    _scheduleCommunityRouting();
     widget.app.addListener(_onAppChanged);
     widget.app.updateChecker.addListener(_onUpdateStatusChanged);
     // The start-up check is fired from `bootstrap()`, which runs before this
@@ -541,8 +543,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   /// A newer sample build deserves one snackbar, not a badge the tester has to
-  /// go looking for: the update card lives on Home, a tab a tester running a
-  /// scenario has already left. `acknowledgeNewVersion` returns a
+  /// go looking for: the update card lives in Settings › About. `acknowledgeNewVersion` returns a
   /// versionCode at most once per build, so re-checks do not re-announce.
   void _onUpdateStatusChanged() {
     final version = widget.app.updateChecker.acknowledgeNewVersion();
@@ -563,23 +564,85 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onAppChanged() {
-    // A push tap — or any in-app "go to that tab" request (a Community status
-    // band's action, a scenario's Verify in Community) — bumps navEpoch.
-    if (widget.app.navEpoch != _seenNavEpoch) {
-      _seenNavEpoch = widget.app.navEpoch;
-      if (mounted) {
-        // Pop any pushed routes (Modal / Fullscreen / Sheet scenarios, login
-        // page, profile editor, …) so the bottom-nav shell — and the Community
-        // tab now hosting the deep link — actually becomes visible. Without
-        // this, `_index = _communityIndex` still updates the shell but the
-        // user sees nothing because the pushed route covers it. The pushed
-        // mode/scenario is dismissed by design: a push always wins routing.
-        Navigator.maybeOf(
-          context,
-          rootNavigator: true,
-        )?.popUntil((route) => route.isFirst);
-        setState(() => _index = widget.app.requestedTab);
-        _noteBreadcrumb(_index);
+    final app = widget.app;
+    final invalidated =
+        app.communitySession != _seenCommunitySession ||
+        app.communityNavigation != _seenCommunityMode;
+    if (invalidated) {
+      _seenCommunitySession = app.communitySession;
+      _seenCommunityMode = app.communityNavigation;
+      _dismissExistingPresentations();
+      _openFullScreenRequested =
+          _index == _communityIndex &&
+          app.communityNavigation == CommunityNavigation.fullScreen;
+      setState(() {});
+    }
+    if (app.navEpoch != _seenNavEpoch) {
+      _seenNavEpoch = app.navEpoch;
+      _dismissExistingPresentations();
+      _selectTab(app.requestedTab);
+      _openFullScreenRequested =
+          app.requestedTab == _communityIndex &&
+          app.communityNavigation == CommunityNavigation.fullScreen;
+    }
+    _scheduleCommunityRouting();
+  }
+
+  /// All push entry points converge here, including requests made before mount
+  /// or initialization. Consuming changes no navigation epoch, so it cannot echo.
+  void _scheduleCommunityRouting() {
+    if (_routeScheduled) return;
+    _routeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _routeCommunity());
+  }
+
+  void _dismissExistingPresentations() {
+    // Do this inside the request, before its caller can push a new host page
+    // (for example the Community band's requestTab(Settings) + Account push).
+    Navigator.of(context, rootNavigator: true).popUntil((route) {
+      if (!route.isFirst && route is TransitionRoute) {
+        _leavingPresentations.add(route.completed);
+      }
+      return route.isFirst;
+    });
+  }
+
+  Future<void> _routeCommunity() async {
+    try {
+      if (!mounted) return;
+      final app = widget.app;
+      final leaving = List<Future<dynamic>>.of(_leavingPresentations);
+      _leavingPresentations.clear();
+      // A popped route remains alive during its exit animation. Wait for its
+      // SDK view to be disposed before mounting the push target underneath.
+      if (leaving.isNotEmpty) await Future.wait(leaving);
+      if (!mounted || !app.initialized || _leavingPresentations.isNotEmpty) {
+        return;
+      }
+      final notification = app.takeCommunityNotification();
+      if (notification != null) {
+        _selectTab(_communityIndex);
+        app.displayCommunityNotification(notification);
+        _openFullScreenRequested =
+            app.communityNavigation == CommunityNavigation.fullScreen;
+      }
+      if (_openFullScreenRequested) {
+        _openFullScreenRequested = false;
+        unawaited(
+          openCommunityFullScreen(
+            context,
+            useCommunityNotification: notification != null,
+          ),
+        );
+      }
+    } finally {
+      _routeScheduled = false;
+      if (mounted &&
+          (_leavingPresentations.isNotEmpty ||
+              (widget.app.initialized &&
+                  (widget.app.pendingCommunityNotification != null ||
+                      _openFullScreenRequested)))) {
+        _scheduleCommunityRouting();
       }
     }
   }
@@ -599,23 +662,53 @@ class _MainScreenState extends State<MainScreen> {
     super.dispose();
   }
 
-  void _onTap(int index) {
-    setState(() => _index = index);
+  void _selectTab(int index) {
+    setState(() {
+      _index = index;
+      _communityVisited |= index == _communityIndex;
+    });
     _noteBreadcrumb(index);
-    // Leaving Community discards a consumed deep link so it isn't reopened.
-    if (index != _communityIndex) {
-      widget.app.clearPendingNotification();
+  }
+
+  void _onTap(int index) {
+    if (index == _communityIndex && _index == index) {
+      widget.app.resetCommunityRoot();
+    }
+    _selectTab(index);
+    if (index == _communityIndex &&
+        widget.app.communityNavigation == CommunityNavigation.fullScreen) {
+      _openFullScreenRequested = true;
+      _scheduleCommunityRouting();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = const [
-      HomeTab(),
-      ScenariosTab(),
-      CommunityTab(),
-      SettingsTab(),
-    ][_index];
+    // Community creates its native PlatformView only on the first visit.
+    // Once visited, offstage tabs retain their Element/State and PlatformView.
+    // TickerMode pauses hidden animations without removing any tab instance.
+    final body = IndexedStack(
+      index: _index,
+      children: [
+        for (final tab in SampleTab.values)
+          TickerMode(
+            enabled: _index == tab.index,
+            child: switch (tab) {
+              SampleTab.scenarios => ScenariosTab(
+                active: _index == tab.index,
+                onScrolled: (value) {
+                  if (mounted) setState(() => _scenariosScrolled = value);
+                },
+              ),
+              SampleTab.community =>
+                _communityVisited
+                    ? CommunityTab(active: _index == _communityIndex)
+                    : const SizedBox.shrink(),
+              SampleTab.settings => const SettingsTab(),
+            },
+          ),
+      ],
+    );
 
     // The Community tab embeds the SDK with its own native top bar
     // (`OctopusHomeScreen` on both platforms) — drop the Flutter shell
@@ -629,68 +722,73 @@ class _MainScreenState extends State<MainScreen> {
     // (Modal / Fullscreen / Sheet) are demonstrated by their respective
     // scenarios in the Scenarios tab — each gives the SDK a chrome-clean
     // surface without embedding.
-    final hasOwnAppBar = _index == _communityIndex;
+    final hasOwnAppBar =
+        _index == _communityIndex &&
+        widget.app.communityNavigation == CommunityNavigation.inTab;
 
-    return SampleScaffold(
-      // The halo belongs to the sample's own tabs, not to the SDK's view:
-      // Community keeps the plain page colour behind the embedded screen.
-      halo: !hasOwnAppBar,
-      appBar: hasOwnAppBar
-          ? null
-          : AppBar(
-              title: SampleAppBarTitle(_titles[_index]),
-              // Same action as the Android sample's top bar: the console one
-              // tap away from every tab root, not two levels into Settings ›
-              // Developer tools. Community has none: the SDK draws its own bar.
-              actions: [
-                Semantics(
-                  identifier: 'shell-debug-console-button',
-                  button: true,
-                  child: IconButton(
-                    tooltip: 'Debug console',
-                    icon: const Icon(Icons.terminal),
-                    onPressed: () => showDebugConsoleSheet(context),
+    // This scope belongs to the shell route; routes pushed above it pop first.
+    return PopScope<void>(
+      canPop: _index == SampleTab.scenarios.index,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _index != SampleTab.scenarios.index) {
+          _onTap(SampleTab.scenarios.index);
+        }
+      },
+      child: SampleScaffold(
+        appBar: hasOwnAppBar
+            ? null
+            : SampleTopAppBar(
+                title: _titles[_index],
+                size: _index == SampleTab.scenarios.index
+                    ? SampleTopBarSize.medium
+                    : SampleTopBarSize.large,
+                collapsed:
+                    _index == SampleTab.scenarios.index && _scenariosScrolled,
+                showPlatformBadge: true,
+                actions: [
+                  Semantics(
+                    identifier: 'shell-debug-console-button',
+                    button: true,
+                    child: IconButton(
+                      tooltip: 'Debug console',
+                      icon: const Icon(Icons.bug_report_outlined),
+                      onPressed: () => showDebugConsoleSheet(context),
+                    ),
                   ),
+                ],
+              ),
+        body: SafeArea(child: body),
+        bottomNavigationBar: SampleSystemBars(
+          surface: Theme.of(context).navigationBarTheme.backgroundColor,
+          child: NavigationBar(
+            height: 80 + (MediaQuery.textScalerOf(context).scale(12) - 12) * 2,
+            selectedIndex: _index,
+            onDestinationSelected: _onTap,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            destinations: [
+              NavigationDestination(
+                icon: Semantics(
+                  identifier: 'scenarios-tab',
+                  child: const Icon(Icons.science),
                 ),
-              ],
-            ),
-      body: SafeArea(child: body),
-      bottomNavigationBar: SampleSystemBars(
-        surface: Theme.of(context).navigationBarTheme.backgroundColor,
-        child: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: _onTap,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          destinations: [
-            NavigationDestination(
-              icon: Semantics(
-                identifier: 'home-tab',
-                child: const Icon(Icons.home),
+                label: 'Scenarios',
               ),
-              label: 'Home',
-            ),
-            NavigationDestination(
-              icon: Semantics(
-                identifier: 'scenarios-tab',
-                child: const Icon(Icons.science),
+              NavigationDestination(
+                icon: Semantics(
+                  identifier: 'community-tab',
+                  child: const Icon(Icons.forum),
+                ),
+                label: 'Community',
               ),
-              label: 'Scenarios',
-            ),
-            NavigationDestination(
-              icon: Semantics(
-                identifier: 'community-tab',
-                child: const Icon(Icons.forum),
+              NavigationDestination(
+                icon: Semantics(
+                  identifier: 'settings-tab',
+                  child: const Icon(Icons.settings),
+                ),
+                label: 'Settings',
               ),
-              label: 'Community',
-            ),
-            NavigationDestination(
-              icon: Semantics(
-                identifier: 'settings-tab',
-                child: const Icon(Icons.settings),
-              ),
-              label: 'Settings',
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -89,29 +89,29 @@ PODS:
     - nanopb/encode (= 3.30910.0)
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
-  - octopus_sdk_flutter (0.0.1):
+  - octopus_sdk_flutter (1.15.0):
     - Flutter
-    - OctopusCommunity (= 1.14.0)
-    - OctopusCommunityCore (= 1.14.0)
-    - OctopusCommunityUI (= 1.14.0)
-  - OctopusCommunity (1.14.0):
-    - OctopusCommunityCore (= 1.14.0)
-    - OctopusCommunityDependencyInjection (= 1.14.0)
-  - OctopusCommunityCore (1.14.0):
+    - OctopusCommunity (= 1.15.0)
+    - OctopusCommunityCore (= 1.15.0)
+    - OctopusCommunityUI (= 1.15.0)
+  - OctopusCommunity (1.15.0):
+    - OctopusCommunityCore (= 1.15.0)
+    - OctopusCommunityDependencyInjection (= 1.15.0)
+  - OctopusCommunityCore (1.15.0):
     - KeychainAccess
-    - OctopusCommunityDependencyInjection (= 1.14.0)
-    - OctopusCommunityGrpcModels (= 1.14.0)
-    - OctopusCommunityRemoteClient (= 1.14.0)
-  - OctopusCommunityDependencyInjection (1.14.0)
-  - OctopusCommunityGrpcModels (1.14.0):
+    - OctopusCommunityDependencyInjection (= 1.15.0)
+    - OctopusCommunityGrpcModels (= 1.15.0)
+    - OctopusCommunityRemoteClient (= 1.15.0)
+  - OctopusCommunityDependencyInjection (1.15.0)
+  - OctopusCommunityGrpcModels (1.15.0):
     - gRPC-Swift
-    - OctopusCommunityDependencyInjection (= 1.14.0)
+    - OctopusCommunityDependencyInjection (= 1.15.0)
     - SwiftProtobuf
-  - OctopusCommunityRemoteClient (1.14.0):
-    - OctopusCommunityGrpcModels (= 1.14.0)
-  - OctopusCommunityUI (1.14.0):
-    - OctopusCommunity (= 1.14.0)
-    - OctopusCommunityCore (= 1.14.0)
+  - OctopusCommunityRemoteClient (1.15.0):
+    - OctopusCommunityGrpcModels (= 1.15.0)
+  - OctopusCommunityUI (1.15.0):
+    - OctopusCommunity (= 1.15.0)
+    - OctopusCommunityCore (= 1.15.0)
   - package_info_plus (0.4.5):
     - Flutter
   - PromisesObjC (2.4.1)
@@ -248,7 +248,7 @@ PODS:
     - SwiftNIOFoundationCompat (< 3, >= 2.32.0)
     - SwiftNIOPosix (< 3, >= 2.32.0)
     - SwiftNIOTLS (< 3, >= 2.32.0)
-  - SwiftProtobuf (1.38.1)
+  - SwiftProtobuf (1.39.0)
   - url_launcher_ios (0.0.1):
     - Flutter
 
@@ -353,13 +353,13 @@ SPEC CHECKSUMS:
   KeychainAccess: c0c4f7f38f6fc7bbe58f5702e25f7bd2f65abf51
   Logging: beeb016c9c80cf77042d62e83495816847ef108b
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
-  octopus_sdk_flutter: cca9baaf2c5914bb69aa1f420ddac6cfc2834b6d
-  OctopusCommunity: 7e4c219f2b6d5663d231af69bacf2bbc541dc94c
-  OctopusCommunityCore: d72ee4b90b24b8d58496e687b9ea68f2e4c4ca37
-  OctopusCommunityDependencyInjection: e1b8ab673f9c95c0953793637559cb44334c9541
-  OctopusCommunityGrpcModels: 287f1fcf21ceba19154a13a3122dc6a377529273
-  OctopusCommunityRemoteClient: 9f269a2a40969c487fb9ec7a2d15edf0b397f69f
-  OctopusCommunityUI: dd464755ec6050f57d8cc0b1e59cdb9095fc47fb
+  octopus_sdk_flutter: 391c9b4c7ba9aae17475fc4b031d6e7b243b7faa
+  OctopusCommunity: 46d37b7717c5b8fd18c12231777372450873fcaa
+  OctopusCommunityCore: ebbdfd313214e62649d63f670e08317d0ad52d84
+  OctopusCommunityDependencyInjection: 33651109a4ad530ff61ee95776264cb5e02f0a5e
+  OctopusCommunityGrpcModels: 425c4fcabf61f14f41cef6ba13b4775005e22652
+  OctopusCommunityRemoteClient: 0f345267d8efbd700010de2d4fec049fc03548e3
+  OctopusCommunityUI: 5ec5bb5b728f36164553bba32a2f394120a0333e
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
@@ -376,7 +376,7 @@ SPEC CHECKSUMS:
   SwiftNIOSSL: d153c5a6fc5b2301b0519b4c4d037a9414212da6
   SwiftNIOTLS: 598af547490133e9aac52aed0c23c4a90c31dcfc
   SwiftNIOTransportServices: 0b2b407819d82eb63af558c5396e33c945759503
-  SwiftProtobuf: 409d3aaec90e51b1705b1dd8065b56893450e77c
+  SwiftProtobuf: eb2c3c26d43afb22247593e60e3163cdab2a0b4a
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
 PODFILE CHECKSUM: ba625bd8b680d0a534a84f45c2f139790533d062

@@ -39,7 +39,7 @@ guide (including Swift Package Manager): the
   ```xml
   <uses-permission android:name="android.permission.INTERNET" />
   ```
-- Keep `minSdk 21` / `compileSdk 35` (see the requirements table in the README).
+- Keep `minSdk 23` / `compileSdk 35` (see the requirements table in the README).
 
 ### iOS
 
@@ -47,8 +47,9 @@ guide (including Swift Package Manager): the
   ```ruby
   platform :ios, '14.0'
   ```
-- On **Swift Package Manager** (the default since Flutter 3.44) the plugin and
-  its native dependencies resolve automatically — no Podfile step needed.
+- Enable **Swift Package Manager** with
+  `flutter config --enable-swift-package-manager`. The plugin and its native
+  dependencies resolve automatically — no Podfile step needed.
 - On the **CocoaPods** path:
   - **Link frameworks statically.** The native Octopus UI pod looks up its
     images in its own resource bundle, which is only found with static
@@ -84,14 +85,10 @@ guide (including Swift Package Manager): the
 
 ## Signing your users in
 
-Pick the auth mode that matches your app. Both start from the `initialize` call shown in the
-README quickstart (or `initializeOctopusAuth` for Octopus Auth).
-
-- **SSO** — your backend already authenticates users and can mint a JWT for
-  Octopus. Use [`initialize`](https://pub.dev/documentation/octopus_sdk_flutter/latest/)
-  + [`connectUserWithTokenProvider`](https://pub.dev/documentation/octopus_sdk_flutter/latest/).
-- **Octopus Auth** — let Octopus handle sign-in via magic-link email. Use
-  [`initializeOctopusAuth`](https://pub.dev/documentation/octopus_sdk_flutter/latest/).
+Your app owns authentication through SSO. Start with `initialize` from the README
+quickstart, then call `connectUser` with a token provider that obtains a JWT from
+your backend. Wire `onNavigateToLogin` on `OctopusHomeScreen` to open your
+app's login flow when an anonymous member performs an action that requires sign-in.
 
 ### Connect the signed-in user (SSO)
 

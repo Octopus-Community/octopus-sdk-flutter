@@ -59,8 +59,7 @@ void main() {
       expect(restored.serverEnv, ServerEnv.prod);
     });
 
-    test('round-trips a demo-key config (injected id unresolved on a '
-        'keyless test build → null, not a crash)', () {
+    test('migrates a legacy Custom config without a host to Demo', () {
       const config = DemoConfig(
         apiKeySource: ApiKeySource.demo,
         userId: 'flutter-sample-user',
@@ -79,7 +78,7 @@ void main() {
       expect(restored!.apiKeySource, ApiKeySource.demo);
       expect(restored.userId, 'flutter-sample-user');
       expect(restored.theme, AppThemeChoice.system);
-      expect(restored.serverEnv, ServerEnv.custom);
+      expect(restored.serverEnv, ServerEnv.demo);
     });
 
     test('a named key is persisted by id and re-resolved by value, never '
@@ -103,6 +102,22 @@ void main() {
       // already its "Community" row (#430).
       expect(config.apiKeyLabel, 'Named key (--dart-define)');
       expect(config.apiKeyLabel, isNot(contains(slot.label)));
+    });
+
+    test('a saved selection removed from the injected registry falls back '
+        'to the config screen', () {
+      final json = const DemoConfig(
+        apiKeySource: ApiKeySource.demo,
+        selectedInjectedKey: InjectedApiKey(
+          id: 'removed-auth-slot',
+          label: 'Removed slot',
+          key: 'fixture-key',
+        ),
+        userId: 'fixture-user',
+        theme: AppThemeChoice.dark,
+        serverEnv: ServerEnv.prod,
+      ).toJson();
+      expect(DemoConfig.fromJson(json), isNull);
     });
 
     test('legacy blob carrying a plaintext custom key → key ignored', () {
@@ -200,6 +215,143 @@ void main() {
   /// rewrite were deleted and the plaintext key stayed in prefs forever. These
   /// assert on the raw stored blob instead.
   group('loadPersistedDemoConfig', () {
+    test(
+      'a legacy default re-saved with port 443 migrates and rewrites',
+      () async {
+        final legacy = <String, dynamic>{
+          'apiKeySource': 'demo',
+          'userId': 'saved-user',
+          'theme': 'dark',
+          'serverEnv': 'custom',
+          'customHost': 'build.example.test',
+          'customPort': 443,
+        };
+        SharedPreferences.setMockInitialValues({
+          demoConfigPrefsKey: jsonEncode(legacy),
+        });
+        final restored = await loadPersistedDemoConfig(
+          buildHost: 'build.example.test',
+        );
+        expect(restored!.serverEnv, ServerEnv.demo);
+        expect(restored.userId, 'saved-user');
+        expect(restored.theme, AppThemeChoice.dark);
+        final prefs = await SharedPreferences.getInstance();
+        final saved = jsonDecode(prefs.getString(demoConfigPrefsKey)!);
+        expect(saved['serverEnv'], 'demo');
+        expect(saved['customHost'], isEmpty);
+      },
+    );
+
+    for (final port in [null, 443]) {
+      test('explicit production Custom is not migrated (port $port)', () {
+        final legacy = <String, dynamic>{
+          'apiKeySource': 'demo',
+          'userId': 'saved-user',
+          'theme': 'system',
+          'serverEnv': 'custom',
+          'customHost': productionHost,
+          if (port != null) 'customPort': port,
+        };
+        final restored = DemoConfig.fromJson(
+          legacy,
+          buildHost: productionHost,
+        )!;
+        expect(restored.serverEnv, ServerEnv.custom);
+        expect(restored.customHost, productionHost);
+      });
+    }
+
+    test('server mismatch alone rewrites a hostless Custom blob', () async {
+      final legacy = const DemoConfig(
+        apiKeySource: ApiKeySource.demo,
+        userId: 'saved-user',
+        theme: AppThemeChoice.system,
+        serverEnv: ServerEnv.custom,
+      ).toJson();
+      SharedPreferences.setMockInitialValues({
+        demoConfigPrefsKey: jsonEncode(legacy),
+      });
+      expect((await loadPersistedDemoConfig())!.serverEnv, ServerEnv.demo);
+      final prefs = await SharedPreferences.getInstance();
+      final saved = jsonDecode(prefs.getString(demoConfigPrefsKey)!);
+      expect(saved['serverEnv'], 'demo');
+      expect(saved['customHost'], legacy['customHost']);
+    });
+    test(
+      'saved Demo ignores and removes a stale host after a rebuild',
+      () async {
+        final oldBuild = buildInitialDemoConfig(
+          host: 'old-build.example.test',
+          userId: 'saved-user',
+        ).copyWith(theme: AppThemeChoice.dark);
+        final blob = oldBuild.toJson()..['customHost'] = 'stale.example.test';
+        SharedPreferences.setMockInitialValues({
+          demoConfigPrefsKey: jsonEncode(blob),
+        });
+
+        final restored = await loadPersistedDemoConfig(
+          buildHost: 'new-build.example.test',
+        );
+        expect(restored!.serverEnv, ServerEnv.demo);
+        expect(restored.resolvedHost, 'new-build.example.test');
+        expect(restored.apiServer!.port, 443);
+        expect(restored.theme, AppThemeChoice.dark);
+        final prefs = await SharedPreferences.getInstance();
+        final saved = jsonDecode(prefs.getString(demoConfigPrefsKey)!);
+        expect(saved['customHost'], isEmpty);
+        expect(saved.containsKey('buildHost'), isFalse);
+
+        final keylessBuild = await loadPersistedDemoConfig(buildHost: '');
+        expect(keylessBuild!.apiServer, isNull);
+        expect(keylessBuild.pointsAtProduction, isTrue);
+      },
+    );
+
+    test(
+      'pre-492 build default migrates to Demo without resetting choices',
+      () async {
+        final legacy = <String, dynamic>{
+          'apiKeySource': 'demo',
+          'userId': 'saved-user',
+          'theme': 'dark',
+          'serverEnv': 'custom',
+          'customHost': 'build.example.test',
+        };
+        SharedPreferences.setMockInitialValues({
+          demoConfigPrefsKey: jsonEncode(legacy),
+        });
+        final restored = await loadPersistedDemoConfig(
+          buildHost: 'build.example.test',
+        );
+        expect(restored!.serverEnv, ServerEnv.demo);
+        expect(restored.resolvedHost, 'build.example.test');
+        expect(restored.userId, 'saved-user');
+        expect(restored.theme, AppThemeChoice.dark);
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          jsonDecode(prefs.getString(demoConfigPrefsKey)!)['serverEnv'],
+          'demo',
+        );
+
+        legacy['customHost'] = 'custom.example.test';
+        expect(
+          DemoConfig.fromJson(
+            legacy,
+            buildHost: 'build.example.test',
+          )!.serverEnv,
+          ServerEnv.custom,
+        );
+        legacy['customHost'] = 'build.example.test';
+        legacy['customPort'] = 8443;
+        final explicitCustom = DemoConfig.fromJson(
+          legacy,
+          buildHost: 'build.example.test',
+        )!;
+        expect(explicitCustom.serverEnv, ServerEnv.custom);
+        expect(explicitCustom.apiServer!.port, 8443);
+      },
+    );
+
     test('strips a legacy plaintext key from storage on first load', () async {
       SharedPreferences.setMockInitialValues({
         demoConfigPrefsKey: jsonEncode({

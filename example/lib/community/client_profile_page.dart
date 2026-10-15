@@ -18,7 +18,8 @@ import '../design.dart';
 /// `onNavigateToProfile` callback (`OctopusHomeScreen.onNavigateToProfile`),
 /// so tapping any profile inside the embedded UI pushes this very page — the
 /// same activation switch on every platform since 1.13.0. That wiring is
-/// conditional on the demo's own Settings toggle (`app.unifiedProfileWired`)
+/// conditional on the demo's Config → Host callbacks toggle
+/// (`app.unifiedProfileWired`, on by default)
 /// so the sample can show both behaviours side by side; a real host would
 /// simply always pass the callback (or never).
 ///
@@ -105,7 +106,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(SampleSpacing.space6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -116,9 +117,9 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
                   Icon(
                     Icons.person,
                     size: 72,
-                    color: theme.colorScheme.primary,
+                    color: sampleAccent(theme.brightness),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: SampleSpacing.space2),
                   Text(
                     widget.clientUserId,
                     style: theme.textTheme.titleMedium,
@@ -134,23 +135,23 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: SampleSpacing.space6),
             const Divider(),
-            const SizedBox(height: 16),
+            const SizedBox(height: SampleSpacing.space4),
             Text(
               'Octopus community data — fetchCommunityData(clientUserId:)',
               style: theme.textTheme.titleSmall,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             _body(theme),
-            const SizedBox(height: 24),
+            const SizedBox(height: SampleSpacing.space6),
             const Divider(),
-            const SizedBox(height: 16),
+            const SizedBox(height: SampleSpacing.space4),
             Text(
               'Open this member in Octopus',
               style: theme.textTheme.titleSmall,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: SampleSpacing.space1),
             Text(
               'The other half of Unified Profile: once the host intercepts every '
               'profile tap, these are the entry points that let it hand the user '
@@ -159,7 +160,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             _entryPoints(theme),
           ],
         ),
@@ -194,7 +195,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: SampleSpacing.space2),
         Semantics(
           identifier: 'clientProfile-open-activity-profileId',
           child: OutlinedButton.icon(
@@ -215,7 +216,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
                   ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: SampleSpacing.space2),
         Semantics(
           identifier: 'clientProfile-open-profile',
           child: FilledButton.icon(
@@ -301,7 +302,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
   Widget _body(ThemeData theme) {
     if (_loading) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
+        padding: EdgeInsets.symmetric(vertical: SampleSpacing.space6),
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -352,7 +353,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
   }
 
   Widget _row(ThemeData theme, String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
+    padding: const EdgeInsets.symmetric(vertical: SampleSpacing.space1),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

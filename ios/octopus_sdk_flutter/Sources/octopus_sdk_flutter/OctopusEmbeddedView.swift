@@ -498,7 +498,7 @@ private final class SafeHostingContainerView: UIView {
       // A non-decodable / empty string must fall back to the text title below
       // rather than force an empty `.logo` placement.
       if let logoBase64,
-         let data = Data(base64Encoded: logoBase64, options: .ignoreUnknownCharacters),
+         let data = OctopusBase64.decode(logoBase64),
          UIImage(data: data) != nil {
         hasCustomLogo = true
       }
@@ -663,7 +663,7 @@ private final class SafeHostingContainerView: UIView {
     // Set URL interception callback on the SDK instance
     if interceptUrls {
       octopus.set(onNavigateToURLCallback: { url in
-        print("iOS: onNavigateToURLCallback called - sending event for: \(url.absoluteString)")
+        print("iOS: onNavigateToURLCallback called - sending event")
         OctopusEventEmitter.shared?.sendEvent("navigateToUrl", data: ["url": url.absoluteString])
         return .handledByApp
       })

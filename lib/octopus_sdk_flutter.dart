@@ -4,6 +4,7 @@
 // `lib/src/` and is surfaced exclusively through the exports below — consumers
 // import `package:octopus_sdk_flutter/octopus_sdk_flutter.dart` and nothing else.
 export 'src/api_server.dart';
+export 'src/consent_texts.dart';
 export 'src/octopus_connection_state.dart';
 export 'src/octopus_count_format.dart';
 export 'src/octopus_event.dart';

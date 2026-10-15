@@ -1,3 +1,6 @@
+// Legacy screen cases are intentionally covered for backward compatibility.
+// ignore_for_file: deprecated_member_use, deprecated_member_use_from_same_package
+
 import 'package:flutter/material.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
@@ -5,6 +8,7 @@ import '../app_log.dart';
 import '../debug/debug_log.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
+import '../design.dart';
 
 /// Human-readable name for an [OctopusEvent].
 ///
@@ -247,7 +251,7 @@ class EventsScenario extends StatelessWidget {
                   ('Latest event', latest),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: SampleSpacing.space2),
               _EventList(events: events),
             ],
           );
@@ -291,11 +295,11 @@ class _EventList extends StatelessWidget {
     if (events.isEmpty) {
       return Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(SampleSpacing.space4),
           child: Row(
             children: [
               Icon(Icons.list_alt, color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: 12),
+              const SizedBox(width: SampleSpacing.space3),
               Expanded(
                 child: Text(
                   'No events yet. Interact with the SDK to see events appear '
@@ -313,15 +317,15 @@ class _EventList extends StatelessWidget {
     final reversed = events.reversed.toList(growable: false);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: SampleSpacing.space2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             for (int i = 0; i < reversed.length; i++) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+                  horizontal: SampleSpacing.space4,
+                  vertical: SampleSpacing.space2,
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -329,7 +333,7 @@ class _EventList extends StatelessWidget {
                     Icon(
                       Icons.bolt,
                       size: 16,
-                      color: theme.colorScheme.primary,
+                      color: sampleAccent(theme.brightness),
                     ),
                     const SizedBox(width: 10),
                     Expanded(

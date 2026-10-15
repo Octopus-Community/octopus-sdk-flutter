@@ -5,12 +5,96 @@ This guide consolidates the migration notes for every minor release of the
 first (with before/after code), then the additive surface introduced in that
 release. The most recent version is at the top.
 
+- [To 1.15.0 (from 1.14.x) — app-owned authentication only](#to-1150-from-114x--app-owned-authentication-only)
 - [To 1.13.0 (from 1.12.x)](#to-1130-from-112x)
 - [To 1.12.2 (from 1.12.0/1.12.1)](#to-1122-from-11201121)
 - [To 1.12.0 (from 1.11.x)](#to-1120-from-111x)
 - [To 1.11.0 (from 1.10.x)](#to-1110-from-110x)
 - [To 1.10.0 (from 1.9.x)](#to-1100-from-19x)
 - [To 1.9.0](#to-190)
+
+---
+
+## To 1.15.0 (from 1.14.x) — app-owned authentication only
+
+### Toolchain requirements
+
+Upgrade to Flutter 3.44.0 or later and Dart 3.12.0 or later before updating
+the package. CI builds and tests with Flutter 3.44.5 and bundled Dart 3.12.2.
+Android hosts need Kotlin 2.1 or later, Android Gradle Plugin 8.6 or later,
+`compileSdk 35` or later and `minSdk 23` or later.
+
+### Authentication
+
+Your app now owns sign-in and account management through SSO. The Flutter
+wrapper no longer offers Octopus-owned email Magic Link authentication.
+`initializeOctopusAuth` and `switchCommunityOctopusAuth` are removed from the
+Dart API and both native bridges. This API break ships with wrapper 1.15.0
+and native SDKs 1.15.0.
+
+**Before:**
+
+```dart
+await OctopusSDK().initializeOctopusAuth(
+  apiKey: 'YOUR_API_KEY',
+  deepLink: 'yourapp://sign-in',
+);
+await OctopusSDK().switchCommunityOctopusAuth(apiKey: 'OTHER_API_KEY');
+```
+
+**After:**
+
+```dart
+await OctopusSDK().initialize(apiKey: 'YOUR_SSO_API_KEY');
+// On the embedded community widget:
+final community = OctopusHomeScreen(
+  onNavigateToLogin: () => openAppLogin(),
+);
+// After your app signs its user in:
+final result = await OctopusSDK().connectUser(
+  userId: currentUser.id,
+  tokenProvider: () => backend.mintOctopusJwt(),
+);
+// For another community, reconnect the host user after switching:
+await OctopusSDK().switchCommunity(apiKey: 'OTHER_SSO_API_KEY');
+```
+
+Handle the returned `OctopusResult` as usual. Rebuild embedded views when
+switching community, and call `disconnectUser` when your app signs its user out.
+Flutter's existing `initialize` and `switchCommunity` signatures already select
+SSO, so they do not gain a connection-mode parameter.
+
+Screen events `SettingsListScreen`, `SettingsAccountScreen` and
+`DeleteAccountScreen` remain available with `@Deprecated` warnings. Keep their
+arms if you switch exhaustively over `Screen`. The account-related theme icons
+also remain available, with warnings; change ordinary settings overrides from
+`OctopusSettingsIcons(account: ..., help: ..., info: ..., logout: ...,
+deleteAccountWarning: ...)` to:
+
+```dart
+const settings = OctopusSettingsIcons.helpAndInfo(help: helpIcon, info: infoIcon);
+```
+
+The sample launcher offers only SSO demo keys. A saved config whose injected
+key is no longer available falls back to the default configuration screen.
+
+No forced logout or deletion of a stored native session is added. Magic Link
+request storage cleanup and the native account/delete/logout UI removal ship
+in native SDKs 1.15.0. A restored session without a registered token provider
+returns `RefreshEntitlementsNoClientTokenProviderError`; call `connectUser`
+with a token provider before `refreshEntitlements`.
+
+### Additive APIs
+
+- `OctopusConsentTexts` represents implicit, multi-checkbox and single-checkbox
+  consent wordings.
+- `PostOptions.textRequired` defaults to `true`; set it to `false` to allow
+  image posts without text. A poll alone still requires text.
+- `OctopusDebugCommunityConfig.forceNicknameChoice` exposes the effective flag.
+- Debug-only `debugOverrideForceNicknameChoice` and `debugOverrideConsentTexts`
+  accept `null` to restore backend values. Consent text overrides on iOS require
+  access to `OctopusCore` (CocoaPods, or an SPM build exposing that module).
+- `OctopusCommonIcons.clearText` customizes the clear-text icon.
 
 ---
 
@@ -201,7 +285,7 @@ annotation:
 final _ = await octopus.connectUser(userId: id, tokenProvider: mintJwt);
 ```
 
-A non-binding `_` needs **Dart 3.7+**, and this package's floor is 3.0.0. On an
+A non-binding `_` needs **Dart 3.7+**, and that release's floor was 3.0.0. On an
 older SDK `_` is an ordinary local name, so a *second* discard in the same scope
 collides with the first — and giving it a real name only trades `unused_result`
 for `unused_local_variable`. If you are below 3.7, silence the annotation
@@ -682,6 +766,7 @@ ancestor affordance, move it outside the embedded view's bounds:
 
 ```dart
 showModalBottomSheet(
+  context: context,
   isScrollControlled: true,
   showDragHandle: true, // Material 3 affordance — handle sits above the SDK
   builder: (ctx) => SizedBox(
@@ -767,8 +852,10 @@ scroll the SDK.
   switch (await octopus.setReaction(OctopusReactionKind.joy, postId)) {
     case OctopusSuccess():
       // done
+      break;
     case OctopusConnectionFailure():
       // OctopusNoNetwork, OctopusUserNotAuthenticated, … — no typed error
+      break;
     case OctopusInvalidArguments<OctopusServerError>(:final errors):
       for (final e in errors.whereType<SetReactionError>()) {
         switch (e) {

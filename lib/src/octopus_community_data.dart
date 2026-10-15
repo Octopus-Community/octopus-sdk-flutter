@@ -46,8 +46,9 @@ class OctopusCommunityData {
     final rawGamification = wire['gamification'];
     return OctopusCommunityData(
       profileId: wire['profileId'] is String ? wire['profileId'] as String : '',
-      messageCount:
-          wire['messageCount'] is int ? wire['messageCount'] as int : null,
+      messageCount: wire['messageCount'] is int
+          ? wire['messageCount'] as int
+          : null,
       gamification: rawGamification is Map
           ? OctopusGamification.fromWire(rawGamification)
           : null,
@@ -65,7 +66,8 @@ class OctopusCommunityData {
   int get hashCode => Object.hash(profileId, messageCount, gamification);
 
   @override
-  String toString() => 'OctopusCommunityData(profileId: $profileId, '
+  String toString() =>
+      'OctopusCommunityData(profileId: $profileId, '
       'messageCount: $messageCount, gamification: $gamification)';
 }
 

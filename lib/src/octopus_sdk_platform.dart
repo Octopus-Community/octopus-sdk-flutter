@@ -6,6 +6,7 @@ import 'api_server.dart';
 import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
+import 'consent_texts.dart';
 import 'content_options.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
@@ -47,19 +48,7 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     List<ProfileField>? appManagedFields,
     ApiServer? apiServer,
   }) {
-    throw UnimplementedError(
-      'initialize() has not been implemented.',
-    );
-  }
-
-  Future<void> initializeOctopusAuth({
-    required String apiKey,
-    String? deepLink,
-    ApiServer? apiServer,
-  }) {
-    throw UnimplementedError(
-      'initializeOctopusAuth() has not been implemented.',
-    );
+    throw UnimplementedError('initialize() has not been implemented.');
   }
 
   Future<void> switchCommunity({
@@ -70,16 +59,6 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     throw UnimplementedError('switchCommunity() has not been implemented.');
   }
 
-  Future<void> switchCommunityOctopusAuth({
-    required String apiKey,
-    String? deepLink,
-    ApiServer? apiServer,
-  }) {
-    throw UnimplementedError(
-      'switchCommunityOctopusAuth() has not been implemented.',
-    );
-  }
-
   Future<void> reset() {
     throw UnimplementedError('reset() has not been implemented.');
   }
@@ -88,12 +67,13 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     throw UnimplementedError('stop() has not been implemented.');
   }
 
-  Future<OctopusResult<void, ClientUserError>> connectUser(
-      {required String userId,
-      required String token,
-      String? nickname,
-      String? bio,
-      String? picture}) {
+  Future<OctopusResult<void, ClientUserError>> connectUser({
+    required String userId,
+    required String token,
+    String? nickname,
+    String? bio,
+    String? picture,
+  }) {
     throw UnimplementedError('connectUser() has not been implemented.');
   }
 
@@ -146,16 +126,14 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   }
 
   Future<OctopusResult<void, OverrideCommunityAccessError>>
-      overrideCommunityAccess(bool hasAccess) {
+  overrideCommunityAccess(bool hasAccess) {
     throw UnimplementedError(
       'overrideCommunityAccess() has not been implemented.',
     );
   }
 
   Future<OctopusResult<void, RefreshEntitlementsError>> refreshEntitlements() {
-    throw UnimplementedError(
-      'refreshEntitlements() has not been implemented.',
-    );
+    throw UnimplementedError('refreshEntitlements() has not been implemented.');
   }
 
   Future<OctopusResult<void, SetReactionError>> setReaction(
@@ -166,7 +144,7 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   }
 
   Future<OctopusResult<OctopusPost, ClientPostError>>
-      fetchOrCreateClientObjectRelatedPost(
+  fetchOrCreateClientObjectRelatedPost(
     ClientPost clientPost, {
     required String requestId,
     required bool hasTokenProvider,
@@ -186,7 +164,9 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   /// Starts a native observation of the post linked to [clientObjectId],
   /// emitting `clientObjectPostChanged` events tagged with [observationId].
   Future<void> startClientObjectPostObservation(
-      String observationId, String clientObjectId) {
+    String observationId,
+    String clientObjectId,
+  ) {
     throw UnimplementedError(
       'startClientObjectPostObservation() has not been implemented.',
     );
@@ -265,6 +245,20 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     );
   }
 
+  /// Debug-only nickname override; `null` restores the backend config.
+  Future<void> debugOverrideForceNicknameChoice(bool? enabled) {
+    throw UnimplementedError(
+      'debugOverrideForceNicknameChoice() has not been implemented.',
+    );
+  }
+
+  /// Debug-only wording override; `null` restores backend texts.
+  Future<void> debugOverrideConsentTexts(OctopusConsentTexts? texts) {
+    throw UnimplementedError(
+      'debugOverrideConsentTexts() has not been implemented.',
+    );
+  }
+
   /// Raw wire map of the native community config, or `null` when none has
   /// been fetched yet. Decoded by [OctopusSDK.debugGetCommunityConfig].
   Future<Map<dynamic, dynamic>?> debugGetCommunityConfig() {
@@ -274,9 +268,7 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   }
 
   Future<void> trackCustomEvent(String name, Map<String, String> properties) {
-    throw UnimplementedError(
-      'trackCustomEvent() has not been implemented.',
-    );
+    throw UnimplementedError('trackCustomEvent() has not been implemented.');
   }
 
   Future<void> registerPushNotificationToken(String token) {
@@ -286,7 +278,8 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   }
 
   Future<List<SyncFollowGroupResult>> syncFollowGroups(
-      List<SyncFollowGroupAction> actions) {
+    List<SyncFollowGroupAction> actions,
+  ) {
     throw UnimplementedError('syncFollowGroups() has not been implemented.');
   }
 
@@ -295,12 +288,14 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
   }
 
   Future<OctopusResult<void, GroupFollowUnfollowError>> followGroup(
-      String groupId) {
+    String groupId,
+  ) {
     throw UnimplementedError('followGroup() has not been implemented.');
   }
 
   Future<OctopusResult<void, GroupFollowUnfollowError>> unfollowGroup(
-      String groupId) {
+    String groupId,
+  ) {
     throw UnimplementedError('unfollowGroup() has not been implemented.');
   }
 }

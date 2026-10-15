@@ -95,6 +95,12 @@ class OctopusProfileScreen extends StatelessWidget {
   /// Whether the widget is enabled (renders) — `false` renders an empty box.
   final bool enabled;
 
+  /// Whether this retained view may handle Android system Back.
+  ///
+  /// Defaults to `true`; a no-op on iOS. See [OctopusHomeScreen.isVisible]
+  /// for automatic visibility detection and host-controlled hiding.
+  final bool isVisible;
+
   /// Invoked when the user taps the SDK's back / close affordance. Wire to
   /// `Navigator.of(context).pop()` to dismiss the hosting route.
   final VoidCallback? onBack;
@@ -150,6 +156,7 @@ class OctopusProfileScreen extends StatelessWidget {
     this.theme,
     this.showBackButton = true,
     this.enabled = true,
+    this.isVisible = true,
     this.onBack,
     this.onNavigateToLogin,
     this.onModifyUser,
@@ -163,6 +170,7 @@ class OctopusProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return OctopusHomeScreen(
       theme: theme,
+      isVisible: isVisible,
       showBackButton: showBackButton,
       enabled: enabled,
       onBack: onBack,

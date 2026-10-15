@@ -7,18 +7,6 @@ import '../app_state.dart';
 import '../widgets/key_value_card.dart';
 import '../widgets/scenario_scaffold.dart';
 
-/// The terms-acceptance mode currently overridden on the SDK, and the label of
-/// the preset that applied it — `null` / "none (backend default)" when no
-/// override is in effect.
-///
-/// Process-level rather than [State] fields, iso the Android sample's
-/// `HostOverrides`: "Verify in Community" pops back to the shell and destroys
-/// this scenario's State, so a per-widget field would render "none" on the way
-/// back while the SDK is still overridden. Same reasoning as the `_expanded`
-/// map of `scenarios_screen.dart`.
-TermsAcceptanceMode? _applied;
-String _appliedLabel = _noOverrideLabel;
-
 const String _noOverrideLabel = 'none (backend default)';
 
 /// Terms Acceptance (Consent) scenario — `debugOverrideTermsAcceptanceMode`.
@@ -52,14 +40,17 @@ class _TermsAcceptanceScenarioState extends State<TermsAcceptanceScenario> {
     String label,
     TermsAcceptanceMode? mode,
   ) async {
-    final octopus = AppScope.of(context).octopus;
+    final app = AppScope.of(context);
+    final overrides = app.debugScenarioOverrides;
     demoLog.apiCall('debugOverrideTermsAcceptanceMode', {
       'mode': mode?.name ?? 'null (clear)',
     });
     try {
-      await octopus.debugOverrideTermsAcceptanceMode(mode);
-      _applied = mode;
-      _appliedLabel = mode == null ? _noOverrideLabel : label;
+      await app.octopus.debugOverrideTermsAcceptanceMode(mode);
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
+      overrides.termsAcceptance = mode == null
+          ? null
+          : (value: mode, label: label);
       if (!mounted) return;
       setState(() {});
       setResult(
@@ -70,6 +61,7 @@ class _TermsAcceptanceScenarioState extends State<TermsAcceptanceScenario> {
                   'contribution with a user who has not accepted the terms.',
       );
     } on PlatformException catch (e) {
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
       setResult(
         e.code == 'UNSUPPORTED_PLATFORM'
             ? 'debugOverrideTermsAcceptanceMode is unavailable on this build: '
@@ -79,6 +71,7 @@ class _TermsAcceptanceScenarioState extends State<TermsAcceptanceScenario> {
         isError: true,
       );
     } catch (e) {
+      if (!identical(overrides, app.debugScenarioOverrides)) return;
       setResult('debugOverrideTermsAcceptanceMode threw: $e', isError: true);
     }
   }
@@ -98,7 +91,9 @@ class _TermsAcceptanceScenarioState extends State<TermsAcceptanceScenario> {
 
   @override
   Widget build(BuildContext context) {
+    final overrides = AppScope.of(context).debugScenarioOverrides;
     return ScenarioScaffold(
+      key: ObjectKey(overrides),
       title: 'Terms Acceptance (Consent)',
       api: 'debugOverrideTermsAcceptanceMode',
       verifyInCommunity: true,
@@ -121,15 +116,22 @@ class _TermsAcceptanceScenarioState extends State<TermsAcceptanceScenario> {
           'the community config nor the profile, so neither the effective mode '
           'nor hasAcceptedCgu can be read back here. The override is in-memory '
           'and not persisted: relaunching the app, or switching community, '
-          'goes back to the backend config. On iOS it is available through the '
-          'CocoaPods integration only; the Swift Package Manager integration '
+          'goes back to the backend config. '
+          'On iOS it works through CocoaPods; through Swift Package Manager it '
+          'works when the build reaches the native core module, and otherwise '
           'answers UNSUPPORTED_PLATFORM.',
       resultTestId: 'termsAcceptance-result',
       liveState: KeyValueCard(
         title: 'Live state',
         rows: [
-          ('Applied override', _appliedLabel),
-          ('TermsAcceptanceMode', _applied?.name ?? '— (backend)'),
+          (
+            'Applied override',
+            overrides.termsAcceptance?.label ?? _noOverrideLabel,
+          ),
+          (
+            'TermsAcceptanceMode',
+            overrides.termsAcceptance?.value.name ?? '— (backend)',
+          ),
         ],
       ),
       presets: [

@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
 
+import 'scenario_copy.dart';
+import 'unified_profile_scenario.dart';
+import 'live_community_config_card.dart';
+
 import '../app_state.dart';
+import '../community/present_community.dart';
 import '../design.dart';
 import '../feature_toggles.dart';
+import '../sample_tab.dart';
 import '../widgets/scenario_scaffold.dart';
 import 'bridge_to_client_object_scenario.dart';
 import 'community_access_scenario.dart';
 import 'community_data_scenario.dart';
 import 'connection_scenario.dart';
 import 'content_options_scenario.dart';
+import 'consent_texts_scenario.dart';
+import 'force_nickname_choice_scenario.dart';
 import 'create_post_scenario.dart';
 import 'custom_events_scenario.dart';
-import 'embedded_back_scenario.dart';
 import 'events_scenario.dart';
 import 'force_octopus_ab_tests_scenario.dart';
 import 'fullscreen_scenario.dart';
@@ -43,7 +50,6 @@ class _ScenarioDescriptor {
   /// searchable like the title. Never a made-up name: every one of these is
   /// called by the scenario it labels.
   final String api;
-  final IconData icon;
   final WidgetBuilder builder;
 
   const _ScenarioDescriptor({
@@ -51,7 +57,6 @@ class _ScenarioDescriptor {
     required this.title,
     required this.subtitle,
     required this.api,
-    required this.icon,
     required this.builder,
   });
 
@@ -87,6 +92,7 @@ class _ScenarioSection {
 }
 
 // Top-level builders keep the descriptor lists `const`.
+Widget _unifiedProfile(BuildContext _) => const UnifiedProfileScenario();
 Widget _connection(BuildContext _) => const ConnectionScenario();
 Widget _syncFollowGroups(BuildContext _) => const SyncFollowGroupsScenario();
 Widget _groups(BuildContext _) => const GroupsScenario();
@@ -104,7 +110,6 @@ Widget _groupAccessDenied(BuildContext _) => const GroupAccessDeniedScenario();
 Widget _reactions(BuildContext _) => const ReactionsScenario();
 Widget _createPost(BuildContext _) => const CreatePostScenario();
 Widget _modal(BuildContext _) => const ModalScenario();
-Widget _embeddedBack(BuildContext _) => const EmbeddedBackScenario();
 Widget _fullscreen(BuildContext _) => const FullscreenScenario();
 Widget _sheet(BuildContext _) => const SheetScenario();
 Widget _events(BuildContext _) => const EventsScenario();
@@ -116,6 +121,9 @@ Widget _forceOctopusABTests(BuildContext _) =>
     const ForceOctopusABTestsScenario();
 Widget _communityData(BuildContext _) => const CommunityDataScenario();
 Widget _profileFieldsLock(BuildContext _) => const ProfileFieldsLockScenario();
+Widget _forceNicknameChoice(BuildContext _) =>
+    const ForceNicknameChoiceScenario();
+Widget _consentTexts(BuildContext _) => const ConsentTextsScenario();
 Widget _termsAcceptance(BuildContext _) => const TermsAcceptanceScenario();
 Widget _contentOptions(BuildContext _) => const ContentOptionsScenario();
 
@@ -129,88 +137,102 @@ const List<_ScenarioSection> _sections = [
     featureToggle: FeatureToggle.forceLogin,
     scenarios: [
       _ScenarioDescriptor(
+        id: 'unifiedProfile',
+        title: "Unified Profile",
+        subtitle: "Open member profiles in the host app or in the community.",
+        api: 'onNavigateToProfile',
+        builder: _unifiedProfile,
+      ),
+      _ScenarioDescriptor(
         id: 'connection',
-        title: 'Connection',
-        subtitle: 'Connect and disconnect the SSO test user',
+        title: "Sign in and out as the demo user",
+        subtitle:
+            "The community shows the demo user as signed in: they can post, react and be notified.",
         api: 'connectUser / disconnectUser',
-        icon: Icons.login,
         builder: _connection,
       ),
       _ScenarioDescriptor(
-        id: 'refreshEntitlements',
-        title: 'Refresh Entitlements',
-        subtitle: 'Refresh the session entitlements without reconnecting',
-        api: 'refreshEntitlements',
-        icon: Icons.refresh,
-        builder: _refreshEntitlements,
-      ),
-      _ScenarioDescriptor(
         id: 'communityData',
-        title: 'Community Data (Unified Profile)',
-        subtitle: 'Read the community profile behind a client user id',
-        api: 'communityDataFlow',
-        icon: Icons.badge,
+        title: "Read a member's community profile",
+        subtitle:
+            "The member's community profile comes back, and keeps updating while you watch it.",
+        api: "fetchCommunityData / communityDataFlow",
         builder: _communityData,
       ),
       _ScenarioDescriptor(
         id: 'profileFieldsLock',
-        title: 'Profile Field Lock',
+        title: "Lock the profile fields the host owns",
         subtitle:
-            'The locked fields turn read-only in the community\'s profile '
-            'editor.',
+            "The locked fields turn read-only in the community's profile editor.",
         api: 'debugOverrideProfileFieldsLock',
-        icon: Icons.lock_person,
         builder: _profileFieldsLock,
       ),
       _ScenarioDescriptor(
+        id: 'forceNicknameChoice',
+        title: 'Force Nickname Choice',
+        subtitle: 'Choose the initial nickname before a first contribution.',
+        api: 'debugOverrideForceNicknameChoice',
+        builder: _forceNicknameChoice,
+      ),
+      _ScenarioDescriptor(
         id: 'termsAcceptance',
-        title: 'Terms Acceptance (Consent)',
+        title: "Change how members accept the terms",
         subtitle:
-            'The community asks for consent the way you picked, or stops '
-            'asking altogether.',
+            "The community asks for consent the way you picked, or stops asking altogether.",
         api: 'debugOverrideTermsAcceptanceMode',
-        icon: Icons.gavel,
         builder: _termsAcceptance,
+      ),
+      _ScenarioDescriptor(
+        id: 'consentTexts',
+        title: 'Consent Texts (community wording)',
+        subtitle: 'Show community consent wordings and native fallback.',
+        api: 'debugOverrideConsentTexts',
+        builder: _consentTexts,
+      ),
+      _ScenarioDescriptor(
+        id: 'refreshEntitlements',
+        title: "Re-issue the demo user's entitlements",
+        subtitle:
+            "The community picks up the entitlements you edited, without signing out.",
+        api: 'refreshEntitlements',
+        builder: _refreshEntitlements,
       ),
     ],
   ),
-  // No feature toggle here on purpose: a presentation mode is a route to open,
-  // not a state to leave on.
   _ScenarioSection(
     id: 'presentation',
     title: 'Presentation modes',
     scenarios: [
       _ScenarioDescriptor(
+        id: 'initialScreen',
+        title: "Open the community on a chosen screen",
+        subtitle:
+            "The community opens directly on the member, profile or feed you picked.",
+        api: 'OctopusInitialScreen',
+        builder: _initialScreen,
+      ),
+      _ScenarioDescriptor(
         id: 'fullscreen',
-        title: 'Fullscreen',
-        subtitle: 'Push the community as a standard route',
-        api: 'showOctopusHomeScreen',
-        icon: Icons.fullscreen,
+        title: "Open the community full screen",
+        subtitle: "The community takes the whole screen, outside the tab bar.",
+        api: "host: MaterialPageRoute",
         builder: _fullscreen,
       ),
       _ScenarioDescriptor(
-        id: 'sheet',
-        title: 'Sheet',
-        subtitle: 'Present the community in a 90% bottom sheet',
-        api: 'showModalBottomSheet',
-        icon: Icons.swipe_up,
-        builder: _sheet,
-      ),
-      _ScenarioDescriptor(
         id: 'modal',
-        title: 'Modal',
-        subtitle: 'Present the community as a full-screen dialog',
-        api: 'fullscreenDialog',
-        icon: Icons.layers,
+        title: "Open the community as a modal",
+        subtitle:
+            "The community covers the screen in a host-owned modal that you close yourself.",
+        api: "host: fullscreenDialog",
         builder: _modal,
       ),
       _ScenarioDescriptor(
-        id: 'embeddedBack',
-        title: 'Embedded Back Button',
-        subtitle: "Pick the SDK's leading icon and watch onBack fire",
-        api: 'navBarLeadingAction',
-        icon: Icons.arrow_back,
-        builder: _embeddedBack,
+        id: 'sheet',
+        title: "Open the community as a bottom sheet",
+        subtitle:
+            "The community slides over this screen; swipe down to come back.",
+        api: "host: showModalBottomSheet",
+        builder: _sheet,
       ),
     ],
   ),
@@ -220,78 +242,67 @@ const List<_ScenarioSection> _sections = [
     scenarios: [
       _ScenarioDescriptor(
         id: 'groups',
-        title: 'Browse Groups',
+        title: "Browse the community's groups",
         subtitle:
-            'Every group the community offers, with a follow toggle on each row',
+            "Every group the community offers, with whether the demo user follows it.",
         api: 'fetchGroups',
-        icon: Icons.groups,
         builder: _groups,
       ),
       _ScenarioDescriptor(
         id: 'syncFollowGroups',
-        title: 'Sync Followed Groups',
-        subtitle: 'Batch follow / unfollow the groups of the community',
+        title: "Follow or unfollow every group at once",
+        subtitle:
+            "The follow state of every group flips in one call, and the community reflects it.",
         api: 'syncFollowGroups',
-        icon: Icons.group_work,
         builder: _syncFollowGroups,
       ),
       _ScenarioDescriptor(
-        id: 'lifecycle',
-        title: 'Switch Community',
-        subtitle: 'Point the running SDK at another community',
-        api: 'switchCommunity',
-        icon: Icons.swap_horiz,
-        builder: _switchCommunity,
-      ),
-      _ScenarioDescriptor(
-        id: 'groupAccessDenied',
-        title: 'Group Access Denied',
-        subtitle: 'Handle a group the current user may not enter',
-        api: 'setGroupAccessDeniedCallback',
-        icon: Icons.block,
-        builder: _groupAccessDenied,
-      ),
-      _ScenarioDescriptor(
-        id: 'reactions',
-        title: 'Reactions',
-        subtitle: 'React, change reaction and unreact on a post',
-        api: 'setReaction',
-        icon: Icons.favorite,
-        builder: _reactions,
-      ),
-      _ScenarioDescriptor(
-        id: 'createPost',
-        title: 'Create Post (Bridge Share)',
-        subtitle: 'Open the post editor prefilled by the host',
-        api: 'showOctopusCreatePostScreen',
-        icon: Icons.post_add,
-        builder: _createPost,
-      ),
-      _ScenarioDescriptor(
-        id: 'contentOptions',
-        title: 'Content Options',
+        id: 'communityAccess',
+        title: "Grant or deny access to the community",
         subtitle:
-            'The composer offers only the kinds of content the community '
-            'allows.',
-        api: 'debugOverrideContentOptions',
-        icon: Icons.tune,
-        builder: _contentOptions,
+            "The community either opens normally, or shows its no-access state.",
+        api: 'overrideCommunityAccess',
+        builder: _communityAccess,
       ),
       _ScenarioDescriptor(
         id: 'bridge',
-        title: 'Bridge → Client Object',
-        subtitle: 'Attach a community post to an object the host owns',
+        title: "Open the post attached to a product",
+        subtitle:
+            "A post tied to a host object opens — created on the spot the first time you ask for it.",
         api: 'setNavigateToClientObjectCallback',
-        icon: Icons.link,
         builder: _bridgeToClientObject,
       ),
       _ScenarioDescriptor(
-        id: 'initialScreen',
-        title: 'Initial Screen',
-        subtitle: 'Open the community on a chosen entry screen',
-        api: 'OctopusInitialScreen',
-        icon: Icons.dashboard,
-        builder: _initialScreen,
+        id: 'createPost',
+        title: "Start a post from the host app",
+        subtitle:
+            "The composer opens pre-filled with the text, image or link the host handed over.",
+        api: 'showOctopusCreatePostScreen',
+        builder: _createPost,
+      ),
+      _ScenarioDescriptor(
+        id: 'reactions',
+        title: "React to a post from the host app",
+        subtitle:
+            "The reaction you picked shows on that post in the community.",
+        api: 'setReaction',
+        builder: _reactions,
+      ),
+      _ScenarioDescriptor(
+        id: 'contentOptions',
+        title: "Change what members are allowed to post",
+        subtitle:
+            "The composer offers only the kinds of content the community allows.",
+        api: 'debugOverrideContentOptions',
+        builder: _contentOptions,
+      ),
+      _ScenarioDescriptor(
+        id: 'groupAccessDenied',
+        title: "Handle a member reaching a closed group",
+        subtitle:
+            "The host is told a group was refused, instead of the community handling it alone.",
+        api: 'setGroupAccessDeniedCallback',
+        builder: _groupAccessDenied,
       ),
     ],
   ),
@@ -302,18 +313,18 @@ const List<_ScenarioSection> _sections = [
     scenarios: [
       _ScenarioDescriptor(
         id: 'notSeenNotifications',
-        title: 'Not-Seen Notifications',
-        subtitle: 'Read and reset the unseen notification count',
+        title: "Set the unread notification count",
+        subtitle:
+            "The notification badge in the community carries the number you set.",
         api: 'notSeenNotificationsCount',
-        icon: Icons.mark_chat_unread,
         builder: _notSeenNotifications,
       ),
       _ScenarioDescriptor(
         id: 'pushNotifications',
-        title: 'Push Notifications',
-        subtitle: 'Recognise and open an Octopus push payload',
+        title: "Open a post from a push notification",
+        subtitle:
+            "A simulated push is recognised as an Octopus one and opens the post it points at.",
         api: 'isOctopusNotification / openNotification',
-        icon: Icons.notifications_active,
         builder: _pushNotifications,
       ),
     ],
@@ -323,20 +334,20 @@ const List<_ScenarioSection> _sections = [
     title: 'Theme & language',
     scenarios: [
       _ScenarioDescriptor(
-        id: 'theme',
-        title: 'Theme',
-        subtitle: 'Apply a custom OctopusTheme to the SDK surface',
-        api: 'OctopusTheme',
-        icon: Icons.palette,
-        builder: _theme,
+        id: 'locale',
+        title: "Switch the community's language",
+        subtitle:
+            "The community's own labels switch to the language you picked.",
+        api: 'overrideDefaultLocale',
+        builder: _locale,
       ),
       _ScenarioDescriptor(
-        id: 'locale',
-        title: 'Locale',
-        subtitle: 'Override the locale the SDK UI renders in',
-        api: 'overrideDefaultLocale',
-        icon: Icons.language,
-        builder: _locale,
+        id: 'theme',
+        title: "Apply the host's brand to the community",
+        subtitle:
+            "The community adopts the host's colours, fonts and logo — or drops back to the SDK's own look.",
+        api: 'OctopusTheme',
+        builder: _theme,
       ),
     ],
   ),
@@ -345,64 +356,55 @@ const List<_ScenarioSection> _sections = [
     title: 'Host callbacks & events',
     scenarios: [
       _ScenarioDescriptor(
-        id: 'events',
-        title: 'Events Log',
-        subtitle: 'Observe every event the SDK emits',
-        api: 'OctopusSDK.events',
-        icon: Icons.list_alt,
-        builder: _events,
-      ),
-      _ScenarioDescriptor(
         id: 'customEvents',
-        title: 'Custom Events',
-        subtitle: 'Send a host analytics event through the SDK',
+        title: "Send a custom analytics event",
+        subtitle:
+            "The event shows up in the Events log, with the properties you attached.",
         api: 'trackCustomEvent',
-        icon: Icons.insights,
         builder: _customEvents,
       ),
       _ScenarioDescriptor(
-        id: 'communityAccess',
-        title: 'Community Access',
-        subtitle: 'Grant or deny access to the community, or just report it',
-        api: 'overrideCommunityAccess',
-        icon: Icons.lock_open,
-        builder: _communityAccess,
+        id: 'lifecycle',
+        title: "Restart or stop the SDK",
+        subtitle:
+            "The session ends and the community goes back to its not-connected state.",
+        api: "reset / stop / switchCommunity",
+        builder: _switchCommunity,
+      ),
+      _ScenarioDescriptor(
+        id: 'events',
+        title: "Watch what the SDK reports",
+        subtitle: "Every event the SDK emits, live, as the community is used.",
+        api: 'OctopusSDK.events',
+        builder: _events,
       ),
       _ScenarioDescriptor(
         id: 'trackABTests',
-        title: 'Track A/B Tests',
-        subtitle: 'Report a host experiment alongside community access',
+        title: "Report which cohort the member is in",
+        subtitle:
+            "The community opens for the cohort you granted, and refuses the other one.",
         api: 'trackCommunityAccess',
-        icon: Icons.science,
         builder: _trackABTests,
       ),
       _ScenarioDescriptor(
         id: 'forceOctopusABTests',
-        title: 'Force Octopus A/B Tests',
-        subtitle: 'Force a community-access variant for QA',
+        title: "Force Octopus's own A/B decision",
+        subtitle:
+            "The community's own access rule is overridden — granted or denied — until you clear it.",
         api: 'overrideCommunityAccess',
-        icon: Icons.flag,
         builder: _forceOctopusABTests,
       ),
     ],
   ),
 ];
 
-/// Which sections are open. Kept outside the State so the choice survives a tab
-/// switch — a tester who opened Notifications finds it open on the way back.
-///
-/// Every section starts closed, iso the Android reference: the screen opens on
-/// the six headers, which is the map of the sample, rather than on one section's
-/// cards. The two feature toggles stay reachable regardless — they render
-/// outside the collapse.
-final Map<String, bool> _expanded = {
-  for (final section in _sections) section.id: false,
-};
-
 /// Scenarios tab — six collapsible sections of scenario cards, over one search
 /// field that spans titles, descriptions and API names.
 class ScenariosTab extends StatefulWidget {
-  const ScenariosTab({super.key});
+  const ScenariosTab({super.key, this.active = true, this.onScrolled});
+
+  final bool active;
+  final ValueChanged<bool>? onScrolled;
 
   @override
   State<ScenariosTab> createState() => _ScenariosTabState();
@@ -410,6 +412,14 @@ class ScenariosTab extends StatefulWidget {
 
 class _ScenariosTabState extends State<ScenariosTab> {
   String _query = '';
+  bool _scrolled = false;
+  final Map<String, bool> _expanded = {};
+
+  @override
+  void didUpdateWidget(ScenariosTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) _expanded.clear();
+  }
 
   /// One key per section header, so a request to land on a section
   /// ([AppState.requestScenariosSection]) can scroll it into view.
@@ -459,32 +469,56 @@ class _ScenariosTabState extends State<ScenariosTab> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(
+              SampleSpacing.space4,
+              SampleSpacing.space4,
+              SampleSpacing.space4,
+              SampleSpacing.space4,
+            ),
             child: Semantics(
               identifier: 'scenarios-search-input',
               textField: true,
               container: true,
-              child: TextField(
+              child: SampleSearchField(
                 onChanged: (value) => setState(() => _query = value),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'Search scenarios',
-                  border: OutlineInputBorder(),
-                ),
               ),
             ),
           ),
           Expanded(
-            child: visible.isEmpty
-                ? const Center(child: Text('No scenario matches your search.'))
-                // Not a ListView.builder: a builder only builds what is near
+            child: // Not a ListView.builder: a builder only builds what is near
                 // the viewport, and a section asked for from a scenario
                 // screen has to exist to be scrolled to. Six sections.
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification.depth != 0) return false;
+                    final scrolled = notification.metrics.pixels > 4;
+                    if (_scrolled != scrolled) {
+                      _scrolled = scrolled;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) widget.onScrolled?.call(scrolled);
+                      });
+                    }
+                    return false;
+                  },
+                  child: SingleChildScrollView(
+                    primary: false,
+                    padding: const EdgeInsets.fromLTRB(
+                      SampleSpacing.space4,
+                      0,
+                      SampleSpacing.space4,
+                      SampleSpacing.space6,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (!searching) ...[
+                          _CommunityShortcuts(),
+                          const SizedBox(height: SampleSpacing.space3),
+                          LiveCommunityConfigCard(active: widget.active),
+                          const SizedBox(height: SampleSpacing.space3),
+                        ],
+                        if (visible.isEmpty)
+                          Text('No scenario matches "${_query.trim()}".'),
                         for (final (section, hits) in visible)
                           _Section(
                             key: _sectionKeys[section.id],
@@ -504,11 +538,65 @@ class _ScenariosTabState extends State<ScenariosTab> {
                       ],
                     ),
                   ),
+                ),
           ),
         ],
       ),
     );
   }
+}
+
+/// Community containers, hidden while searching for a scenario.
+class _CommunityShortcuts extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SampleScenarioBlock(
+    title: 'Open the community',
+    icon: Icons.forum_outlined,
+    identifier: 'scenarios-open-community-card',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('The same community, in the container your app gives it.'),
+        const SizedBox(height: SampleSpacing.space3),
+        for (final row in [
+          [('Tab', 'tab'), ('Modal', 'modal')],
+          [('Sheet', 'sheet'), ('Full screen', 'fullscreen')],
+        ]) ...[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (index, entry) in row.indexed) ...[
+                if (index != 0) const SizedBox(width: SampleSpacing.space2),
+                Expanded(
+                  child: Semantics(
+                    identifier: 'open-community-${entry.$2}-button',
+                    button: true,
+                    child: entry.$2 == 'tab'
+                        ? FilledButton(
+                            onPressed: () => AppScope.of(
+                              context,
+                            ).requestTab(SampleTab.community.index),
+                            child: Text(entry.$1),
+                          )
+                        : OutlinedButton(
+                            onPressed: () => switch (entry.$2) {
+                              'modal' => openCommunityModal(context),
+                              'sheet' => openCommunitySheet(context),
+                              _ => openCommunityFullScreen(context),
+                            },
+                            child: Text(entry.$1, textAlign: TextAlign.center),
+                          ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (row.first.$2 == 'tab')
+            const SizedBox(height: SampleSpacing.space2),
+        ],
+      ],
+    ),
+  );
 }
 
 class _Section extends StatelessWidget {
@@ -529,141 +617,101 @@ class _Section extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final toggle = section.featureToggle;
-
+    final app = AppScope.of(context);
+    final enabled = toggle == null ? false : app.featureToggles[toggle];
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Semantics(
             identifier: 'scenarios-section-${section.id}',
             container: true,
-            child: InkWell(
-              onTap: onToggleExpanded,
-              child: ConstrainedBox(
-                // 48dp is the header's touch target, not its decoration: this
-                // row is the only way to open a section.
-                constraints: const BoxConstraints(minHeight: 48),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          section.title,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
+            explicitChildNodes: true,
+            child: Material(
+              color: sampleSurface3For(theme.brightness).withValues(alpha: .4),
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onToggleExpanded,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                section.title,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              if (toggle != null)
+                                Text(
+                                  app.config == null
+                                      ? app.restoringConfig
+                                            ? 'Configuration is loading. Try again in a moment.'
+                                            : 'Configure the SDK in Settings to enable this switch.'
+                                      : '${toggle.label}: ${toggle.effectLine(enabled)}',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                            ],
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      _CountPill(count: scenarios.length),
-                      const Spacer(),
-                      Icon(
-                        expanded ? Icons.expand_less : Icons.expand_more,
-                        size: 20,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.secondaryContainer,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${scenarios.length}',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSecondaryContainer,
+                            ),
+                          ),
+                        ),
+                        if (toggle != null)
+                          Semantics(
+                            identifier: toggle.testId,
+                            child: Switch(
+                              value: enabled,
+                              onChanged: app.config == null
+                                  ? null
+                                  : (on) => app.setFeatureToggle(toggle, on),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          expanded ? Icons.expand_less : Icons.expand_more,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-          // Outside the collapse on purpose: a QA run resolves
-          // `scenarios-toggle-*` from a cold start, where every section is
-          // closed, and a toggle that first needs its section expanded is a
-          // toggle that is not there.
-          if (toggle != null) _FeatureToggleRow(toggle: toggle),
-          if (expanded)
-            for (final descriptor in scenarios)
+          if (expanded) ...[
+            const SizedBox(height: 8),
+            for (final (i, descriptor) in scenarios.indexed) ...[
+              if (i > 0) const SizedBox(height: 8),
               _ScenarioCard(section: section, descriptor: descriptor),
-        ],
-      ),
-    );
-  }
-}
-
-/// How many scenarios the section holds — the filtered count while a search is
-/// running.
-class _CountPill extends StatelessWidget {
-  const _CountPill({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '$count',
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.onSecondaryContainer,
-        ),
-      ),
-    );
-  }
-}
-
-/// The section header's feature toggle: the switch, and under it the one
-/// sentence that says what changes on screen in this position.
-///
-/// The effect line is not decoration. "A switch flips and nothing on screen
-/// says what changed" is the defect this row exists to close — with, on the
-/// developer side, the Debug console entry [AppState.setFeatureToggle] writes.
-class _FeatureToggleRow extends StatelessWidget {
-  const _FeatureToggleRow({required this.toggle});
-
-  final FeatureToggle toggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final app = AppScope.of(context);
-    final enabled = app.featureToggles[toggle];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        border: Border.all(color: sampleBorderFor(theme.brightness)),
-        borderRadius: BorderRadius.circular(12),
-        color: sampleTintFor(theme.brightness),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  toggle.label,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  toggle.effectLine(enabled),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Semantics(
-            identifier: toggle.testId,
-            child: Switch(
-              value: enabled,
-              onChanged: (on) => app.setFeatureToggle(toggle, on),
-            ),
-          ),
+            ],
+          ],
         ],
       ),
     );
@@ -686,19 +734,22 @@ class _ScenarioCard extends StatelessWidget {
         identifier: 'scenarios-${descriptor.id}-card',
         button: true,
         child: Card(
-          margin: const EdgeInsets.only(bottom: 8),
+          margin: EdgeInsets.zero,
+          color: Colors.transparent,
           elevation: 0,
           shape: RoundedRectangleBorder(
             side: BorderSide(color: sampleBorderFor(brightness)),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(SampleRadius.lg),
           ),
           child: InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(SampleRadius.lg),
             // The scope tells the scenario screen which section it came from:
             // its read-only feature-state line and the way back to the switch.
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => ScenarioSectionScope(
+                  copy: scenarioCopy[descriptor.id],
+                  api: descriptor.api,
                   sectionId: section.id,
                   featureToggle: section.featureToggle,
                   child: descriptor.builder(context),
@@ -706,39 +757,20 @@ class _ScenarioCard extends StatelessWidget {
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-              child: Row(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    descriptor.icon,
-                    size: 22,
-                    color: sampleAccent(brightness),
+                  Text(descriptor.title, style: SampleTypography.scenarioTitle),
+                  const SizedBox(height: 4),
+                  Text(
+                    descriptor.subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          descriptor.title,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          descriptor.subtitle,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ApiPill(descriptor.api),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right),
+                  const SizedBox(height: 4),
+                  ApiPill(descriptor.api),
                 ],
               ),
             ),

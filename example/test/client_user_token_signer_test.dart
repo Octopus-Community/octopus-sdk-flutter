@@ -75,6 +75,7 @@ void main() {
       expect(payload['exp'], exp);
       expect(payload['entitlements'], sortedEntitlements);
       expect(payload.length, 3);
+      expect(payload.containsKey('iat'), isFalse); // #140
     });
 
     test('signWith sorts the entitlements list (set → deterministic JWT)', () {

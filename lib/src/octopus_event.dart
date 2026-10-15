@@ -6,11 +6,11 @@ enum ContentKind {
   reply;
 
   static ContentKind fromString(String value) => switch (value) {
-        'post' => ContentKind.post,
-        'comment' => ContentKind.comment,
-        'reply' => ContentKind.reply,
-        _ => throw ArgumentError('Unknown ContentKind: $value'),
-      };
+    'post' => ContentKind.post,
+    'comment' => ContentKind.comment,
+    'reply' => ContentKind.reply,
+    _ => throw ArgumentError('Unknown ContentKind: $value'),
+  };
 }
 
 enum ReactionKind {
@@ -23,14 +23,14 @@ enum ReactionKind {
   unknown;
 
   static ReactionKind fromString(String value) => switch (value) {
-        'heart' => ReactionKind.heart,
-        'joy' => ReactionKind.joy,
-        'mouthOpen' => ReactionKind.mouthOpen,
-        'clap' => ReactionKind.clap,
-        'cry' => ReactionKind.cry,
-        'rage' => ReactionKind.rage,
-        _ => ReactionKind.unknown,
-      };
+    'heart' => ReactionKind.heart,
+    'joy' => ReactionKind.joy,
+    'mouthOpen' => ReactionKind.mouthOpen,
+    'clap' => ReactionKind.clap,
+    'cry' => ReactionKind.cry,
+    'rage' => ReactionKind.rage,
+    _ => ReactionKind.unknown,
+  };
 }
 
 enum ReportReason {
@@ -45,16 +45,16 @@ enum ReportReason {
   other;
 
   static ReportReason fromString(String value) => switch (value) {
-        'hateSpeech' => ReportReason.hateSpeech,
-        'explicit' => ReportReason.explicit,
-        'violence' => ReportReason.violence,
-        'spam' => ReportReason.spam,
-        'suicide' => ReportReason.suicide,
-        'fakeProfile' => ReportReason.fakeProfile,
-        'childExploitation' => ReportReason.childExploitation,
-        'intellectualProperty' => ReportReason.intellectualProperty,
-        _ => ReportReason.other,
-      };
+    'hateSpeech' => ReportReason.hateSpeech,
+    'explicit' => ReportReason.explicit,
+    'violence' => ReportReason.violence,
+    'spam' => ReportReason.spam,
+    'suicide' => ReportReason.suicide,
+    'fakeProfile' => ReportReason.fakeProfile,
+    'childExploitation' => ReportReason.childExploitation,
+    'intellectualProperty' => ReportReason.intellectualProperty,
+    _ => ReportReason.other,
+  };
 }
 
 enum PostContent {
@@ -63,11 +63,11 @@ enum PostContent {
   poll;
 
   static PostContent fromString(String value) => switch (value) {
-        'text' => PostContent.text,
-        'image' => PostContent.image,
-        'poll' => PostContent.poll,
-        _ => throw ArgumentError('Unknown PostContent: $value'),
-      };
+    'text' => PostContent.text,
+    'image' => PostContent.image,
+    'poll' => PostContent.poll,
+    _ => throw ArgumentError('Unknown PostContent: $value'),
+  };
 }
 
 enum PostClickedSource {
@@ -75,10 +75,10 @@ enum PostClickedSource {
   profile;
 
   static PostClickedSource fromString(String value) => switch (value) {
-        'feed' => PostClickedSource.feed,
-        'profile' => PostClickedSource.profile,
-        _ => throw ArgumentError('Unknown PostClickedSource: $value'),
-      };
+    'feed' => PostClickedSource.feed,
+    'profile' => PostClickedSource.profile,
+    _ => throw ArgumentError('Unknown PostClickedSource: $value'),
+  };
 }
 
 enum GamificationPointsGainedAction {
@@ -101,8 +101,9 @@ enum GamificationPointsGainedAction {
         'postCommented' => GamificationPointsGainedAction.postCommented,
         'profileCompleted' => GamificationPointsGainedAction.profileCompleted,
         'dailySession' => GamificationPointsGainedAction.dailySession,
-        _ =>
-          throw ArgumentError('Unknown GamificationPointsGainedAction: $value'),
+        _ => throw ArgumentError(
+          'Unknown GamificationPointsGainedAction: $value',
+        ),
       };
 }
 
@@ -124,10 +125,10 @@ enum GroupDetailSource {
   unknown;
 
   static GroupDetailSource fromString(String value) => switch (value) {
-        'bridge' => GroupDetailSource.bridge,
-        'community' => GroupDetailSource.community,
-        _ => GroupDetailSource.unknown,
-      };
+    'bridge' => GroupDetailSource.bridge,
+    'community' => GroupDetailSource.community,
+    _ => GroupDetailSource.unknown,
+  };
 }
 
 enum GamificationPointsRemovedAction {
@@ -143,7 +144,8 @@ enum GamificationPointsRemovedAction {
         'replyDeleted' => GamificationPointsRemovedAction.replyDeleted,
         'reactionDeleted' => GamificationPointsRemovedAction.reactionDeleted,
         _ => throw ArgumentError(
-            'Unknown GamificationPointsRemovedAction: $value'),
+          'Unknown GamificationPointsRemovedAction: $value',
+        ),
       };
 }
 
@@ -157,32 +159,38 @@ sealed class Screen {
     if (type == null) return UnknownScreen(type: 'null', rawData: map);
     return switch (type) {
       'postsFeed' => PostsFeedScreen(
-          feedId: map['feedId'] as String?,
-          relatedTopicId: map['relatedTopicId'] as String?,
-        ),
+        feedId: map['feedId'] as String?,
+        relatedTopicId: map['relatedTopicId'] as String?,
+      ),
       'mainFeed' => MainFeedScreen(feedId: map['feedId'] as String),
       'groups' => const GroupsScreen(),
       'groupDetail' => GroupDetailScreen(
-          groupId: map['groupId'] as String,
-          source: GroupDetailSource.fromString(map['source'] as String),
-        ),
+        groupId: map['groupId'] as String,
+        source: GroupDetailSource.fromString(map['source'] as String),
+      ),
       'postDetail' => PostDetailScreen(postId: map['postId'] as String),
-      'commentDetail' =>
-        CommentDetailScreen(commentId: map['commentId'] as String),
+      'commentDetail' => CommentDetailScreen(
+        commentId: map['commentId'] as String,
+      ),
       'createPost' => const CreatePostScreen(),
       'profile' => const ProfileScreen(),
       'activity' => const ActivityScreen(),
-      'otherUserProfile' =>
-        OtherUserProfileScreen(profileId: map['profileId'] as String),
-      'otherUserPosts' =>
-        OtherUserPostsScreen(profileId: map['profileId'] as String),
+      'otherUserProfile' => OtherUserProfileScreen(
+        profileId: map['profileId'] as String,
+      ),
+      'otherUserPosts' => OtherUserPostsScreen(
+        profileId: map['profileId'] as String,
+      ),
       'editProfile' => const EditProfileScreen(),
       'reportContent' => const ReportContentScreen(),
       'reportProfile' => const ReportProfileScreen(),
       'validateNickname' => const ValidateNicknameScreen(),
+      // ignore: deprecated_member_use_from_same_package
       'settingsList' => const SettingsListScreen(),
+      // ignore: deprecated_member_use_from_same_package
       'settingsAccount' => const SettingsAccountScreen(),
       'reportExplanation' => const ReportExplanationScreen(),
+      // ignore: deprecated_member_use_from_same_package
       'deleteAccount' => const DeleteAccountScreen(),
       _ => UnknownScreen(type: type, rawData: map),
     };
@@ -283,10 +291,14 @@ class ValidateNicknameScreen extends Screen {
   const ValidateNicknameScreen();
 }
 
+/// Legacy screen event retained for compatibility with earlier SDK versions.
+@Deprecated('No longer emitted: settings moved to the profile menu.')
 class SettingsListScreen extends Screen {
   const SettingsListScreen();
 }
 
+/// Legacy screen event retained for compatibility with earlier SDK versions.
+@Deprecated('No longer emitted: user accounts are managed by your app.')
 class SettingsAccountScreen extends Screen {
   const SettingsAccountScreen();
 }
@@ -295,6 +307,8 @@ class ReportExplanationScreen extends Screen {
   const ReportExplanationScreen();
 }
 
+/// Legacy screen event retained for compatibility with earlier SDK versions.
+@Deprecated('No longer emitted: user accounts are managed by your app.')
 class DeleteAccountScreen extends Screen {
   const DeleteAccountScreen();
 }
@@ -323,106 +337,109 @@ sealed class OctopusEvent {
     final type = map['type'] as String;
     return switch (type) {
       'postCreated' => PostCreatedEvent(
-          postId: map['postId'] as String,
-          content: (map['content'] as List)
-              .map((e) => PostContent.fromString(e as String))
-              .toSet(),
-          topicId: map['topicId'] as String?,
-          textLength: map['textLength'] as int,
-        ),
+        postId: map['postId'] as String,
+        content: (map['content'] as List)
+            .map((e) => PostContent.fromString(e as String))
+            .toSet(),
+        topicId: map['topicId'] as String?,
+        textLength: map['textLength'] as int,
+      ),
       'commentCreated' => CommentCreatedEvent(
-          commentId: map['commentId'] as String,
-          postId: map['postId'] as String,
-          textLength: map['textLength'] as int,
-        ),
+        commentId: map['commentId'] as String,
+        postId: map['postId'] as String,
+        textLength: map['textLength'] as int,
+      ),
       'replyCreated' => ReplyCreatedEvent(
-          replyId: map['replyId'] as String,
-          commentId: map['commentId'] as String,
-          textLength: map['textLength'] as int,
-        ),
+        replyId: map['replyId'] as String,
+        commentId: map['commentId'] as String,
+        textLength: map['textLength'] as int,
+      ),
       'contentDeleted' => ContentDeletedEvent(
-          contentId: map['contentId'] as String,
-          contentKind: ContentKind.fromString(map['contentKind'] as String),
-        ),
+        contentId: map['contentId'] as String,
+        contentKind: ContentKind.fromString(map['contentKind'] as String),
+      ),
       'reactionModified' => ReactionModifiedEvent(
-          contentId: map['contentId'] as String,
-          contentKind: ContentKind.fromString(map['contentKind'] as String),
-          previousReaction: map['previousReaction'] != null
-              ? ReactionKind.fromString(map['previousReaction'] as String)
-              : null,
-          newReaction: map['newReaction'] != null
-              ? ReactionKind.fromString(map['newReaction'] as String)
-              : null,
-        ),
+        contentId: map['contentId'] as String,
+        contentKind: ContentKind.fromString(map['contentKind'] as String),
+        previousReaction: map['previousReaction'] != null
+            ? ReactionKind.fromString(map['previousReaction'] as String)
+            : null,
+        newReaction: map['newReaction'] != null
+            ? ReactionKind.fromString(map['newReaction'] as String)
+            : null,
+      ),
       'pollVoted' => PollVotedEvent(
-          contentId: map['contentId'] as String,
-          optionId: map['optionId'] as String,
-        ),
+        contentId: map['contentId'] as String,
+        optionId: map['optionId'] as String,
+      ),
       'contentReported' => ContentReportedEvent(
-          contentId: map['contentId'] as String,
-          reasons: (map['reasons'] as List)
-              .map((e) => ReportReason.fromString(e as String))
-              .toList(),
-        ),
+        contentId: map['contentId'] as String,
+        reasons: (map['reasons'] as List)
+            .map((e) => ReportReason.fromString(e as String))
+            .toList(),
+      ),
       'profileReported' => ProfileReportedEvent(
-          profileId: map['profileId'] as String,
-          reasons: (map['reasons'] as List)
-              .map((e) => ReportReason.fromString(e as String))
-              .toList(),
-        ),
+        profileId: map['profileId'] as String,
+        reasons: (map['reasons'] as List)
+            .map((e) => ReportReason.fromString(e as String))
+            .toList(),
+      ),
       'groupFollowingChanged' => GroupFollowingChangedEvent(
-          groupId: map['groupId'] as String,
-          followed: map['followed'] as bool,
-        ),
+        groupId: map['groupId'] as String,
+        followed: map['followed'] as bool,
+      ),
       'gamificationPointsGained' => GamificationPointsGainedEvent(
-          points: map['points'] as int,
-          action: GamificationPointsGainedAction.fromString(
-              map['action'] as String),
+        points: map['points'] as int,
+        action: GamificationPointsGainedAction.fromString(
+          map['action'] as String,
         ),
+      ),
       'gamificationPointsRemoved' => GamificationPointsRemovedEvent(
-          points: map['points'] as int,
-          action: GamificationPointsRemovedAction.fromString(
-              map['action'] as String),
+        points: map['points'] as int,
+        action: GamificationPointsRemovedAction.fromString(
+          map['action'] as String,
         ),
+      ),
       'screenDisplayed' => ScreenDisplayedEvent(
-            screen: Screen.fromMap(
+        screen: Screen.fromMap(
           Map<String, dynamic>.from(map['screen'] as Map<dynamic, dynamic>),
-        )),
+        ),
+      ),
       'notificationClicked' => NotificationClickedEvent(
-          notificationId: map['notificationId'] as String,
-          contentId: map['contentId'] as String?,
-        ),
+        notificationId: map['notificationId'] as String,
+        contentId: map['contentId'] as String?,
+      ),
       'postClicked' => PostClickedEvent(
-          postId: map['postId'] as String,
-          source: PostClickedSource.fromString(map['source'] as String),
-        ),
+        postId: map['postId'] as String,
+        source: PostClickedSource.fromString(map['source'] as String),
+      ),
       'translationButtonClicked' => TranslationButtonClickedEvent(
-          contentId: map['contentId'] as String,
-          viewTranslated: map['viewTranslated'] as bool,
-          contentKind: ContentKind.fromString(map['contentKind'] as String),
-        ),
+        contentId: map['contentId'] as String,
+        viewTranslated: map['viewTranslated'] as bool,
+        contentKind: ContentKind.fromString(map['contentKind'] as String),
+      ),
       'commentButtonClicked' => CommentButtonClickedEvent(
-          postId: map['postId'] as String,
-        ),
+        postId: map['postId'] as String,
+      ),
       'replyButtonClicked' => ReplyButtonClickedEvent(
-          commentId: map['commentId'] as String,
-        ),
+        commentId: map['commentId'] as String,
+      ),
       'seeRepliesButtonClicked' => SeeRepliesButtonClickedEvent(
-          commentId: map['commentId'] as String,
-        ),
+        commentId: map['commentId'] as String,
+      ),
       'profileModified' => ProfileModifiedEvent(
-          nicknameUpdated: map['nicknameUpdated'] as bool,
-          bioUpdated: map['bioUpdated'] as bool,
-          bioLength: map['bioLength'] as int?,
-          pictureUpdated: map['pictureUpdated'] as bool,
-          hasPicture: map['hasPicture'] as bool?,
-        ),
+        nicknameUpdated: map['nicknameUpdated'] as bool,
+        bioUpdated: map['bioUpdated'] as bool,
+        bioLength: map['bioLength'] as int?,
+        pictureUpdated: map['pictureUpdated'] as bool,
+        hasPicture: map['hasPicture'] as bool?,
+      ),
       'sessionStarted' => SessionStartedEvent(
-          sessionId: map['sessionId'] as String,
-        ),
+        sessionId: map['sessionId'] as String,
+      ),
       'sessionStopped' => SessionStoppedEvent(
-          sessionId: map['sessionId'] as String,
-        ),
+        sessionId: map['sessionId'] as String,
+      ),
       _ => UnknownEvent(type: type, rawData: map),
     };
   }
@@ -500,28 +517,19 @@ class ReactionModifiedEvent extends OctopusEvent {
 class PollVotedEvent extends OctopusEvent {
   final String contentId;
   final String optionId;
-  const PollVotedEvent({
-    required this.contentId,
-    required this.optionId,
-  });
+  const PollVotedEvent({required this.contentId, required this.optionId});
 }
 
 class ContentReportedEvent extends OctopusEvent {
   final String contentId;
   final List<ReportReason> reasons;
-  const ContentReportedEvent({
-    required this.contentId,
-    required this.reasons,
-  });
+  const ContentReportedEvent({required this.contentId, required this.reasons});
 }
 
 class ProfileReportedEvent extends OctopusEvent {
   final String profileId;
   final List<ReportReason> reasons;
-  const ProfileReportedEvent({
-    required this.profileId,
-    required this.reasons,
-  });
+  const ProfileReportedEvent({required this.profileId, required this.reasons});
 }
 
 /// Emitted when the current user follows or unfollows a group (1.11+).
@@ -575,10 +583,7 @@ class NotificationClickedEvent extends OctopusEvent {
 class PostClickedEvent extends OctopusEvent {
   final String postId;
   final PostClickedSource source;
-  const PostClickedEvent({
-    required this.postId,
-    required this.source,
-  });
+  const PostClickedEvent({required this.postId, required this.source});
 }
 
 class TranslationButtonClickedEvent extends OctopusEvent {

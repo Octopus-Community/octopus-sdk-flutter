@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
+import '../design.dart';
 
 import 'sample_update_checker.dart';
 import 'sample_update_status.dart';
 
 /// The sample's own update surface — only Play's flow itself belongs to Play.
 ///
-/// Lives in Settings rather than on Home, unlike the Android sample: the
-/// Flutter Home tab is a read-only dashboard by design ("every state-changing
-/// action lives in a scenario or Settings"), and a button that installs a new
-/// build is the least read-only thing in the app. The test ids are the shared
-/// ones either way — the QA lane must not need to know which sample it drives.
+/// Lives in Settings › About, keeping the existing Play check/install actions
+/// and shared QA identifiers after removal of the Home tab.
 class UpdateCard extends StatelessWidget {
   const UpdateCard({super.key, required this.checker});
 
@@ -51,7 +49,7 @@ class UpdateCard extends StatelessWidget {
           explicitChildNodes: true,
           child: Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(SampleSpacing.space4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -60,9 +58,9 @@ class UpdateCard extends StatelessWidget {
                       Icon(
                         Icons.system_update,
                         size: 20,
-                        color: scheme.primary,
+                        color: sampleAccent(Theme.of(context).brightness),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: SampleSpacing.space2),
                       Expanded(
                         child: Semantics(
                           identifier: 'sample-update-status',
@@ -73,17 +71,17 @@ class UpdateCard extends StatelessWidget {
                                   color: isProblem
                                       ? scheme.error
                                       : canUpdate
-                                      ? scheme.primary
-                                      : scheme.onSurface.withValues(
-                                          alpha: 0.74,
-                                        ),
+                                      ? sampleAccent(
+                                          Theme.of(context).brightness,
+                                        )
+                                      : scheme.onSurfaceVariant,
                                 ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: SampleSpacing.space3),
                   Semantics(
                     identifier: 'sample-update-action',
                     button: true,

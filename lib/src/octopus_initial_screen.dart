@@ -166,9 +166,9 @@ class OctopusInitialScreenPost extends OctopusInitialScreen {
 
   @override
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'type': 'post',
-        'postId': info.postId,
-      };
+    'type': 'post',
+    'postId': info.postId,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -191,9 +191,9 @@ class OctopusInitialScreenGroup extends OctopusInitialScreen {
 
   @override
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'type': 'group',
-        'groupId': info.groupId,
-      };
+    'type': 'group',
+    'groupId': info.groupId,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -217,9 +217,9 @@ class OctopusInitialScreenActivity extends OctopusInitialScreen {
 
   @override
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'type': 'activity',
-        ...info.toMap(),
-      };
+    'type': 'activity',
+    ...info.toMap(),
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -249,12 +249,10 @@ class OctopusInitialScreenProfile extends OctopusInitialScreen {
     // is encoded as absent rather than sent as an id that could never resolve:
     // `memberIdToMap` returns null for it, so this branch also covers `''` and
     // `'   '`.
-    final member =
-        id == null ? null : memberIdToMap(MemberIdSource.clientUserId, id);
-    return <String, dynamic>{
-      'type': 'profile',
-      if (member != null) 'member': member,
-    };
+    final member = id == null
+        ? null
+        : memberIdToMap(MemberIdSource.clientUserId, id);
+    return <String, dynamic>{'type': 'profile', 'member': ?member};
   }
 
   @override
@@ -281,9 +279,9 @@ class OctopusInitialScreenCreatePost extends OctopusInitialScreen {
 
   @override
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'type': 'createPost',
-        ...info.toMap(),
-      };
+    'type': 'createPost',
+    ...info.toMap(),
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -346,8 +344,8 @@ class ActivityScreenInfo {
   /// that does not expose client user ids — the screen shows its empty state
   /// rather than falling back to any other member.
   const ActivityScreenInfo.clientUserId(String clientUserId)
-      : _source = MemberIdSource.clientUserId,
-        _id = clientUserId;
+    : _source = MemberIdSource.clientUserId,
+      _id = clientUserId;
 
   /// Identify the member by their Octopus profile id.
   ///
@@ -355,8 +353,8 @@ class ActivityScreenInfo {
   /// [OctopusSDK.fetchCommunityData]): the screen opens directly, with no
   /// client-user-id lookup and no `exposeClientUserId` requirement.
   const ActivityScreenInfo.profileId(String profileId)
-      : _source = MemberIdSource.profileId,
-        _id = profileId;
+    : _source = MemberIdSource.profileId,
+      _id = profileId;
 
   /// The host app's own id for the member, or `null` when this info was built
   /// from an Octopus profile id.
@@ -376,7 +374,7 @@ class ActivityScreenInfo {
   /// way to ask for the connected user's own profile.
   Map<String, dynamic> toMap() {
     final member = memberIdToMap(_source, _id);
-    return <String, dynamic>{if (member != null) 'member': member};
+    return <String, dynamic>{'member': ?member};
   }
 
   @override

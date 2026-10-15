@@ -87,8 +87,9 @@ class OctopusPrefilledPost {
   }) {
     final normalizedText = (text == null || text.isEmpty) ? null : text;
     final normalizedImage = (image == null || image.isEmpty) ? null : image;
-    final normalizedTopicId =
-        (topicId == null || topicId.trim().isEmpty) ? null : topicId;
+    final normalizedTopicId = (topicId == null || topicId.trim().isEmpty)
+        ? null
+        : topicId;
 
     // No content-empty check: text and image are both optional (native 1.13).
     // A topicId-/CTA-only payload opens the editor on the preselected group with
@@ -127,11 +128,11 @@ class OctopusPrefilledPost {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'text': text,
-        'image': image,
-        'topicId': topicId,
-        'cta': cta?.toMap(),
-      };
+    'text': text,
+    'image': image,
+    'topicId': topicId,
+    'cta': cta?.toMap(),
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -144,13 +145,13 @@ class OctopusPrefilledPost {
 
   @override
   int get hashCode => Object.hash(
-        text,
-        // Uint8List has no value-based hashCode; fold its length + a content
-        // sample so equal payloads hash equally without scanning huge buffers.
-        image == null ? null : Object.hash(image!.length, _imageHashSample()),
-        topicId,
-        cta,
-      );
+    text,
+    // Uint8List has no value-based hashCode; fold its length + a content
+    // sample so equal payloads hash equally without scanning huge buffers.
+    image == null ? null : Object.hash(image!.length, _imageHashSample()),
+    topicId,
+    cta,
+  );
 
   int _imageHashSample() {
     final bytes = image!;
@@ -160,7 +161,8 @@ class OctopusPrefilledPost {
   }
 
   @override
-  String toString() => 'OctopusPrefilledPost(text: $text, '
+  String toString() =>
+      'OctopusPrefilledPost(text: $text, '
       'image: ${image == null ? 'null' : '${image!.length} bytes'}, '
       'topicId: $topicId, cta: $cta)';
 }
@@ -188,7 +190,7 @@ sealed class OctopusPrefilledPostValidationError extends ArgumentError {
 final class OctopusPrefilledPostContentEmptyError
     extends OctopusPrefilledPostValidationError {
   OctopusPrefilledPostContentEmptyError()
-      : super('at least one of `text` or `image` must be provided.');
+    : super('at least one of `text` or `image` must be provided.');
 
   @override
   String toString() => 'OctopusPrefilledPostContentEmptyError: $message';
@@ -201,7 +203,7 @@ final class OctopusPrefilledPostTextTooShortError
   final int min;
 
   OctopusPrefilledPostTextTooShortError(this.min)
-      : super('prefilled text is shorter than $min characters.');
+    : super('prefilled text is shorter than $min characters.');
 
   @override
   String toString() => 'OctopusPrefilledPostTextTooShortError: $message';
@@ -214,7 +216,7 @@ final class OctopusPrefilledPostTextTooLongError
   final int max;
 
   OctopusPrefilledPostTextTooLongError(this.max)
-      : super('prefilled text exceeds $max characters.');
+    : super('prefilled text exceeds $max characters.');
 
   @override
   String toString() => 'OctopusPrefilledPostTextTooLongError: $message';
@@ -224,7 +226,7 @@ final class OctopusPrefilledPostTextTooLongError
 final class OctopusPrefilledPostCtaLabelEmptyError
     extends OctopusPrefilledPostValidationError {
   OctopusPrefilledPostCtaLabelEmptyError()
-      : super('CTA `label` must not be empty or blank.');
+    : super('CTA `label` must not be empty or blank.');
 
   @override
   String toString() => 'OctopusPrefilledPostCtaLabelEmptyError: $message';
@@ -234,7 +236,7 @@ final class OctopusPrefilledPostCtaLabelEmptyError
 final class OctopusPrefilledPostCtaUrlEmptyError
     extends OctopusPrefilledPostValidationError {
   OctopusPrefilledPostCtaUrlEmptyError()
-      : super('CTA `url` must have a non-empty string representation.');
+    : super('CTA `url` must have a non-empty string representation.');
 
   @override
   String toString() => 'OctopusPrefilledPostCtaUrlEmptyError: $message';

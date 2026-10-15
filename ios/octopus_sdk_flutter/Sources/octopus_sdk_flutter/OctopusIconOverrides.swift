@@ -112,7 +112,8 @@ func octopusIcons(from images: [String: UIImage]) -> OctopusUI.OctopusTheme.Asse
       toggle: pair("common.toggle"),
       moreActions: images["common.moreActions"],
       activityButton: images["common.activityButton"],
-      listCellNavIndicator: images["common.listCellNavIndicator"]
+      listCellNavIndicator: images["common.listCellNavIndicator"],
+      clearText: images["common.clearText"]
     ),
     screenStates: Icons.ScreenStates(
       emptyContent: images["screenStates.emptyContent"],

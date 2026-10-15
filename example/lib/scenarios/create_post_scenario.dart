@@ -216,12 +216,12 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
     final effectiveSelected = _effectiveGroupId(groups);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(SampleSpacing.space4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Payload', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             TextField(
               controller: _textCtrl,
               minLines: 3,
@@ -235,7 +235,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                 border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -248,7 +248,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: SampleSpacing.space3),
                 Expanded(
                   child: TextField(
                     controller: _ctaUrlCtrl,
@@ -261,7 +261,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: SampleSpacing.space2),
             Text(
               'The call-to-action rides along invisibly: it is not shown in the '
               'editor, only on the published post. Emptying either field makes '
@@ -270,7 +270,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: SampleSpacing.space3),
             DropdownButtonFormField<String?>(
               dropdownColor: theme.brightness == Brightness.dark
                   ? sampleDarkElevated
@@ -312,13 +312,13 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                 });
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: SampleSpacing.space4),
             Text('Image (presets 3, 4 & 5)', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
+            const SizedBox(height: SampleSpacing.space2),
             Row(
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(SampleRadius.md),
                   child: Image.asset(
                     _imageAsset,
                     width: 48,
@@ -326,7 +326,7 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                     fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: SampleSpacing.space3),
                 Expanded(
                   child: Text(
                     'The image-bearing presets attach this bundled asset '
@@ -339,9 +339,9 @@ class _CreatePostScenarioState extends State<CreatePostScenario> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: SampleSpacing.space4),
             Text('Last payload sent', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
+            const SizedBox(height: SampleSpacing.space1),
             Text(_lastPayload, style: theme.textTheme.bodySmall),
           ],
         ),

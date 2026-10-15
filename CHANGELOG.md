@@ -1,3 +1,215 @@
+## 1.15.0
+
+### Added
+- Three consent wording variants, nullable debug override and effective snapshot
+  (native 1.15 required).
+- Debug nickname-choice override, effective config flag and `common.clearText`
+  icon (native 1.15 required).
+- `PostOptions.textRequired` (default `true`).
+
+### Dependencies
+- Android Octopus SDK: 1.14.2 → 1.15.0.
+- iOS Octopus SDK: 1.14.0 → 1.15.0 (CocoaPods and Swift Package Manager).
+
+### Fixed
+- Android community-data lookup failures now reach the error path like iOS;
+  only a successful lookup with no member returns `null`.
+- Native diagnostic logs no longer include event payloads, profile data or tapped URLs.
+- Android `syncFollowGroups` skips malformed entries while processing valid actions.
+- Android bridge token requests fail after 60 seconds with no token, like the
+  other bridge failure paths; explicit null replies remain supported.
+- Android deletes temporary avatar images after connection completes and on disconnect.
+
+### Changed
+- The wrapper now reports the Flutter SDK family and wrapper version to both
+  native SDKs.
+- Native 1.15 adds community default avatars, image-and-poll posts, optional text
+  for posts with an image, and a block action after reporting content. Members
+  choose their nickname before their first contribution; community consent texts
+  are displayed in the member's language.
+- Android keeps the 1.14 horizontal slide between SDK screens. Native 1.15 lets
+  SDK screens inherit the host navigation transitions, which would have turned it
+  into a cross-fade. No Dart API change. (#547)
+- Android Compose UI tooling is now a debug-only dependency.
+- Android build dependencies now match the pinned native SDK; the plugin uses
+  the stable Gradle 8.14.5 wrapper and no longer enables Jetifier.
+
+### Example App
+- Consent wording scenario with eight presets and reset of both wordings and
+  mode, nickname-choice scenario, and text-optional image post preset.
+- Successful `connectWithProfile` calls notify listeners after clearing the previous
+  connection error, even if the active user changed while connecting, so the
+  example no longer displays a stale connection error (#540).
+- Late profile notes for another user preserve the active edit baseline and
+  disconnect clears the active user's snapshot (#535).
+- Custom server forms prefill the build host or SDK default, legacy defaults
+  re-saved with port 443 migrate to Demo, and keyless Demo choices show a hint.
+  Settings identifies Demo's SDK default; Debug info shows the connected user,
+  unread notifications and the profile-edit callback alias (#514, #518).
+- Profile saves retain the current session's token provider and entitlements,
+  notify once, and community changes discard the previous profile baseline
+  (#525).
+- Android: update core library desugaring to 2.1.5 and the Google Services
+  Gradle plugin to 4.5.0; Kotlin remains at 2.1.0 to exercise the host floor.
+- Profile edits preserve unedited fields, including after a cold start (#516, #524).
+- Pending profile restores no longer overwrite a more recently connected profile (#527).
+- Profile notes and clears for another user no longer cancel the active user's
+  pending restore (#531).
+- Demo always uses the current build host when applied or restored, ignoring
+  stale Custom endpoints. Legacy default configurations regain the Demo label.
+- Applying a server change preserves the selected API key source. Named build
+  keys are selected explicitly; Demo remains available alongside them.
+- Settings and Debug info align their server, community, SDK status, account
+  and profile-editor labels with the native sample; unavailable SDK version and
+  network details are explicit. Configuration documentation describes Apply
+  and Reset, and language/reset persistence failures no longer interrupt local
+  updates or log skipped SDK locale calls.
+- Debug-override scenarios keep their applied presets during Community navigation
+  and across disconnect and user-session reset, matching native override lifetime.
+  They clear on community switch, Settings reset or SDK stop.
+- Turning the Unified Profile switch off restores the backend community flag and
+  removes the host profile callback, matching the Android sample. The separate
+  flag override controls offer the backend value or force on.
+
+### Removed
+- Octopus-owned email Magic Link authentication is no longer exposed by the
+  Flutter SDK or its sample. Both native bridges now use SSO exclusively.
+
+### Breaking
+- Integrators now need Flutter 3.44.0 and Dart 3.12.0 or later. Android hosts
+  require `minSdk 23`, `compileSdk 35`, Kotlin 2.1 or later and Android Gradle
+  Plugin 8.6 or later.
+- `OctopusSDK.initializeOctopusAuth` and `switchCommunityOctopusAuth` have been
+  removed. Use `initialize` / `switchCommunity`, handle the host login callback,
+  and call `connectUser` with a token provider supplied by your backend. See
+  [MIGRATING.md](MIGRATING.md#to-1150-from-114x--app-owned-authentication-only).
+
+### Deprecated
+- Android's public `triggerCallback` and `triggerCallbackWithArgs` helpers are
+  retained with deprecation warnings until the next major version; no Dart handler listens to them.
+- `SettingsListScreen`, `SettingsAccountScreen` and `DeleteAccountScreen` are
+  retained as deprecated screen events for compatibility.
+- `OctopusSettingsIcons.account`, `logout`, `deleteAccountWarning` and the
+  unnamed constructor are deprecated. Use `OctopusSettingsIcons.helpAndInfo`
+  for help and information icons; app-owned accounts do not use the other icons.
+
+### Fixed
+- Android: `profile.emptyNotifications` is no longer forwarded to the deprecated
+  native notifications icon group, where it had no visible effect. As on iOS,
+  an empty notification list draws `screenStates.emptyNotifications`.
+- Android: embedded widgets accept `isVisible` to stop handling system Back
+  while retained behind plain `Offstage`, opacity, or custom host visibility.
+  Updates preserve the native navigation stack and combine with automatic
+  tab/route visibility detection. The parameter is a no-op on iOS.
+- **Token-provider connection rollbacks now release all retention bookkeeping.**
+  This includes pending-request counters. Reaching the retention ceiling logs the
+  dropped provider generation and limit (never the user ID) through the SDK's
+  debug logging.
+- Android: `debugOverrideProfileFieldsLock`, `debugOverrideContentOptions` and
+  `debugOverrideTermsAcceptanceMode` now report `OVERRIDE_ERROR` when parsing or
+  applying an override fails, matching `debugOverrideExposeClientUserId`.
+- **Sample app: the launcher icon is the current Octopus app symbol.** Android and
+  iOS now ship the three-dot symbol on the navy gradient with the Flutter logo in the
+  small bubble, like the native samples. Android 8+ draws it from vector layers,
+  including a themed-icon layer; `example/assets/icon/render_app_icons.swift`
+  renders the legacy, iOS and Play Store rasters from the SVG sources, and replaces
+  `flutter_launcher_icons`.
+- **Android: retained Community views no longer consume system Back while their
+  tab is inactive or a Flutter route covers them.** This includes plain
+  `IndexedStack` tabs without a `TickerMode` wrapper. Returning from a host page
+  restores the same native screen and its navigation history. Hiding a view caps
+  its lifecycle at CREATED and pauses video; returning re-runs ON_RESUME work,
+  including counter refreshes and post view-count updates. An overlay on an outer
+  Navigator still needs the host to hide the embedded subtree with `Visibility`
+  or disable its `TickerMode` when the SDK uses a nested Navigator.
+- **Android `minSdk` is 23, as the native Octopus Android SDK requires.** The
+  plugin, README and integration guide said 21, which let a `minSdk` 21 app
+  resolve the plugin and then fail at manifest merge. The 1.14.0 notes listed
+  Android `minSdk` 21 among the floors that did not move, but native Android
+  1.9.0 and later already pulled Media3 1.9.0, whose AARs declare
+  `minSdkVersion` 23, so every plugin release built on native 1.9.0 or later,
+  1.14.x included, needed 23 in practice.
+- Documentation: the requirements table states the SwiftPM floor (Flutter
+  3.41+) and the iOS-only `debug*` dartdoc no longer pins a Flutter version.
+- Documentation: base64 `picture` values that do not decode to an image connect
+  without a picture (`connectUser`).
+- **Profile pictures now use the same parsing rules on Android and iOS.**
+  Surrounding whitespace is trimmed, HTTP(S) URLs are recognized regardless of
+  case, and raw base64 or base64 `data:` URIs (any media type, parameters
+  included) accept missing padding and line breaks. An invalid picture makes the
+  bridge log one warning under the `OctopusSDK` tag (Android) or the native SDK's
+  logger subsystem (iOS) and connect without a picture (#460, #462).
+- **iOS: unpadded base64 images were silently dropped.** Android's
+  `Base64.DEFAULT` decodes `"YWJjZA"` and a wrapped `"YWJj\nZA"`, while
+  Foundation returns nil unless the alphabet characters come in a multiple of 4,
+  so the same host value produced an image on Android and none on iOS. This hit
+  the profile picture, the theme logo (home screen and create-post presenter)
+  and the theme icons. The bridge now completes the `=` padding when it is
+  entirely absent, counting alphabet characters only, before decoding, in all of
+  those decoders. Incomplete padding (`"YWJjZA="`) is still rejected, as on
+  Android. The doc comment that claimed an exact match with Android is narrowed
+  accordingly (#404).
+- **Android: a profile picture with surrounding whitespace was silently dropped.**
+  `toSdkImage` tested for blankness on the trimmed value but dispatched on the
+  untrimmed one, so a padded `" https://…"` skipped the URL branch, failed base64
+  decoding and connected without a picture. The input is now trimmed once and
+  used for every check, at parity with the iOS bridge.
+- **iOS (Swift Package Manager): the plugin now declares `FlutterFramework`.**
+  The plugin's `Package.swift` depends on the `FlutterFramework` package the
+  Flutter tool generates, as the Flutter plugin-author guide prescribes, which
+  removes the `missing a dependency on FlutterFramework` build warning. Flutter
+  generates that package from **3.41** on: an app on an older Flutter must keep
+  Swift Package Manager disabled (the default before Flutter 3.44) and install
+  the plugin through CocoaPods, which is unaffected (#470).
+- **Docs: the iOS Swift Package Manager status of the debug overrides is
+  corrected.** The 1.14.0 notes said `debugOverrideProfileFieldsLock`,
+  `debugOverrideContentOptions`, `debugOverrideTermsAcceptanceMode` and
+  `debugGetCommunityConfig` always resolve with `UNSUPPORTED_PLATFORM` through
+  Swift Package Manager. CI shows the SPM build on Flutter 3.44.5 reaches the
+  native `OctopusCore` module transitively and runs the real implementation;
+  `UNSUPPORTED_PLATFORM` only answers a build that cannot reach that module.
+  `OctopusCore` is still not a declared product of the native package, so the
+  API docs now state the condition. No behaviour change (#470).
+
+### Dependencies
+- Android Octopus SDK: 1.14.1 → 1.14.2 (SSO ban and profile-sync fixes, safe
+  concurrent `initialize()`/`stop()`; iOS stays on 1.14.0, no API change)
+
+### Example App
+Changes to the example app only — no public SDK API change.
+
+- Configuration renders the SSO user ID label without literal Markdown
+  backticks. The profile editor aligns the Bio icon with the Nickname icon's
+  leading inset and first-line center, including with larger system text.
+- Copied Debug info now includes the Community label alongside the API key source.
+
+- Align sample chrome, scenarios, Settings and Configuration with the Android
+  design system in light and dark mode, including shared controls and result panels.
+
+- Scenarios now opens directly, with Android's searchable six-group catalog,
+  four community containers, a masked live configuration card and pushed
+  detail screens. Unified Profile has its own controls; member lookup accepts
+  an editable ID, and lifecycle actions reset, stop or restart the SDK.
+- **Settings now follows the native sample:** compact Community summary,
+  dedicated Appearance and Language screens, collapsible configuration sections,
+  live host integration controls, grouped diagnostics and a searchable Debug
+  Console. Appearance updates both the host and embedded SDK; language choices
+  persist. Settings rows and radios reflow with large system text.
+
+- **Unified Profile can now be activated from the sample.** The
+  `onNavigateToProfile` host callback (Config → Host callbacks) was off by
+  default and the `exposeClientUserId` override only took effect on the next
+  Apply, so forcing the flag alone kept the SDK's native profile screens. The
+  host callback is now on by default, like the Android sample, and the override
+  applies immediately.
+- **"Unified Profile (exposeClientUserId)" tri-state moved** to a nested
+  section under Scenarios → *Sign-in & user*, with the Android sample's labels
+  (Use backend value / Force active / Force inactive). It applies live (no
+  Apply, no restart) and reads the effective value back in the section.
+- **Dark-mode outlines and card borders are easier to see**, the feature band
+  has a single "Change" tap target, and the large title stays collapsed after
+  a fling to the end of a list while short content stays visible.
+
 ## 1.14.0
 
 ### New Features
@@ -142,7 +354,7 @@ Changes to the example app only — no public SDK API change.
   `onNavigateToProfile`, so both profile routings can be exercised on any
   community; the *Community Data (Unified Profile)* scenario and Debug
   info show the effective value.
-- Target existing demo community content for post deep links, reactions, member
+- Use default demo community content ids for post deep links, reactions, member
   lookups and default topic selection, with build-time and editable input overrides.
 - **Two scenarios closing the cross-platform parity gap with the
   Android/RN/Unity samples** — *Browse Groups* (`fetchGroups`, per-row
@@ -271,7 +483,7 @@ Changes to the example app only — no public SDK API change.
   the route is still current synchronously, right after the callback call
   returns — before any `Future` an `async` handler returns has completed.
   Documentation only — no code, behaviour or API change.
-- `OctopusSDK.showCreatePostScreen()`'s dartdoc now states that it requires an
+- `OctopusSDK().showOctopusCreatePostScreen()`'s dartdoc now states that it requires an
   initialized SDK: called before `initialize()` has completed, it fails on both
   platforms with a `PlatformException` whose code is `NOT_INITIALIZED`, and no
   editor is presented. Documentation only — no code, behaviour or API change.
@@ -1064,5 +1276,3 @@ See [MIGRATING.md](MIGRATING.md#to-190) for details
 - Added user session helpers: `connectUser`, `connectUserWithTokenProvider`, and `disconnectUser`.
 - Introduced embedded `OctopusView` widget with callbacks for login navigation, profile edits, and back events.
 - Added theme customization (colors, font sizz, logo, light/dark modes) passed through to the native UI.
-
-

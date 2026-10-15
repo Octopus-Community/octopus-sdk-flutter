@@ -225,58 +225,61 @@ class ScenarioParametersBlock extends StatelessWidget {
           entry.key: entry.value,
     };
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (spec != null) ...[
-          Row(
-            children: [
-              Expanded(child: _PresetStateRow(state: state)),
-              // Deliberately carries no test id: QA drives presets and Run, never the
-              // editor. A selector here would freeze a layout decision as a contract.
-              TextButton(
-                onPressed: state.customizing
-                    ? state.resetToPreset
-                    : state.enterCustomize,
-                child: Text(
-                  state.customizing ? 'Reset to preset' : 'Customize ›',
-                ),
-              ),
-            ],
-          ),
-          if (state.customizing)
-            for (final param in spec.params)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: TextFormField(
-                  initialValue: param.value,
-                  onChanged: (value) => state.onEdit(param, value),
-                  decoration: InputDecoration(
-                    labelText: '${param.name}: ${param.type}',
-                    helperText: param.help.isEmpty ? null : param.help,
-                    isDense: true,
-                    border: const OutlineInputBorder(),
+    return SamplePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Parameters', style: theme.textTheme.titleSmall),
+          if (spec != null) ...[
+            Row(
+              children: [
+                Expanded(child: _PresetStateRow(state: state)),
+                // Deliberately carries no test id: QA drives presets and Run, never the
+                // editor. A selector here would freeze a layout decision as a contract.
+                TextButton(
+                  onPressed: state.customizing
+                      ? state.resetToPreset
+                      : state.enterCustomize,
+                  child: Text(
+                    state.customizing ? 'Reset to preset' : 'Customize ›',
                   ),
                 ),
-              )
-          else
-            for (final param in spec.params)
-              SampleKeyValue(
-                param.name,
-                param.value.isEmpty ? '(none)' : param.value,
-                mono: true,
-              ),
-        ],
-        for (final entry in readOnly.entries)
-          SampleKeyValue(entry.key, entry.value, mono: true),
-        if (spec == null && readOnly.isEmpty)
-          Text(
-            'Pre-filled — tap Run.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.74),
+              ],
             ),
-          ),
-      ],
+            if (state.customizing)
+              for (final param in spec.params)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: TextFormField(
+                    initialValue: param.value,
+                    onChanged: (value) => state.onEdit(param, value),
+                    decoration: InputDecoration(
+                      labelText: '${param.name}: ${param.type}',
+                      helperText: param.help.isEmpty ? null : param.help,
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                )
+            else
+              for (final param in spec.params)
+                SampleParameterRow(
+                  name: param.name,
+                  type: param.type,
+                  value: param.value.isEmpty ? '(none)' : param.value,
+                ),
+          ],
+          for (final entry in readOnly.entries)
+            SampleParameterRow(name: entry.key, value: entry.value),
+          if (spec == null && readOnly.isEmpty)
+            Text(
+              'Pre-filled — tap Execute.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -295,7 +298,10 @@ class _PresetStateRow extends StatelessWidget {
       return Align(
         alignment: Alignment.centerLeft,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: SampleSpacing.space1,
+          ),
           decoration: BoxDecoration(
             color: sampleDarkChipFill,
             border: Border.all(color: sampleDarkChipBorder),
@@ -320,7 +326,10 @@ class _PresetStateRow extends StatelessWidget {
             color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: SampleSpacing.space1,
+            ),
             child: Text('Custom', style: theme.textTheme.labelMedium),
           ),
         ),
@@ -330,7 +339,7 @@ class _PresetStateRow extends StatelessWidget {
     return Text(
       spec.presetLabels[index],
       style: theme.textTheme.labelMedium?.copyWith(
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.74),
+        color: theme.colorScheme.onSurfaceVariant,
       ),
     );
   }

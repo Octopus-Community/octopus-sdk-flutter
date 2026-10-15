@@ -26,6 +26,7 @@ import com.octopuscommunity.sdk.domain.model.Post
 import com.octopuscommunity.sdk.domain.model.ProfileField
 import com.octopuscommunity.sdk.ui.OctopusDestination
 import com.octopuscommunity.sdk.ui.OctopusTheme
+import com.octopuscommunity.sdk.ui.OctopusTransitionsDefaults
 import com.octopuscommunity.sdk.ui.components.NavigationIconType
 import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
 import com.octopuscommunity.sdk.ui.home.OctopusHomeContent as NativeOctopusHomeContent
@@ -303,6 +304,10 @@ fun OctopusHomeScreen(
             // onBack when it lands there.
             octopusComposables(
                 navController = navController,
+                // Since native 1.15 the SDK destinations inherit the host NavHost transitions, and this
+                // NavHost sets none (cross-fade). Keep the 1.14 horizontal slide, the Android match for
+                // the iOS navigation push.
+                transitions = OctopusTransitionsDefaults(),
                 // Propagate the host-supplied bottom safe-area inset to the SDK
                 // sub-screens too (post/comment detail, create-post, …), not just
                 // the main feed above. The embedded platform view consumes the
@@ -334,8 +339,8 @@ fun OctopusHomeScreen(
             LaunchedEffect(link) {
                 try {
                     navController.navigate(Uri.parse("octopus-sdk://$link"))
-                } catch (e: Exception) {
-                    Log.w("OctopusHomeScreen", "Deep link navigation failed: $link", e)
+                } catch (t: Exception) {
+                    Log.w("OctopusHomeScreen", "Deep link navigation failed: ${t.javaClass.simpleName}")
                 }
             }
         }

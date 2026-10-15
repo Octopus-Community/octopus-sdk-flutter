@@ -1,22 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_state.dart';
 import '../design.dart';
+import '../feature_toggles.dart';
 import '../octopus_demo_config.dart';
 import '../settings/account_screen.dart';
+import '../settings/host_integration_screen.dart';
+import '../settings/settings_choices.dart';
 import 'api_key_registry.dart';
 import 'user_id_registry.dart';
-
-/// How the Config screen was reached — it is a single screen with two entries.
-enum ConfigEntry {
-  /// First launch / after Reset data: mounted as the app's `home`, commits
-  /// with **Start SDK** and hands over to the shell.
-  onboarding,
-
-  /// Settings → Change Configuration (or any in-app link to a section):
-  /// pushed on top of the shell, commits with **Apply** and pops back.
-  revisit,
-}
 
 /// A section of the Config screen an in-app link can land on.
 ///
@@ -26,9 +19,9 @@ enum ConfigEntry {
 /// callbacks are how the host integrates with the SDK, and the anchor keeps
 /// the name the other samples link with.
 enum ConfigSection {
-  community('config-section-community', 'Community'),
   server('config-section-server', 'Server environment'),
-  auth('config-section-auth', 'Authentication (SSO)'),
+  community('config-section-community', 'Community'),
+  auth('config-section-auth', 'Connect your users (SSO)'),
   theme('config-section-theme', 'Theme'),
   integration('config-section-hostCallbacks', 'Host callbacks');
 
@@ -46,7 +39,7 @@ enum ConfigSection {
       anchor == null ? null : values.asNameMap()[anchor];
 }
 
-/// Pushes the Config screen as a revisit, scrolled to [anchor] when given.
+/// Pushes Configuration, scrolled to [anchor] when given.
 ///
 /// The one way an in-app link opens Config, so every link lands the same way:
 /// seeded with the live config, committed with Apply, popped back afterwards.
@@ -54,403 +47,211 @@ Future<void> openConfigScreen(BuildContext context, {ConfigSection? anchor}) {
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => ConfigScreen(
-        initialConfig: AppScope.maybeOf(context)?.config,
-        entry: ConfigEntry.revisit,
+        initialConfig: AppScope.maybeOf(context)?.configurationChoices,
         anchor: anchor,
       ),
     ),
   );
 }
 
-/// The sample's one configuration screen, reached from two places
-/// ([ConfigEntry]).
-///
-/// Five sections, in this order: Community, Server environment,
-/// Authentication (SSO), Theme, Host callbacks (flat list of all 7 rows, none
-/// buried behind a nested "Advanced" expander). Nothing is applied until the
-/// anchored bottom button is pressed — the screen is a pure form, so backing
-/// out of a revisit changes nothing.
-///
-/// **API key picking.** When the build carries the named demo-key set
-/// (private `--dart-define` launcher — see `api_key_registry.dart`), the
-/// screen lists them as a single-choice radio picker with one "Custom…"
-/// fallback entry for pasting an arbitrary key. On keyless / public builds
-/// the list is empty, and the screen falls back to the original Demo / Custom
-/// segmented selector (the generic `OCTOPUS_API_KEY` define).
+/// A staged configuration form pushed above the permanent sample shell.
+/// Sections start collapsed except for a requested anchor.
 class ConfigScreen extends StatefulWidget {
-  /// Choices restored from the persisted config when bootstrap could not
-  /// auto-start it (see [AppState.restoredConfig]), or the live config when
-  /// revisiting — everything except the API key, which is never persisted.
-  /// `null` on a true first launch and after Settings → Reset data.
-  final DemoConfig? initialConfig;
-
-  final ConfigEntry entry;
-
-  /// The section to scroll into view when the screen opens, or `null` for the
-  /// top. Honoured once, on the first frame: a rebuild, or coming back from a
-  /// route pushed above, leaves the scroll position where the user put it.
-  final ConfigSection? anchor;
-
   const ConfigScreen({
     super.key,
     this.initialConfig,
-    this.entry = ConfigEntry.onboarding,
     this.anchor,
+    this.injectedKeys,
   });
+  final DemoConfig? initialConfig;
+  final ConfigSection? anchor;
 
+  /// Synthetic build keys for widget tests; otherwise uses the build registry.
+  @visibleForTesting
+  final List<InjectedApiKey>? injectedKeys;
   @override
   State<ConfigScreen> createState() => _ConfigScreenState();
 }
 
 class _ConfigScreenState extends State<ConfigScreen> {
   late ApiKeySource _apiKeySource;
-
-  /// Selected named key — restored from [ConfigScreen.initialConfig] when
-  /// there is one, else the slot matching the generic `OCTOPUS_API_KEY` (the
-  /// launcher's primary key), so the picker starts on the key the sample
-  /// would have used anyway; first slot otherwise.
   late InjectedApiKey? _selectedKey;
-
   late AppThemeChoice _theme;
-  late bool _octopusNavyTheme;
-
-  /// Runtime server environment. Defaults to [ServerEnv.demo] so a fresh
-  /// install can never land on production by omission.
-  late ServerEnv _serverEnv;
-
-  final _customKeyController = TextEditingController();
-  late final TextEditingController _customHostController;
-
-  /// Free-text User ID controller — seeded with the restored user id when
-  /// there is one, else the build-time [octopusUserId] (or the first picker
-  /// slot, which is always the seed). The quick-pick chips below the field
-  /// overwrite this controller's text rather than maintaining a separate
-  /// selection model — one source of truth, simpler UX.
-  late final TextEditingController _userIdController;
-
-  /// Local edit of the host-callback toggles; committed with the rest of the
-  /// form. `null` until touched — the live value then shows through.
-  bool? _profileWired;
-  ExposeClientUserIdOverride? _exposeOverride;
-  bool? _onNavigateToContentWired;
-  bool? _onAuthenticationRequiredWired;
-  bool? _onPushNotificationTappedWired;
-  bool? _onUnreadCountChangedWired;
-  bool? _onEventWired;
-  bool? _onErrorWired;
-
-  bool _starting = false;
-
-  /// One key per section, so [ConfigScreen.anchor] can be scrolled to.
-  final Map<ConfigSection, GlobalKey> _sectionKeys = {
+  late bool _navy;
+  late ServerEnv _server;
+  final _customKey = TextEditingController();
+  late final TextEditingController _userId;
+  late final TextEditingController _host;
+  late final TextEditingController _port;
+  bool _applying = false;
+  final _keys = {
     for (final section in ConfigSection.values) section: GlobalKey(),
   };
-
-  bool get _hasNamedKeys => injectedApiKeys.isNotEmpty;
-
-  bool get _isRevisit => widget.entry == ConfigEntry.revisit;
+  bool get _restarting => AppScope.maybeOf(context)?.initialized ?? false;
+  List<InjectedApiKey> get _injectedKeys =>
+      widget.injectedKeys ?? injectedApiKeys;
 
   @override
   void initState() {
     super.initState();
-    // Everything the persisted config still carries is restored here; the API
-    // key is not, by design (see [DemoConfig.toJson]), so the user re-enters
-    // that one field and nothing else.
-    final restored = widget.initialConfig;
-    _apiKeySource = restored?.apiKeySource ?? ApiKeySource.demo;
-    _selectedKey =
-        restored?.selectedInjectedKey ??
-        (injectedApiKeys.isEmpty
-            ? null
-            : injectedApiKeys.firstWhere(
-                (k) => k.key == octopusApiKey,
-                orElse: () => injectedApiKeys.first,
-              ));
-    _theme = restored?.theme ?? AppThemeChoice.system;
-    _octopusNavyTheme = restored?.octopusNavyTheme ?? true;
-    _serverEnv = restored?.serverEnv ?? ServerEnv.demo;
-    _customHostController = TextEditingController(
-      text: restored?.customHost ?? '',
+    final config = widget.initialConfig;
+    _apiKeySource = config?.apiKeySource ?? ApiKeySource.demo;
+    _selectedKey = config?.selectedInjectedKey;
+    _customKey.text = config?.customApiKey ?? '';
+    _userId = TextEditingController(
+      text: config?.userId ?? pickerUserIds.first,
     );
-    _userIdController = TextEditingController(
-      text:
-          restored?.userId ??
-          (pickerUserIds.isNotEmpty ? pickerUserIds.first : octopusUserId),
+    _theme = config?.theme ?? AppThemeChoice.system;
+    _navy = config?.octopusNavyTheme ?? true;
+    // Demo resolves to the build-injected host. No feature-environment picker.
+    _server = config?.serverEnv ?? ServerEnv.demo;
+    _host = TextEditingController(
+      text: (config?.customHost.trim().isNotEmpty ?? false)
+          ? config!.customHost.trim()
+          : _buildHost.trim().isNotEmpty
+          ? _buildHost.trim()
+          : productionHost,
     );
-    // initState runs once per screen, so the anchor is honoured once per
-    // navigation — never replayed by a rebuild or a return from a pushed route.
-    final anchor = widget.anchor;
-    if (anchor != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollTo(anchor));
+    _port = TextEditingController(text: '${config?.customPort ?? 443}');
+    if (widget.anchor case final anchor?) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _keys[anchor]?.currentContext;
+        if (mounted && target != null) {
+          Scrollable.ensureVisible(
+            target,
+            duration: const Duration(milliseconds: 300),
+          );
+        }
+      });
     }
   }
 
-  /// Brings [section]'s header to the top of the viewport (or as close as the
-  /// scroll extent allows — the last sections cannot reach the very top).
-  void _scrollTo(ConfigSection section) {
-    final target = _sectionKeys[section]?.currentContext;
-    if (!mounted || target == null) return;
-    Scrollable.ensureVisible(
-      target,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  /// Wraps a section so [_scrollTo] can find it.
-  Widget _anchored(ConfigSection section, Widget child) =>
-      KeyedSubtree(key: _sectionKeys[section], child: child);
+  String get _buildHost =>
+      context
+          .getInheritedWidgetOfExactType<AppScope>()
+          ?.notifier
+          ?.configurationChoices
+          .buildHost ??
+      widget.initialConfig?.buildHost ??
+      octopusDemoApiHost;
 
   @override
   void dispose() {
-    _customKeyController.dispose();
-    _customHostController.dispose();
-    _userIdController.dispose();
+    _customKey.dispose();
+    _userId.dispose();
+    _host.dispose();
+    _port.dispose();
     super.dispose();
-  }
-
-  /// The user id Start records on [DemoConfig]: whatever's in the text field
-  /// after trim. Empty falls back to the build-time seed so the JWT signer
-  /// always gets a non-empty `sub`.
-  String get _effectiveUserId {
-    final raw = _userIdController.text.trim();
-    return raw.isEmpty ? octopusUserId : raw;
   }
 
   DemoConfig get _draft => DemoConfig(
     apiKeySource: _apiKeySource,
-    customApiKey: _customKeyController.text.trim(),
+    customApiKey: _customKey.text.trim(),
     selectedInjectedKey: _apiKeySource == ApiKeySource.demo
         ? _selectedKey
         : null,
-    userId: _effectiveUserId,
+    userId: _userId.text.trim().isEmpty ? octopusUserId : _userId.text.trim(),
     theme: _theme,
-    serverEnv: _serverEnv,
-    customHost: _customHostController.text.trim(),
-    octopusNavyTheme: _octopusNavyTheme,
+    octopusNavyTheme: _navy,
+    serverEnv: _server,
+    customHost: _server == ServerEnv.custom ? _host.text.trim() : '',
+    customPort: int.tryParse(_port.text) ?? 443,
+    buildHost: _buildHost,
+    featureToggles:
+        widget.initialConfig?.featureToggles ??
+        AppScope.maybeOf(context)?.featureToggles ??
+        FeatureToggles.defaults,
   );
 
+  String? get _serverError {
+    if (_server != ServerEnv.custom) return null;
+    final port = int.tryParse(_port.text);
+    if (port == null || port < 1 || port > 65535) {
+      return 'Use a port from 1 to 65535.';
+    }
+    try {
+      ApiServer(host: _host.text.trim(), port: port);
+      return null;
+    } on ArgumentError {
+      return 'Enter a hostname without a scheme, path or port.';
+    }
+  }
+
   Future<void> _commit() async {
-    setState(() => _starting = true);
+    setState(() => _applying = true);
     final app = AppScope.of(context);
-    final wired = _profileWired;
-    if (wired != null) app.setUnifiedProfileWired(wired);
-    if (_exposeOverride case final v?) {
-      await app.setExposeClientUserIdOverride(v);
-    }
-    if (_onNavigateToContentWired case final v?) {
-      app.setOnNavigateToContentWired(v);
-    }
-    if (_onAuthenticationRequiredWired case final v?) {
-      app.setOnAuthenticationRequiredWired(v);
-    }
-    if (_onPushNotificationTappedWired case final v?) {
-      app.setOnPushNotificationTappedWired(v);
-    }
-    if (_onUnreadCountChangedWired case final v?) {
-      app.setOnUnreadCountChangedWired(v);
-    }
-    if (_onEventWired case final v?) app.setOnEventWired(v);
-    if (_onErrorWired case final v?) app.setOnErrorWired(v);
     await app.start(_draft);
+    // A configuration preset replaces the temporary Theme scenario preset.
+    app.setThemePreset(_navy);
     if (!mounted) return;
-    setState(() => _starting = false);
-    // Onboarding: the root rebuilds to the main shell once config is set,
-    // nothing to pop. Revisit: hand the user back where they came from.
-    if (_isRevisit) Navigator.of(context).maybePop();
+    setState(() => _applying = false);
+    if (app.initError != null) {
+      showSampleSnackBar(
+        context,
+        'Could not apply configuration. Check Debug info.',
+      );
+      return;
+    }
+    if (Navigator.of(context).canPop() &&
+        (ModalRoute.of(context)?.isCurrent ?? false)) {
+      Navigator.of(context).pop();
+    }
   }
 
-  /// Single-choice picker over the injected named keys + a Custom fallback.
-  Widget _buildKeyPicker(BuildContext context) {
-    return Semantics(
-      identifier: 'config-apiKeySource-select',
-      container: true,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: Column(
-          children: [
-            for (final key in injectedApiKeys)
-              Semantics(
-                identifier: 'config-apiKey-option-${key.id}',
-                child: RadioListTile<String>(
-                  dense: true,
-                  title: Text(key.label),
-                  value: key.id,
-                  // ignore: deprecated_member_use
-                  groupValue: _apiKeySource == ApiKeySource.demo
-                      ? _selectedKey?.id
-                      : null,
-                  // ignore: deprecated_member_use
-                  onChanged: (_) => setState(() {
-                    _apiKeySource = ApiKeySource.demo;
-                    _selectedKey = key;
-                  }),
-                ),
-              ),
-            Semantics(
-              identifier: 'config-apiKey-option-custom',
-              child: RadioListTile<String>(
-                dense: true,
-                title: const Text('Custom…'),
-                subtitle: const Text('Paste any API key'),
-                value: 'custom',
-                // ignore: deprecated_member_use
-                groupValue: _apiKeySource == ApiKeySource.custom
-                    ? 'custom'
-                    : null,
-                // ignore: deprecated_member_use
-                onChanged: (_) =>
-                    setState(() => _apiKeySource = ApiKeySource.custom),
-              ),
+  Widget _section(ConfigSection section, Widget child) => KeyedSubtree(
+    key: _keys[section],
+    child: Semantics(
+      identifier: section.identifier,
+      child: Column(
+        children: [
+          const Divider(height: 1),
+          ExpansionTile(
+            key: ValueKey('config-${section.name}'),
+            tilePadding: EdgeInsets.zero,
+            minTileHeight: 48,
+            title: Text(
+              section.title,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
-          ],
-        ),
+            initiallyExpanded: widget.anchor == section,
+            shape: const Border(),
+            collapsedShape: const Border(),
+            childrenPadding: const EdgeInsets.only(bottom: 8),
+            children: [child],
+          ),
+        ],
       ),
-    );
-  }
-
-  /// Free-text User ID field with a row of quick-pick chips that fill the
-  /// field. Always-visible text input keeps the UX flat — no dropdown, no
-  /// modal — so QA can type any `sub` (or tap a shortcut) and get on with
-  /// it. The seed (build-time `OCTOPUS_USER_ID`) is always present in
-  /// [pickerUserIds] so the default chip row offers the launcher's identity.
-  Widget _buildUserIdPicker(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Semantics(
-          identifier: 'config-userId-input',
-          container: true,
-          child: TextField(
-            controller: _userIdController,
-            decoration: const InputDecoration(
-              labelText: 'User id (SSO `sub`)',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (_) => setState(() {}),
-          ),
-        ),
-        if (pickerUserIds.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final id in pickerUserIds)
-                Semantics(
-                  identifier: 'config-userId-quickpick-$id',
-                  child: ActionChip(
-                    label: Text(id),
-                    onPressed: () => setState(() {
-                      _userIdController.text = id;
-                      _userIdController.selection = TextSelection.collapsed(
-                        offset: id.length,
-                      );
-                    }),
-                  ),
-                ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 6),
-        Text(
-          'Used by Connection-scenario presets (the JWT `sub`) and the '
-          'profile-edit re-connect path. Running two instances of the sample '
-          'side-by-side? Pick a different id on each so the BE sees two '
-          'distinct users — required for push-notification end-to-end QA.',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        if (!hasInjectedSsoSecret && _effectiveUserId != octopusUserId) ...[
-          const SizedBox(height: 4),
-          Text(
-            'Note: this build has no SSO secret injected, so connect uses the '
-            'pre-baked OCTOPUS_USER_TOKEN — which is signed for '
-            '"$octopusUserId". A different id will fail to connect until a '
-            'signer is available.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.error,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  /// Original Demo / Custom segmented selector — keyless / public builds.
-  Widget _buildLegacySourceSelect(BuildContext context) {
-    return _ConfigSelect<ApiKeySource>(
-      testId: 'config-apiKeySource-select',
-      selected: _apiKeySource,
-      segments: const [
-        (ApiKeySource.demo, 'Demo'),
-        (ApiKeySource.custom, 'Custom'),
-      ],
-      onChanged: (v) => setState(() => _apiKeySource = v),
-    );
-  }
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final demoKeyMissing =
-        _apiKeySource == ApiKeySource.demo &&
-        !_hasNamedKeys &&
-        !hasInjectedApiKey;
-    // The common landing state now that a pasted key is never persisted: the
-    // user comes back to a restored `custom` config with an empty field.
-    // Starting from there would initialise the SDK with no key at all, so the
-    // button waits for the paste instead of dropping them on Home with an
-    // init error.
-    final customKeyMissing =
-        _apiKeySource == ApiKeySource.custom &&
-        _customKeyController.text.trim().isEmpty;
-    final customHostMissing =
-        _serverEnv == ServerEnv.custom &&
-        _customHostController.text.trim().isEmpty;
     final draft = _draft;
-    final wired =
-        _profileWired ??
-        AppScope.maybeOf(context)?.unifiedProfileWired ??
-        false;
-
     return Semantics(
       identifier: 'config-screen',
       child: SampleScaffold(
-        appBar: AppBar(
-          title: SampleAppBarTitle(
-            _isRevisit ? 'Change Configuration' : 'Configuration',
-          ),
+        appBar: const SampleTopAppBar(
+          title: 'Configuration',
+          size: SampleTopBarSize.medium,
+          showPlatformBadge: true,
         ),
-        // A Column in a scroll view rather than a ListView: a ListView only
-        // builds what is near the viewport, and an anchor below the fold has
-        // to exist before it can be scrolled to. Five sections — nothing to
-        // gain from lazy building.
-        body: SampleDockFade(
+        body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  _isRevisit
+                  _restarting
                       ? 'Change the setup, then Apply — the SDK restarts with it.'
-                      : 'Configure the SDK, then start it.',
-                  style: theme.textTheme.bodyMedium,
+                      : 'Change the setup, then Apply.',
                 ),
-                // Every Apply goes through a restart of the SDK session — a theme
-                // or language change included — and the SDK comes back as a
-                // guest. Saying so here is the whole fix: the restart itself is by
-                // design (#355).
-                if (_isRevisit) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'The restart drops the connected SSO user — reconnect from '
-                    'Settings › Account.',
-                    style: theme.textTheme.bodySmall,
+                if (_restarting) ...[
+                  const Text(
+                    'The restart drops the connected SSO user — reconnect from Settings › Account.',
                   ),
-                  // Opened above this screen, not by switching tabs: switching
-                  // would pop the form and throw away what is being edited. Back
-                  // returns here with every field as it was.
                   SampleLink(
                     label: 'Open Settings › Account',
                     identifier: 'config-account-link',
@@ -461,481 +262,252 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 16),
-
-                // ── 1. Community ────────────────────────────────────────────
-                _anchored(
-                  ConfigSection.community,
-                  SampleSection(
-                    title: ConfigSection.community.title,
-                    identifier: ConfigSection.community.identifier,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_hasNamedKeys)
-                          _buildKeyPicker(context)
-                        else
-                          _buildLegacySourceSelect(context),
-                        if (_apiKeySource == ApiKeySource.custom) ...[
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _customKeyController,
-                            // Drives `customKeyMissing` (commit button + hint below)
-                            // as the user types.
-                            onChanged: (_) => setState(() {}),
-                            decoration: const InputDecoration(
-                              labelText: 'Custom API key',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          if (customKeyMissing) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              'Paste an API key to start. It is kept for this '
-                              'session only — never written to device storage, so '
-                              'it has to be re-entered on the next launch.',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ],
-                        if (demoKeyMissing) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'No demo key injected. Pass '
-                            '--dart-define=OCTOPUS_API_KEY=… to initialize the SDK; '
-                            'otherwise Home will show an init error.',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── 2. Server environment ───────────────────────────────────
-                _anchored(
+                const SizedBox(height: SampleSpacing.space4),
+                _section(
                   ConfigSection.server,
-                  SampleSection(
-                    title: ConfigSection.server.title,
-                    identifier: ConfigSection.server.identifier,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _ConfigSelect<ServerEnv>(
-                          testId: 'config-serverEnv-select',
-                          selected: _serverEnv,
-                          segments: [
-                            for (final env in ServerEnv.values)
-                              (env, env.label),
-                          ],
-                          onChanged: (v) => setState(() => _serverEnv = v),
-                        ),
-                        if (_serverEnv == ServerEnv.custom) ...[
-                          const SizedBox(height: 12),
-                          Semantics(
-                            identifier: 'config-customHost-input',
-                            container: true,
-                            child: TextField(
-                              controller: _customHostController,
-                              onChanged: (_) => setState(() {}),
-                              autocorrect: false,
-                              keyboardType: TextInputType.url,
-                              decoration: const InputDecoration(
-                                labelText: 'Host',
-                                hintText: 'api.example.com',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SettingsChoices<ServerEnv>(
+                        identifier: 'config-serverEnv-select',
+                        selected: _server,
+                        options: const [
+                          (ServerEnv.demo, 'Demo'),
+                          (ServerEnv.prod, 'Prod'),
+                          (ServerEnv.custom, 'Custom'),
                         ],
-                        const SizedBox(height: 10),
-                        SampleKeyValue('Host', draft.hostLabel, mono: true),
-                        const SizedBox(height: 6),
-                        Text(switch (_serverEnv) {
-                          ServerEnv.demo =>
-                            hasInjectedDemoHost
-                                ? 'The demo backend injected into this build '
-                                      '(--dart-define=OCTOPUS_API_HOST).'
-                                : 'This build injected no demo host, so Demo '
-                                      'falls back to the SDK default — which is '
-                                      'production.',
-                          ServerEnv.prod =>
-                            'No host is passed to the SDK: it uses its built-in '
-                                'production server, where every action hits real '
-                                'communities.',
-                          ServerEnv.custom =>
-                            'Point the SDK at any reachable backend — a feature '
-                                'environment, a local relay.',
-                        }, style: theme.textTheme.bodySmall),
-                        if (customHostMissing) ...[
-                          const SizedBox(height: 4),
+                        onChanged: (value) => setState(() => _server = value),
+                      ),
+                      if (_server == ServerEnv.custom) ...[
+                        TextField(
+                          controller: _host,
+                          decoration: const InputDecoration(
+                            labelText: 'Host',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.url,
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        const SizedBox(height: SampleSpacing.space2),
+                        TextField(
+                          controller: _port,
+                          decoration: const InputDecoration(
+                            labelText: 'Port',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        if (_serverError case final error?)
                           Text(
-                            'Type a host to apply, or switch back to Demo.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.error,
+                            error,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
                             ),
                           ),
-                        ],
                       ],
-                    ),
+                      SampleKeyValue('Host', draft.hostLabel, mono: true),
+                      const Text(
+                        'Demo uses the server injected into this build. Prod uses the SDK default. Feature environments are not available here.',
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                // ── 3. Authentication (SSO) ─────────────────────────────────
-                _anchored(
+                _section(
+                  ConfigSection.community,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_injectedKeys.isNotEmpty)
+                        SettingsChoices<String>(
+                          identifier: 'config-apiKeySource-select',
+                          selected: _apiKeySource == ApiKeySource.custom
+                              ? 'custom'
+                              : (_selectedKey?.id ?? ''),
+                          options: [
+                            ('', 'Demo'),
+                            for (final key in _injectedKeys)
+                              (key.id, key.label),
+                            ('custom', 'Custom…'),
+                          ],
+                          onChanged: (value) => setState(() {
+                            _apiKeySource = value == 'custom'
+                                ? ApiKeySource.custom
+                                : ApiKeySource.demo;
+                            _selectedKey = value.isEmpty || value == 'custom'
+                                ? null
+                                : _injectedKeys.firstWhere(
+                                    (key) => key.id == value,
+                                  );
+                          }),
+                        )
+                      else
+                        SettingsChoices<ApiKeySource>(
+                          identifier: 'config-apiKeySource-select',
+                          selected: _apiKeySource,
+                          options: const [
+                            (ApiKeySource.demo, 'Demo'),
+                            (ApiKeySource.custom, 'Custom'),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _apiKeySource = value),
+                        ),
+                      if (_apiKeySource == ApiKeySource.custom) ...[
+                        TextField(
+                          controller: _customKey,
+                          obscureText: true,
+                          enableSuggestions: false,
+                          autocorrect: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Custom API key',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        const Text(
+                          'Demo keys only. Kept for this session, never saved.',
+                        ),
+                      ],
+                      if (_apiKeySource == ApiKeySource.demo &&
+                          !hasInjectedApiKey &&
+                          _selectedKey == null)
+                        const Text(
+                          'No demo key injected. The sample remains navigable; the SDK cannot initialize.',
+                        ),
+                      SampleKeyValue(
+                        'API key',
+                        draft.effectiveApiKey.isEmpty
+                            ? 'Not configured'
+                            : '••••••••',
+                      ),
+                    ],
+                  ),
+                ),
+                _section(
                   ConfigSection.auth,
-                  SampleSection(
-                    title: ConfigSection.auth.title,
-                    identifier: ConfigSection.auth.identifier,
-                    child: _buildUserIdPicker(context),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Semantics(
+                        identifier: 'config-userId-input',
+                        container: true,
+                        child: TextField(
+                          controller: _userId,
+                          decoration: const InputDecoration(
+                            labelText: 'User id (SSO sub)',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      const SizedBox(height: SampleSpacing.space2),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          for (final id in pickerUserIds)
+                            ActionChip(
+                              label: Text(id),
+                              onPressed: () => setState(() {
+                                _userId.text = id;
+                                _userId.selection = TextSelection.collapsed(
+                                  offset: id.length,
+                                );
+                              }),
+                            ),
+                        ],
+                      ),
+                      const Text(
+                        'Used by the sign-in scenario and Account. Apply records the user ID; connect from Account.',
+                      ),
+                      SampleKeyValue(
+                        'Unified Profile',
+                        AppScope.maybeOf(context)?.exposeClientUserIdSummary ??
+                            'Unknown',
+                      ),
+                      SampleLink(
+                        label: 'Open Unified Profile scenario',
+                        identifier: 'config-unified-profile-link',
+                        onTap: () {
+                          AppScope.maybeOf(
+                            context,
+                          )?.requestScenariosSection('sso');
+                          Navigator.of(
+                            context,
+                          ).popUntil((route) => route.isFirst);
+                        },
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                // ── 4. Theme ────────────────────────────────────────────────
-                _anchored(
+                _section(
                   ConfigSection.theme,
-                  SampleSection(
-                    title: ConfigSection.theme.title,
-                    identifier: ConfigSection.theme.identifier,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Appearance', style: theme.textTheme.labelMedium),
-                        const SizedBox(height: 8),
-                        _ConfigSelect<AppThemeChoice>(
-                          testId: 'config-theme-select',
-                          selected: _theme,
-                          segments: const [
-                            (AppThemeChoice.system, 'System'),
-                            (AppThemeChoice.light, 'Light'),
-                            (AppThemeChoice.dark, 'Dark'),
-                          ],
-                          onChanged: (v) => setState(() => _theme = v),
-                        ),
-                        const SizedBox(height: 12),
-                        // Spec 01: "Theme preset" / "Octopus navy" | "SDK default".
-                        // The underlying OctopusTheme preset ([brandOctopusTheme])
-                        // is repainted navy to match — see the doc comment on
-                        // `_sdkPrimaryMainLight` in branding.dart. Sample-only: the
-                        // "SDK default" preset (an unset OctopusTheme) is untouched.
-                        Text(
-                          'Theme preset',
-                          style: theme.textTheme.labelMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        _ConfigSelect<bool>(
-                          testId: 'config-themePreset-select',
-                          selected: _octopusNavyTheme,
-                          segments: const [
-                            (true, 'Octopus navy'),
-                            (false, 'SDK default'),
-                          ],
-                          onChanged: (v) =>
-                              setState(() => _octopusNavyTheme = v),
-                          helperText:
-                              'Which OctopusTheme the embedded community starts on. '
-                              'Theme scenarios can still override it live.',
-                        ),
-                        const SizedBox(height: 12),
-                        Text('Language', style: theme.textTheme.labelMedium),
-                        const SizedBox(height: 8),
-                        // Applied immediately, not batched with the rest of the
-                        // form: a locale override has no server round-trip and no
-                        // reason to wait for Apply/Start SDK. `maybeOf`, like the
-                        // rest of this screen must tolerate: the Config screen also
-                        // renders standalone in its widget test, outside the app
-                        // shell that normally provides AppScope. Confirmed with
-                        // grammar D (spec 08): a reversible, already-applied
-                        // change gets a snackbar with Undo, never a silent no-op.
-                        _ConfigSelect<LocaleChoice>(
-                          testId: 'config-language-select',
-                          selected:
-                              AppScope.maybeOf(context)?.localeChoice ??
-                              LocaleChoice.system,
-                          segments: const [
-                            (LocaleChoice.system, 'System'),
-                            (LocaleChoice.en, 'en'),
-                            (LocaleChoice.fr, 'fr'),
-                          ],
-                          onChanged: (v) {
-                            final app = AppScope.maybeOf(context);
-                            if (app == null) return;
-                            final previous = app.localeChoice;
-                            if (previous == v) return;
-                            app.setLocale(v);
-                            showSampleSnackBar(
-                              context,
-                              'Language applied',
-                              undoLabel: 'Undo',
-                              onUndo: () => app.setLocale(previous),
-                            );
-                          },
-                          helperText:
-                              "Overrides the locale the SDK renders its own "
-                              'screens in. The sample is English-only by design.',
-                        ),
-                      ],
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Appearance'),
+                      SettingsChoices<AppThemeChoice>(
+                        segmented: true,
+                        identifier: 'config-theme-select',
+                        selected: _theme,
+                        options: [
+                          for (final choice in AppThemeChoice.values)
+                            (choice, choice.label),
+                        ],
+                        onChanged: (value) => setState(() => _theme = value),
+                      ),
+                      const Text('Theme preset'),
+                      SettingsChoices<bool>(
+                        segmented: true,
+                        identifier: 'config-themePreset-select',
+                        selected: _navy,
+                        options: const [
+                          (true, 'Octopus navy'),
+                          (false, 'SDK default'),
+                        ],
+                        onChanged: (value) => setState(() => _navy = value),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                // ── 5. Host callbacks — flat list, all 7 rows, not collapsed ──
-                _anchored(
-                  ConfigSection.integration,
-                  SampleSection(
-                    title: ConfigSection.integration.title,
+                KeyedSubtree(
+                  key: _keys[ConfigSection.integration],
+                  child: Semantics(
                     identifier: ConfigSection.integration.identifier,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'What the SDK calls back into the host app. On = the '
-                          "sample provides the implementation; off = the callback "
-                          "isn't passed to the SDK, so you see its default "
-                          'behaviour.',
-                          style: theme.textTheme.bodySmall,
+                    child: SampleNavTile(
+                      icon: Icons.code,
+                      title: 'Host app integration',
+                      subtitle:
+                          'Profile, sign-in, links: now in Settings › Developer tools',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const HostIntegrationScreen(),
                         ),
-                        const SizedBox(height: 4),
-                        Semantics(
-                          identifier: 'qa-toggle-unifiedProfileWired',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value: wired,
-                            title: const Text('onNavigateToProfile'),
-                            subtitle: const Text(
-                              "Opens the host's profile screen. Requires the "
-                              'community to expose client user ids.',
-                            ),
-                            onChanged: (v) => setState(() => _profileWired = v),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Unified Profile (exposeClientUserId)',
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 6),
-                        _ConfigSelect<ExposeClientUserIdOverride>(
-                          testId: 'config-exposeClientUserId-select',
-                          selected:
-                              _exposeOverride ??
-                              AppScope.maybeOf(
-                                context,
-                              )?.exposeClientUserIdOverride ??
-                              ExposeClientUserIdOverride.backend,
-                          segments: [
-                            for (final choice
-                                in ExposeClientUserIdOverride.values)
-                              (choice, choice.label),
-                          ],
-                          onChanged: (v) => setState(() => _exposeOverride = v),
-                          helperText:
-                              'The community flag the host profile also needs. '
-                              'Backend keeps the server value; Force overrides '
-                              'it locally (debug API, demo only).',
-                        ),
-                        Semantics(
-                          identifier: 'qa-toggle-onNavigateToContent',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value:
-                                _onNavigateToContentWired ??
-                                AppScope.maybeOf(
-                                  context,
-                                )?.onNavigateToContentWired ??
-                                true,
-                            title: const Text('onNavigateToContent'),
-                            subtitle: const Text(
-                              "Deep-links to a piece of the host's own content. "
-                              'Not wired in the Flutter binding yet.',
-                            ),
-                            onChanged: (v) =>
-                                setState(() => _onNavigateToContentWired = v),
-                          ),
-                        ),
-                        Semantics(
-                          identifier: 'qa-toggle-onAuthenticationRequired',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value:
-                                _onAuthenticationRequiredWired ??
-                                AppScope.maybeOf(
-                                  context,
-                                )?.onAuthenticationRequiredWired ??
-                                true,
-                            title: const Text('onAuthenticationRequired'),
-                            subtitle: const Text(
-                              'The host must sign the user in. Not wired in the '
-                              'Flutter binding yet.',
-                            ),
-                            onChanged: (v) => setState(
-                              () => _onAuthenticationRequiredWired = v,
-                            ),
-                          ),
-                        ),
-                        Semantics(
-                          identifier: 'qa-toggle-onPushNotificationTapped',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value:
-                                _onPushNotificationTappedWired ??
-                                AppScope.maybeOf(
-                                  context,
-                                )?.onPushNotificationTappedWired ??
-                                true,
-                            title: const Text('onPushNotificationTapped'),
-                            subtitle: const Text(
-                              'An Octopus push payload was received by the host. '
-                              'Not wired in the Flutter binding yet.',
-                            ),
-                            onChanged: (v) => setState(
-                              () => _onPushNotificationTappedWired = v,
-                            ),
-                          ),
-                        ),
-                        Semantics(
-                          identifier: 'qa-toggle-onUnreadCountChanged',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value:
-                                _onUnreadCountChangedWired ??
-                                AppScope.maybeOf(
-                                  context,
-                                )?.onUnreadCountChangedWired ??
-                                true,
-                            title: const Text('onUnreadCountChanged'),
-                            subtitle: const Text(
-                              "Feeds the host's own badge. Not wired in the "
-                              'Flutter binding yet.',
-                            ),
-                            onChanged: (v) =>
-                                setState(() => _onUnreadCountChangedWired = v),
-                          ),
-                        ),
-                        Semantics(
-                          identifier: 'qa-toggle-onEvent',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value:
-                                _onEventWired ??
-                                AppScope.maybeOf(context)?.onEventWired ??
-                                false,
-                            title: const Text('onEvent'),
-                            subtitle: const Text(
-                              'Analytics: SDK events forwarded to the host. Not '
-                              'wired in the Flutter binding yet.',
-                            ),
-                            onChanged: (v) => setState(() => _onEventWired = v),
-                          ),
-                        ),
-                        Semantics(
-                          identifier: 'qa-toggle-onError',
-                          container: true,
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            value:
-                                _onErrorWired ??
-                                AppScope.maybeOf(context)?.onErrorWired ??
-                                false,
-                            title: const Text('onError'),
-                            subtitle: const Text(
-                              'SDK errors surfaced to the host. Not wired in the '
-                              'Flutter binding yet.',
-                            ),
-                            onChanged: (v) => setState(() => _onErrorWired = v),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
               ],
             ),
           ),
         ),
-        bottomNavigationBar: SafeArea(
-          minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: MergeSemantics(
-            child: Semantics(
-              identifier: 'config-start-button',
-              button: true,
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton(
-                  onPressed:
-                      (_starting || customKeyMissing || customHostMissing)
-                      ? null
-                      : _commit,
-                  child: Text(
-                    _starting
-                        ? (_isRevisit ? 'Applying…' : 'Starting…')
-                        : (_isRevisit ? 'Apply' : 'Start SDK'),
-                  ),
-                ),
-              ),
+        bottomNavigationBar: SampleActionBar(
+          child: Semantics(
+            identifier: 'config-start-button',
+            button: true,
+            child: FilledButton(
+              onPressed:
+                  _applying ||
+                      _serverError != null ||
+                      (_apiKeySource == ApiKeySource.custom &&
+                          _customKey.text.trim().isEmpty)
+                  ? null
+                  : _commit,
+              child: Text(_applying ? 'Applying…' : 'Apply'),
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-/// A [SegmentedButton] carrying a verbatim catalog [testId], with an optional
-/// caption underneath.
-class _ConfigSelect<T> extends StatelessWidget {
-  final String testId;
-  final T selected;
-  final List<(T, String)> segments;
-  final ValueChanged<T> onChanged;
-  final String? helperText;
-
-  const _ConfigSelect({
-    required this.testId,
-    required this.selected,
-    required this.segments,
-    required this.onChanged,
-    this.helperText,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Semantics(
-          identifier: testId,
-          container: true,
-          child: SizedBox(
-            width: double.infinity,
-            child: SegmentedButton<T>(
-              segments: [
-                for (final (value, text) in segments)
-                  ButtonSegment(value: value, label: Text(text)),
-              ],
-              selected: {selected},
-              showSelectedIcon: false,
-              onSelectionChanged: (s) => onChanged(s.first),
-            ),
-          ),
-        ),
-        if (helperText != null) ...[
-          const SizedBox(height: 6),
-          Text(helperText!, style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ],
     );
   }
 }

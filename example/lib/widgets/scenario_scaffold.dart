@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../debug/debug_console.dart';
+import '../scenarios/scenario_copy.dart';
+import '../sample_tab.dart';
 import '../design.dart';
 import '../feature_toggles.dart';
 import 'scenario_customize.dart';
@@ -16,11 +19,15 @@ class ScenarioSectionScope extends InheritedWidget {
     super.key,
     required this.sectionId,
     required this.featureToggle,
+    this.copy,
+    this.api,
     required super.child,
   });
 
   /// Section id — the `<id>` of `scenarios-section-<id>`.
   final String sectionId;
+  final ScenarioCopy? copy;
+  final String? api;
 
   /// The feature toggle the section owns, or `null` when it owns none.
   ///
@@ -34,6 +41,8 @@ class ScenarioSectionScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(ScenarioSectionScope oldWidget) =>
+      copy != oldWidget.copy ||
+      api != oldWidget.api ||
       sectionId != oldWidget.sectionId ||
       featureToggle != oldWidget.featureToggle;
 }
@@ -133,6 +142,11 @@ class ScenarioScaffold extends StatefulWidget {
   /// (e.g. the current unseen count or community-access value).
   final Widget? liveState;
 
+  /// Interactive scenario controls and optional free-form execution fields.
+  final Widget? controls;
+  final Widget? inputFields;
+  final ScenarioPreset? execute;
+
   /// Whether this scenario's effect is observable in the community — adds the
   /// secondary "Verify in Community" action of zone 4.
   final bool verifyInCommunity;
@@ -164,6 +178,9 @@ class ScenarioScaffold extends StatefulWidget {
     required this.resultTestId,
     this.api,
     this.liveState,
+    this.controls,
+    this.inputFields,
+    this.execute,
     this.verifyInCommunity = false,
     this.hidesResult = false,
     this.youWillSee,
@@ -177,7 +194,7 @@ class ScenarioScaffold extends StatefulWidget {
 }
 
 class _ScenarioScaffoldState extends State<ScenarioScaffold> {
-  String _result = 'No action run yet.';
+  String _result = 'Not run yet';
   _ResultStatus _status = _ResultStatus.idle;
   String? _runningTestId;
   Duration? _lastDuration;
@@ -201,11 +218,6 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
   int _callRank = 0;
 
   bool get _singlePreset => widget.presets.length == 1;
-
-  /// The dark dock fade only belongs above a `Run` dock, which only a
-  /// single-preset scenario has (see `bottomNavigationBar` below).
-  Widget _withDockFade(Widget list) =>
-      _singlePreset ? SampleDockFade(child: list) : list;
 
   @override
   void initState() {
@@ -235,7 +247,7 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
       params: config.params,
       replacesCatalogParams: config.replacesCatalogParams,
       onRun: (presetIndex) {
-        // A preset button says which preset it is; Customize's own Run leaves
+        // A preset button says which preset it is; Customize's Execute leaves
         // it to what the fields spell out.
         final matched = presetIndex ?? spec.matchingPreset;
         _run(
@@ -245,7 +257,7 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
                   // Not a catalog id: this button only exists while the fields
                   // are unlocked, and QA never opens Customize.
                   testId: 'scenario-run',
-                  label: 'Run',
+                  label: 'Execute',
                   onRun: config.customRun,
                 ),
         );
@@ -301,7 +313,7 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
   /// Zone 4 — leaves the scenario and lands on the Community tab, where the
   /// effect that was just run is visible.
   void _verifyInCommunity() {
-    AppScope.of(context).requestTab(2);
+    AppScope.of(context).requestTab(SampleTab.community.index);
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
@@ -311,7 +323,7 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
     final app = AppScope.of(context);
     final section = ScenarioSectionScope.maybeOf(context);
     if (section == null) {
-      app.requestTab(1);
+      app.requestTab(SampleTab.scenarios.index);
     } else {
       app.requestScenariosSection(section.sectionId);
     }
@@ -325,31 +337,56 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
     final customize = config == null ? null : _buildCustomizeState(config);
     // Read from the section the scenario was opened from, so every scenario
     // of a section that owns a switch shows it without each one repeating it.
-    final toggle = ScenarioSectionScope.maybeOf(context)?.featureToggle;
+    final section = ScenarioSectionScope.maybeOf(context);
+    final toggle = section?.featureToggle;
+    final copy = section?.copy;
+    final youWillSee = copy?.youWillSee ?? widget.youWillSee;
+    final api = section?.api ?? widget.api;
 
     return SampleScaffold(
-      appBar: AppBar(title: SampleAppBarTitle(widget.title)),
+      appBar: SampleTopAppBar(
+        title: copy?.title ?? widget.title,
+        size: SampleTopBarSize.medium,
+        leading: BackButton(onPressed: () => Navigator.of(context).maybePop()),
+        actions: [
+          IconButton(
+            tooltip: 'Debug console',
+            icon: const Icon(Icons.bug_report_outlined),
+            onPressed: () => showDebugConsoleSheet(context),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(right: 16),
+            child: PlatformBadge(),
+          ),
+        ],
+      ),
       // The node a QA run anchors on before it looks for anything inside.
       body: SafeArea(
         child: Semantics(
           identifier: 'scenario-detail-screen',
           container: true,
-          child: _withDockFade(
-            ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                // ── 1 · What this does ──────────────────────────────────────────
-                if (widget.api != null) ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ApiPill(widget.api!),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                // Two lines by design: the header must stay a header, not a wall of
-                // text between the tester and the Run button. The rest is one tap
-                // away rather than deleted — several descriptions carry the
-                // --dart-define a scenario needs to work at all.
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              SampleSpacing.space4,
+              SampleSpacing.space4,
+              SampleSpacing.space4,
+              SampleSpacing.space6,
+            ),
+            children: [
+              // ── 1 · What this does ──────────────────────────────────────────
+              if (api != null) ...[
+                Align(alignment: Alignment.centerLeft, child: ApiPill(api)),
+                const SizedBox(height: SampleSpacing.space2),
+              ],
+              if (copy != null) ...[
+                Text(copy.description, style: theme.textTheme.bodyMedium),
+                const SizedBox(height: SampleSpacing.space2),
+              ],
+              // Two lines by design: the header must stay a header, not a wall of
+              // text between the tester and the Run button. The rest is one tap
+              // away rather than deleted — several descriptions carry the
+              // --dart-define a scenario needs to work at all.
+              if (copy == null || copy.description != widget.description) ...[
                 Text(
                   widget.description,
                   style: theme.textTheme.bodyMedium,
@@ -362,9 +399,14 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
                   alignment: Alignment.centerLeft,
                   child: TextButton(
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: SampleSpacing.space1,
+                      ),
+                      minimumSize: const Size(
+                        SampleSize.touchMin,
+                        SampleSize.touchMin,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.padded,
                     ),
                     onPressed: () => setState(
                       () => _descriptionExpanded = !_descriptionExpanded,
@@ -372,177 +414,185 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
                     child: Text(_descriptionExpanded ? 'Less' : 'More'),
                   ),
                 ),
-                // Still zone 1, when this scenario's section owns a switch: its
-                // position, read-only, and the way back to the one place it moves.
-                if (toggle != null)
-                  _FeatureStateLine(
-                    toggle: toggle,
-                    onOpenScenarios: _openScenarios,
-                  ),
+              ],
+              // Still zone 1, when this scenario's section owns a switch: its
+              // position, read-only, and the way back to the one place it moves.
+              if (toggle != null)
+                _FeatureStateLine(
+                  toggle: toggle,
+                  onOpenScenarios: _openScenarios,
+                ),
 
-                const SizedBox(height: 16),
+              const SizedBox(height: SampleSpacing.space2),
 
-                // ── 2 · Parameters ──────────────────────────────────────────────
-                SampleSection(
-                  title: 'Parameters',
-                  identifier: 'scenario-parameters',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (widget.liveState != null) ...[
-                        widget.liveState!,
-                        const SizedBox(height: 12),
-                      ],
-                      if (customize != null ||
-                          widget.catalogParams.isNotEmpty) ...[
-                        ScenarioParametersBlock(
-                          state:
-                              customize ??
-                              ScenarioCustomizeState(
-                                spec: null,
-                                holders: ScenarioCustomizeHolders(),
-                                lastCallRank: _callRank,
-                              ),
-                          catalogParams: widget.catalogParams,
+              // ── 2 · Parameters ──────────────────────────────────────────────
+              SampleScenarioBlock(
+                title: 'Try it',
+                identifier: 'scenario-parameters',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (youWillSee != null) ...[
+                      Semantics(
+                        identifier: 'scenario-you-will-see',
+                        child: Text('You will see: $youWillSee'),
+                      ),
+                      const SizedBox(height: SampleSpacing.space3),
+                    ],
+                    if (widget.controls != null) widget.controls!,
+                    if (customize != null ||
+                        widget.catalogParams.isNotEmpty) ...[
+                      ScenarioParametersBlock(
+                        state:
+                            customize ??
+                            ScenarioCustomizeState(
+                              spec: null,
+                              holders: ScenarioCustomizeHolders(),
+                              lastCallRank: _callRank,
+                            ),
+                        catalogParams: widget.catalogParams,
+                      ),
+                      const SizedBox(height: SampleSpacing.space3),
+                    ],
+                    if (_singlePreset)
+                      Text(
+                        'Pre-filled — tap Execute.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
-                        const SizedBox(height: 12),
+                      )
+                    else
+                      for (final (index, preset) in widget.presets.indexed) ...[
+                        _PresetButton(
+                          preset: preset,
+                          busy: _runningTestId == preset.testId,
+                          enabled: _runningTestId == null,
+                          // With Customize wired, a preset button also re-locks
+                          // the fields and snapshots what it ran, so a fresh
+                          // result never hides behind "values changed".
+                          onPressed: customize == null
+                              ? () => _run(preset)
+                              : () => customize.runPreset(index),
+                        ),
+                        const SizedBox(height: SampleSpacing.space2),
                       ],
-                      if (_singlePreset)
-                        Text(
-                          'Pre-filled — tap Run.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                    if (widget.inputFields != null) ...[
+                      widget.inputFields!,
+                      const SizedBox(height: SampleSpacing.space2),
+                    ],
+                    if (widget.execute != null)
+                      _PresetButton(
+                        preset: widget.execute!,
+                        busy: _runningTestId == widget.execute!.testId,
+                        enabled: _runningTestId == null,
+                        onPressed: () => _run(widget.execute!),
+                        label: 'Execute',
+                        primary: true,
+                      ),
+                    // Customize's own Run, only while the fields are unlocked: the
+                    // preset buttons above would overwrite what was just typed.
+                    if (customize != null && customize.customizing)
+                      Semantics(
+                        identifier: 'scenario-run',
+                        button: true,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: SampleSize.touchMin,
                           ),
-                        )
-                      else
-                        for (final (index, preset)
-                            in widget.presets.indexed) ...[
-                          _PresetButton(
-                            preset: preset,
-                            busy: _runningTestId == preset.testId,
-                            enabled: _runningTestId == null,
-                            // With Customize wired, a preset button also re-locks
-                            // the fields and snapshots what it ran, so a fresh
-                            // result never hides behind "values changed".
-                            onPressed: customize == null
-                                ? () => _run(preset)
-                                : () => customize.runPreset(index),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      // Customize's own Run, only while the fields are unlocked: the
-                      // preset buttons above would overwrite what was just typed.
-                      if (customize != null && customize.customizing)
-                        Semantics(
-                          identifier: 'scenario-run',
-                          button: true,
-                          child: SizedBox(
-                            height: 48,
-                            child: FilledButton(
-                              onPressed: _runningTestId == null
-                                  ? customize.run
-                                  : null,
-                              child: Text(_hasRunOnce ? 'Run again' : 'Run'),
+                          child: FilledButton(
+                            onPressed: _runningTestId == null
+                                ? customize.run
+                                : null,
+                            child: Text(
+                              _hasRunOnce ? 'Execute again' : 'Execute',
                             ),
                           ),
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
+              ),
 
-                // The promise, in the words the PO checks it against — outside the
-                // parameters block, so a scenario that takes no argument still makes
-                // one.
-                if (widget.youWillSee != null) ...[
-                  const SizedBox(height: 12),
+              if (widget.liveState != null) ...[
+                const SizedBox(height: SampleSpacing.space2),
+                widget.liveState!,
+              ],
+
+              // ── 3 · Result ──────────────────────────────────────────────────
+              if (!widget.hidesResult) ...[
+                const SizedBox(height: SampleSpacing.space2),
+                if (customize?.resultStale ?? false)
+                  // Keep the idle marker and muted message without a framed
+                  // Result heading when the displayed outcome no longer applies.
                   Semantics(
-                    identifier: 'scenario-you-will-see',
+                    identifier: 'scenario-result-idle',
                     child: Text(
-                      'You will see: ${widget.youWillSee}',
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
-                ],
-
-                // ── 3 · Result ──────────────────────────────────────────────────
-                if (!widget.hidesResult) ...[
-                  const SizedBox(height: 20),
-                  if (customize?.resultStale ?? false)
-                    // Same muted line and the same `scenario-result-idle` id as the
-                    // never-run state — deliberately not a new one, because this is
-                    // the same "nothing here to read" the id already means.
-                    SampleSection(
-                      title: 'Result',
-                      child: Semantics(
-                        identifier: 'scenario-result-idle',
-                        child: Text(
-                          'Not run yet — values changed',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    _ResultPanel(
-                      testId: widget.resultTestId,
-                      text: _result,
-                      status: _status,
-                      duration: _lastDuration,
-                      // The zone shows a skeleton the instant a preset is tapped,
-                      // never the previous run's stale text — spec 09's guard
-                      // against a rerun looking like a no-op tap.
-                      running: _runningTestId != null,
-                    ),
-                ],
-
-                // ── 4 · Verify in Community ─────────────────────────────────────
-                if (widget.verifyInCommunity) ...[
-                  const SizedBox(height: 16),
-                  Semantics(
-                    identifier: 'scenario-verify-button',
-                    button: true,
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton.icon(
-                        onPressed: _verifyInCommunity,
-                        icon: const Icon(Icons.forum_outlined),
-                        label: const Text('Verify in Community'),
-                      ),
-                    ),
-                  ),
-                ],
-
-                // Last, and deliberately so: the caveat answers "why can I not do X
-                // here?", a question you only have after trying.
-                if (widget.note != null) ...[
-                  const Divider(height: 32),
-                  Text(
-                    'Note',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Semantics(
-                    identifier: 'scenario-note',
-                    child: Text(
-                      widget.note!,
+                      'Not run yet — values changed',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                  )
+                else
+                  _ResultPanel(
+                    testId: widget.resultTestId,
+                    text: _result,
+                    status: _status,
+                    duration: _lastDuration,
+                    // The zone shows a skeleton the instant a preset is tapped,
+                    // never the previous run's stale text — spec 09's guard
+                    // against a rerun looking like a no-op tap.
+                    running: _runningTestId != null,
                   ),
-                ],
               ],
-            ),
+
+              // ── 4 · Verify in Community ─────────────────────────────────────
+              if (widget.verifyInCommunity) ...[
+                const SizedBox(height: SampleSpacing.space4),
+                Semantics(
+                  identifier: 'scenario-verify-button',
+                  button: true,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minHeight: SampleSize.touchMin,
+                    ),
+                    child: OutlinedButton.icon(
+                      onPressed: _verifyInCommunity,
+                      icon: const Icon(Icons.forum_outlined),
+                      label: const Text('Verify in Community'),
+                    ),
+                  ),
+                ),
+              ],
+
+              // Last, and deliberately so: the caveat answers "why can I not do X
+              // here?", a question you only have after trying.
+              if (widget.note != null) ...[
+                const Divider(height: 32),
+                Text(
+                  'Note',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: SampleSpacing.space1),
+                Semantics(
+                  identifier: 'scenario-note',
+                  child: Text(
+                    widget.note!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
       // ── 5 · Run ───────────────────────────────────────────────────────
       bottomNavigationBar: _singlePreset
-          ? SafeArea(
-              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          ? SampleActionBar(
               child: _PresetButton(
                 preset: widget.presets.single,
                 busy: _runningTestId != null,
@@ -551,7 +601,7 @@ class _ScenarioScaffoldState extends State<ScenarioScaffold> {
                 // "Run" the first time; "Run again" once the tester has seen
                 // at least one result, so a rerun with an identical outcome
                 // still reads as a deliberate repeat rather than a stuck tap.
-                label: _hasRunOnce ? 'Run again' : 'Run',
+                label: _hasRunOnce ? 'Execute again' : 'Execute',
                 primary: true,
               ),
             )
@@ -576,41 +626,21 @@ class _FeatureStateLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final enabled = AppScope.of(context).featureToggles[toggle];
-
+    // One accessibility action includes the state and Change label; only the
+    // Change button handles pointer taps. Exclude its duplicate semantics.
     return Semantics(
       identifier: 'scenario-feature-state',
+      label: '${toggle.stateLine(enabled)}. Change',
       button: true,
       container: true,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onOpenScenarios,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: Row(
-            children: [
-              // Wraps before the link does: at 320dp and a 1.3 font scale, the
-              // half that says where the switch lives must never be the half
-              // clipped off the right edge.
-              Flexible(
-                child: Text(
-                  toggle.stateLine(enabled),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Change it in Scenarios ›',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ],
-          ),
-        ),
+      excludeSemantics: true,
+      onTap: onOpenScenarios,
+      child: SampleBand(
+        tone: SampleTone.neutral,
+        message: toggle.stateLine(enabled),
+        actionLabel: 'Change',
+        onAction: onOpenScenarios,
       ),
     );
   }
@@ -662,18 +692,17 @@ class _PresetButton extends StatelessWidget {
       child: Semantics(
         identifier: preset.testId,
         button: true,
-        child: SizedBox(
-          width: double.infinity,
-          height: primary ? 48 : null,
-          child: primary
-              ? FilledButton(
-                  onPressed: enabled ? onPressed : null,
-                  child: child,
-                )
-              : FilledButton.tonal(
-                  onPressed: enabled ? onPressed : null,
-                  child: child,
-                ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: double.infinity,
+            minHeight: primary ? SampleSize.actionHeight : SampleSize.touchMin,
+          ),
+          child: SamplePillButton(
+            secondary: !primary,
+            minHeight: primary ? 56 : 48,
+            onPressed: enabled ? onPressed : null,
+            child: child,
+          ),
         ),
       ),
     );
@@ -703,54 +732,34 @@ class _ResultPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
-
-    final (Color accent, IconData icon, String label) = running
-        ? (
-            theme.colorScheme.onSurfaceVariant,
-            Icons.hourglass_empty,
-            'Running…',
-          )
+    final badgeStatus = running
+        ? SampleStatus.running
         : switch (status) {
-            _ResultStatus.error => (
-              sampleDangerFor(brightness),
-              Icons.error_outline,
-              'Error',
-            ),
-            _ResultStatus.success => (
-              sampleGreenFor(brightness),
-              Icons.check_circle_outline,
-              'Success',
-            ),
-            _ResultStatus.idle => (
-              theme.colorScheme.onSurfaceVariant,
-              Icons.terminal,
-              'Idle',
-            ),
+            _ResultStatus.error => SampleStatus.failed,
+            _ResultStatus.success => SampleStatus.passed,
+            _ResultStatus.idle => SampleStatus.ready,
           };
-
-    return SampleSection(
-      title: 'Result',
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: accent),
-          const SizedBox(width: 4),
-          Text(
-            running || duration == null
-                ? label
-                : '$label · ${duration!.inMilliseconds} ms',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-      child: running
-          ? const _ResultSkeleton()
-          : SampleCodeBlock(text, identifier: testId),
+    final label = running
+        ? 'Running…'
+        : switch (status) {
+            _ResultStatus.error => 'Failure',
+            _ResultStatus.success => 'Success',
+            _ResultStatus.idle => 'Idle',
+          };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SampleStatusBadge(
+          status: badgeStatus,
+          label: running || duration == null
+              ? label
+              : '$label · ${duration!.inMilliseconds} ms',
+        ),
+        const SizedBox(height: 8),
+        running
+            ? const _ResultSkeleton()
+            : SampleCodeBlock(text, identifier: testId),
+      ],
     );
   }
 }
@@ -781,7 +790,7 @@ class _ResultSkeleton extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(SampleSpacing.space3),
       decoration: BoxDecoration(
         color: brightness == Brightness.dark
             ? sampleDarkCard
@@ -792,9 +801,9 @@ class _ResultSkeleton extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           line(0.85),
-          const SizedBox(height: 8),
+          const SizedBox(height: SampleSpacing.space2),
           line(0.6),
-          const SizedBox(height: 8),
+          const SizedBox(height: SampleSpacing.space2),
           line(0.4),
         ],
       ),

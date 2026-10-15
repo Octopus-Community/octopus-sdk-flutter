@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:octopus_sdk_flutter_example/app_state.dart';
 import 'package:octopus_sdk_flutter_example/scenarios/locale_scenario.dart';
 
@@ -15,6 +16,7 @@ void main() {
 
   setUp(() {
     calls.clear();
+    SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
@@ -36,9 +38,21 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
+    final app = AppState();
+    addTearDown(app.dispose);
+    await app.start(
+      const DemoConfig(
+        apiKeySource: ApiKeySource.custom,
+        customApiKey: 'fixture-only',
+        userId: 'fixture',
+        theme: AppThemeChoice.system,
+        serverEnv: ServerEnv.prod,
+      ),
+    );
+    calls.clear();
     await tester.pumpWidget(
       AppScope(
-        state: AppState(),
+        state: app,
         child: const MaterialApp(home: LocaleScenario()),
       ),
     );
@@ -52,7 +66,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      calls.map((c) => c.arguments['languageCode']).toList(),
+      calls
+          .where((call) => call.method == 'overrideDefaultLocale')
+          .map((call) => call.arguments['languageCode'])
+          .toList(),
       ['fr'],
       reason: 'the Force fr preset sends fr to the native SDK',
     );

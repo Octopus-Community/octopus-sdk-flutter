@@ -37,6 +37,7 @@ import com.octopuscommunity.sdk.ui.components.OctopusNavigationHandler
 import com.octopuscommunity.sdk.ui.components.UrlOpeningStrategy
 import com.octopuscommunity.sdk.ui.octopusComposables
 import com.octopuscommunity.sdk.ui.OctopusTheme
+import com.octopuscommunity.sdk.ui.OctopusTransitionsDefaults
 import com.octopuscommunity.sdk.ui.posts.create.OctopusCreatePostScreen as NativeOctopusCreatePostScreen
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -217,11 +218,15 @@ class OctopusCreatePostActivity : ComponentActivity() {
                                     info = info
                                 )
                             }
-                            // The editor reaches ValidateNickname / magic-link
+                            // The editor reaches ValidateNickname / host login
                             // routes at publish time when the user is a guest or
                             // has an unconfirmed nickname.
                             octopusComposables(
                                 navController = navController,
+                                // Since native 1.15 the SDK destinations inherit the host NavHost transitions, and this
+                                // NavHost sets none (cross-fade). Keep the 1.14 horizontal slide, the Android match for
+                                // the iOS navigation push.
+                                transitions = OctopusTransitionsDefaults(),
                                 onNavigateToLogin = {
                                     OctopusSDKFlutterPlugin.sendEvent("loginRequired", null)
                                     finish()

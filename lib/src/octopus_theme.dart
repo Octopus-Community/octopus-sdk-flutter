@@ -214,11 +214,11 @@ class OctopusTheme {
     this.icons,
     this.themeMode,
   }) : assert(
-          fontWeight == null || (fontWeight >= 100 && fontWeight <= 900),
-          'fontWeight must be within 100-900, got $fontWeight. '
-          'Pass a FontWeight.value (w100 == 100), not a FontWeight.index '
-          '(w100.index == 0).',
-        );
+         fontWeight == null || (fontWeight >= 100 && fontWeight <= 900),
+         'fontWeight must be within 100-900, got $fontWeight. '
+         'Pass a FontWeight.value (w100 == 100), not a FontWeight.index '
+         '(w100.index == 0).',
+       );
 
   /// Creates a copy of the theme with modified parameters
   OctopusTheme copyWith({

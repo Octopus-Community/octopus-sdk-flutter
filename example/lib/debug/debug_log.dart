@@ -7,7 +7,7 @@ import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import '../app_log.dart';
 
 /// Whether an entry is an SDK event received or an API call the sample made.
-enum DebugEntryKind { event, api }
+enum DebugEntryKind { event, state, api }
 
 /// One line in the Debug console.
 class DebugEntry {
@@ -16,7 +16,9 @@ class DebugEntry {
   final String label;
   final String detail;
 
-  DebugEntry(this.kind, this.label, this.detail) : time = DateTime.now();
+  DebugEntry(this.kind, this.label, String detail)
+    : detail = redactDebugText(detail),
+      time = DateTime.now();
 }
 
 /// Records every SDK event (from [OctopusSDK.eventStream]) and every API call
@@ -70,7 +72,13 @@ class RealDebugLog extends ChangeNotifier implements DemoLogSink {
     _sub ??= OctopusSDK.eventStream.listen((event) {
       final raw = event['event'];
       final type = raw == 'sdkEvent' ? (event['type'] ?? 'sdkEvent') : raw;
-      _add(DebugEntry(DebugEntryKind.event, 'event · $type', event.toString()));
+      _add(
+        DebugEntry(
+          raw == 'sdkEvent' ? DebugEntryKind.event : DebugEntryKind.state,
+          'event · $type',
+          event.toString(),
+        ),
+      );
     });
     _eventsSub ??= OctopusSDK.events.listen((event) {
       _typedEvents.add(event);
@@ -96,7 +104,7 @@ class RealDebugLog extends ChangeNotifier implements DemoLogSink {
   void note(String label, [Map<String, Object?> details = const {}]) {
     _add(
       DebugEntry(
-        DebugEntryKind.event,
+        DebugEntryKind.state,
         'host · $label',
         details.isEmpty
             ? ''
@@ -143,7 +151,7 @@ class RealDebugLog extends ChangeNotifier implements DemoLogSink {
         .map(
           (e) => {
             'time': e.time.toIso8601String(),
-            'source': e.kind == DebugEntryKind.event ? 'SDK' : 'HOST',
+            'source': e.kind == DebugEntryKind.api ? 'HOST' : 'SDK',
             'label': e.label,
             'detail': e.detail,
           },
@@ -162,3 +170,34 @@ class RealDebugLog extends ChangeNotifier implements DemoLogSink {
 
 /// The single Debug-log instance the console reads and the sample logs into.
 final RealDebugLog debugLog = RealDebugLog();
+
+String redactDebugText(String text) => text
+    .replaceAll(
+      RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
+      '[redacted]',
+    )
+    .replaceAllMapped(
+      RegExp(
+        r'(apiKey|api_key|token|secret|authorization)(["\x27]*\s*[:=]\s*["\x27]*)([^,}\s"\x27]+)',
+        caseSensitive: false,
+      ),
+      (match) => '${match[1]}${match[2]}[redacted]',
+    );
+
+List<DebugEntry> filterDebugEntries(
+  List<DebugEntry> entries,
+  String query,
+  Set<DebugEntryKind> kinds,
+) {
+  final needle = query.trim().toLowerCase();
+  return entries
+      .where(
+        (entry) =>
+            kinds.contains(entry.kind) &&
+            (needle.isEmpty ||
+                '${entry.label} ${entry.detail}'.toLowerCase().contains(
+                  needle,
+                )),
+      )
+      .toList();
+}

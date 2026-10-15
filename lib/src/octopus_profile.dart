@@ -18,8 +18,8 @@ class OctopusProfile {
   /// The connected user's id in **your** app's system, as passed to
   /// `connectUser` — the counterpart of the Octopus profile id.
   ///
-  /// Populated in SSO mode for a non-guest user; `null` in
-  /// Octopus-authentication mode (there is no host-side id) and for a guest.
+  /// Populated for a non-guest host user; `null` for guests and restored
+  /// sessions that have no host-side identity.
   /// It is held locally by the native SDKs, **independent of the community's
   /// expose-client-user-ids setting** — that setting gates *other* members'
   /// client user ids, not the connected user's. Use it to correlate the Octopus
@@ -56,6 +56,7 @@ class OctopusProfile {
       Object.hash(Object.hashAllUnordered(entitlements), clientUserId);
 
   @override
-  String toString() => 'OctopusProfile(entitlements: $entitlements, '
+  String toString() =>
+      'OctopusProfile(entitlements: $entitlements, '
       'clientUserId: $clientUserId)';
 }

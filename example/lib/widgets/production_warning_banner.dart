@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../octopus_demo_config.dart';
+import '../design.dart';
 
 /// A persistent red banner shown on **internal builds only**
 /// (`--dart-define=OCTOPUS_INTERNAL=true`) whenever the sample talks to the
@@ -59,7 +60,10 @@ class ProductionWarningBanner extends StatelessWidget {
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: SampleSpacing.space3,
+              vertical: SampleSpacing.space2,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -68,7 +72,7 @@ class ProductionWarningBanner extends StatelessWidget {
                   size: 20,
                   color: scheme.onErrorContainer,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: SampleSpacing.space2),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

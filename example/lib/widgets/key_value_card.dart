@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../design.dart';
 
 /// A simple labelled-rows card used by the Home dashboard and scenario
 /// live-state panels.
@@ -10,40 +11,16 @@ class KeyValueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (title != null) ...[
-              Text(title!, style: theme.textTheme.titleSmall),
-              const SizedBox(height: 8),
-            ],
-            for (final (key, value) in rows)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 150,
-                      child: Text(
-                        key,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(value, style: theme.textTheme.bodyMedium),
-                    ),
-                  ],
-                ),
-              ),
+    return SampleSection(
+      title: title ?? 'Live state',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, row) in rows.indexed) ...[
+            if (i > 0) const SizedBox(height: 4),
+            SampleKeyValue(row.$1, row.$2),
           ],
-        ),
+        ],
       ),
     );
   }

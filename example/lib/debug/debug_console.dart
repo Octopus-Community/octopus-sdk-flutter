@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_log.dart';
 import '../design.dart';
@@ -17,87 +18,125 @@ void installDebugConsole() {
   demoLog = debugLog;
 }
 
-/// Settings → Developer tools → Debug console: the same merged SDK/HOST feed
-/// as Events log, as a **sheet over the current screen** (spec 07) rather
-/// than a full push — a quick "what just happened" glance that doesn't lose
-/// the tester's place on whichever screen they were checking.
-Future<void> showDebugConsoleSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (context) => Semantics(
-      identifier: 'debug-console-sheet',
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.92,
-        expand: false,
-        builder: (context, scrollController) {
-          final theme = Theme.of(context);
-          return Column(
+/// A draggable console with independent kind filters and text search.
+Future<void> showDebugConsoleSheet(BuildContext context) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => const _DebugConsole(),
+    );
+
+class _DebugConsole extends StatefulWidget {
+  const _DebugConsole();
+  @override
+  State<_DebugConsole> createState() => _DebugConsoleState();
+}
+
+class _DebugConsoleState extends State<_DebugConsole> {
+  String _query = '';
+  final _kinds = DebugEntryKind.values.toSet();
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    identifier: 'debug-console-sheet',
+    child: DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      minChildSize: 0.25,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, controller) => ListenableBuilder(
+        listenable: debugLog,
+        builder: (context, _) {
+          final entries = filterDebugEntries(debugLog.entries, _query, _kinds);
+          return ListView(
+            controller: controller,
+            padding: const EdgeInsets.all(SampleSpacing.space4),
             children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.4,
-                  ),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+              Text(
+                'Debug Console',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Row(
+              Wrap(
+                alignment: WrapAlignment.end,
+                children: [
+                  IconButton(
+                    tooltip: 'Copy All',
+                    icon: const Icon(Icons.copy),
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: debugLog.exportText()),
+                      );
+                      if (context.mounted) {
+                        showSampleSnackBar(context, 'Logs copied');
+                      }
+                    },
+                  ),
+                  IconButton(
+                    tooltip: 'Clear Log',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: debugLog.clear,
+                  ),
+                  Semantics(
+                    identifier: 'debug-console-close',
+                    child: IconButton(
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ],
+              ),
+              TextField(
+                decoration: const InputDecoration(
+                  hintText: 'Search logs...',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: (value) => setState(() => _query = value),
+              ),
+              const SizedBox(height: SampleSpacing.space2),
+              Semantics(
+                identifier: 'debug-filter-select',
+                child: Wrap(
+                  spacing: SampleSpacing.space2,
                   children: [
-                    Expanded(
-                      child: Text(
-                        'Debug console',
-                        style: theme.textTheme.titleMedium,
+                    for (final kind in DebugEntryKind.values)
+                      FilterChip(
+                        label: Text(
+                          '${switch (kind) {
+                            DebugEntryKind.event => 'Event',
+                            DebugEntryKind.state => 'State',
+                            DebugEntryKind.api => 'API Call',
+                          }} (${debugLog.entries.where((entry) => entry.kind == kind).length})',
+                        ),
+                        selected: _kinds.contains(kind),
+                        onSelected: (selected) => setState(() {
+                          if (selected) {
+                            _kinds.add(kind);
+                          } else {
+                            _kinds.remove(kind);
+                          }
+                        }),
                       ),
-                    ),
-                    Semantics(
-                      identifier: 'debug-console-close',
-                      button: true,
-                      child: IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ),
                   ],
                 ),
               ),
-              Expanded(
-                child: ListenableBuilder(
-                  listenable: debugLog,
-                  builder: (context, _) {
-                    final entries = debugLog.entries;
-                    if (entries.isEmpty) {
-                      return const Center(child: Text('No SDK logs yet.'));
-                    }
-                    return ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemCount: entries.length,
-                      itemBuilder: (context, i) {
-                        final e = entries[i];
-                        final time = e.time.toIso8601String().substring(11, 19);
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Text(
-                            '[$time] ${e.label} — ${e.detail}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontFamily: sampleMonoFamily,
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
+              Text('${entries.length} of ${debugLog.entries.length} entries'),
+              const SizedBox(height: SampleSpacing.space3),
+              if (entries.isEmpty) const Text('No matching logs.'),
+              for (final entry in entries)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: SampleSpacing.space1,
+                  ),
+                  child: Text(
+                    '[${entry.time.toIso8601String().substring(11, 19)}] ${entry.label} — ${entry.detail}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontFamily: sampleMonoFamily,
+                    ),
+                  ),
                 ),
-              ),
             ],
           );
         },

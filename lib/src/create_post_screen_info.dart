@@ -63,8 +63,8 @@ class CreatePostScreenInfo {
   /// passes a `requestId` instead, so the native editor can request a signature
   /// back over the event channel at publish time.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'prefilledPost': prefilledPost?.toMap(),
-      };
+    'prefilledPost': prefilledPost?.toMap(),
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -75,7 +75,8 @@ class CreatePostScreenInfo {
   int get hashCode => prefilledPost.hashCode;
 
   @override
-  String toString() => 'CreatePostScreenInfo(prefilledPost: $prefilledPost, '
+  String toString() =>
+      'CreatePostScreenInfo(prefilledPost: $prefilledPost, '
       'bridgeShareTokenProvider: '
       '${bridgeShareTokenProvider == null ? 'null' : 'set'})';
 }

@@ -59,16 +59,16 @@ them. The logo continues to use the existing theme transport.
 `common.activityButton` is visible in place of the connected user's avatar when
 Unified Profile is active. It does not activate Unified Profile itself.
 
-Native rendering controls which slots are visible. In iOS 1.14.0,
+Native rendering controls which slots are visible. In iOS 1.15.0,
 `gamification.rulesHeader` is ignored by the native initializer, which uses
 `badge` for that illustration. The bridge preserves that native behavior.
-The five legacy empty slots remain in the public API. Android 1.14.1 and
-iOS 1.14.0 render `screenStates.emptyContent` instead of
+The five legacy empty slots remain in the public API. Android 1.15.0 and
+iOS 1.15.0 render `screenStates.emptyContent` instead of
 `content.post.emptyFeedInGroups`, `emptyFeedInCurrentUserProfile`,
 `emptyFeedInOtherUserProfile` and `content.comment.emptyFeed`. They render
 `screenStates.emptyNotifications` instead of `profile.emptyNotifications`.
 Use `screenStates.networkError` and `screenStates.error` for first-load failures.
-Android 1.14.1 does not render `addPollOption`, `deletePollOption` or
+Android 1.15.0 does not render `addPollOption`, `deletePollOption` or
 `common.checkbox` overrides.
 `content.post.commentCount`, `viewCount`, and `moreReactions` are declared by
 both SDKs but are not rendered by their screens at these pins. The iOS-only

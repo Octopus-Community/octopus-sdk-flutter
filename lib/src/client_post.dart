@@ -26,9 +26,9 @@ final class OctopusLocalImageAttachment extends OctopusClientPostAttachment {
 
   @override
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'type': 'localImage',
-        'bytes': bytes,
-      };
+    'type': 'localImage',
+    'bytes': bytes,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -63,9 +63,9 @@ final class OctopusRemoteImageAttachment extends OctopusClientPostAttachment {
 
   @override
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'type': 'remoteImage',
-        'url': url.toString(),
-      };
+    'type': 'remoteImage',
+    'url': url.toString(),
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -131,13 +131,13 @@ class ClientPost {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'objectId': objectId,
-        'text': text,
-        'attachment': attachment?.toMap(),
-        'catchPhrase': catchPhrase,
-        'viewObjectButtonText': viewObjectButtonText,
-        'groupId': groupId,
-      };
+    'objectId': objectId,
+    'text': text,
+    'attachment': attachment?.toMap(),
+    'catchPhrase': catchPhrase,
+    'viewObjectButtonText': viewObjectButtonText,
+    'groupId': groupId,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -152,16 +152,17 @@ class ClientPost {
 
   @override
   int get hashCode => Object.hash(
-        objectId,
-        text,
-        attachment,
-        catchPhrase,
-        viewObjectButtonText,
-        groupId,
-      );
+    objectId,
+    text,
+    attachment,
+    catchPhrase,
+    viewObjectButtonText,
+    groupId,
+  );
 
   @override
-  String toString() => 'ClientPost(objectId: $objectId, text: $text, '
+  String toString() =>
+      'ClientPost(objectId: $objectId, text: $text, '
       'attachment: $attachment, catchPhrase: $catchPhrase, '
       'viewObjectButtonText: $viewObjectButtonText, groupId: $groupId)';
 }

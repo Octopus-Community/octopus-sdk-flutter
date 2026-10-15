@@ -1,14 +1,14 @@
 import Flutter
 import UIKit
 import SwiftUI
-import Octopus
+@_spi(OctopusWrapper) import Octopus
 import OctopusUI
 import Combine
+import OSLog
 
 
 public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private var octopus: OctopusSDK?
-  private var methodChannel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
   private var eventSink: FlutterEventSink?
   private let eventEmitter = OctopusEventEmitter()
@@ -85,30 +85,16 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     }
   }
 
-  static func triggerCallback(method: String, callbackId: String) {
-    print("iOS Plugin: triggerCallback called: method=\(method), callbackId=\(callbackId)")
-    shared?.methodChannel?.invokeMethod(method, arguments: callbackId)
-    print("iOS Plugin: triggerCallback completed")
-  }
-  
-  static func triggerCallbackWithArgs(method: String, args: [String: Any]) {
-    print("iOS Plugin: triggerCallbackWithArgs called: method=\(method), args=\(args)")
-    shared?.methodChannel?.invokeMethod(method, arguments: args)
-    print("iOS Plugin: triggerCallbackWithArgs completed")
-  }
-
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "octopus_sdk_flutter", binaryMessenger: registrar.messenger())
     let eventChannel = FlutterEventChannel(name: "octopus_sdk_flutter/events", binaryMessenger: registrar.messenger())
     let instance = OctopusSDKFlutterPlugin()
-    instance.methodChannel = channel
     instance.eventChannel = eventChannel
     registrar.addMethodCallDelegate(instance, channel: channel)
     eventChannel.setStreamHandler(instance)
     shared = instance
 
     // Set up event emitter
-    instance.eventEmitter.setMethodChannel(channel)
     OctopusEventEmitter.shared = instance.eventEmitter
 
     // Register embedded platform view factory
@@ -133,13 +119,17 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   }
 
   /// Decodes a base64 profile picture the way the Android bridge does: unknown
-  /// characters are ignored, and the result must decode as an image.
+  /// characters are ignored, entirely absent padding is tolerated, and the result must
+  /// decode as an image.
   ///
-  /// `.ignoreUnknownCharacters` is the exact counterpart of Android's
-  /// `Base64.DEFAULT`, whose decode table maps every byte outside the alphabet
-  /// to "skip" — not whitespace only. Without it, one host value produces a
-  /// picture on Android and none here: a line-wrapped payload (RFC 2045 wraps at
-  /// 76 columns) is the common case (#385).
+  /// Both leniencies are what Android's `Base64.DEFAULT` gives for free, and
+  /// both live in `OctopusBase64.decode`. Its decode table maps every byte
+  /// outside the alphabet to "skip" (not whitespace only), and AOSP's decoder
+  /// emits the trailing bytes when the input ends mid-quantum. Foundation needs
+  /// `.ignoreUnknownCharacters` for the first and a padding fix-up for the
+  /// second. Without them one host value produces a picture on Android and none
+  /// here: a line-wrapped payload (RFC 2045 wraps at 76 columns, #385) or an
+  /// unpadded one (`base64 -w0 | tr -d '='`, JWT-style encoders, #404).
   ///
   /// The `UIImage` check is what makes that leniency safe, and it is the other
   /// half of the Android pair (`Base64.decode` then `BitmapFactory.decodeByteArray`,
@@ -152,12 +142,12 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// decode unchanged, so those bytes would travel on. The URL branch already
   /// applies this same check to what it downloads.
   private static func decodeBase64Picture(_ encoded: String) -> Data? {
-    guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters) else {
-      NSLog("[OctopusSDK] Profile picture is not valid base64; connecting without a picture.")
+    guard let data = OctopusBase64.decode(encoded) else {
+      profilePictureLogger.warning("Profile picture is not valid base64; connecting without a picture.")
       return nil
     }
     guard UIImage(data: data) != nil else {
-      NSLog("[OctopusSDK] Profile picture base64 did not decode to a supported image; connecting without a picture.")
+      profilePictureLogger.warning("Profile picture base64 did not decode to a supported image; connecting without a picture.")
       return nil
     }
     return data
@@ -172,23 +162,16 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// transfer time, both on `profilePictureSession`; the size cap below bounds
   /// what is decoded and forwarded, not what is received.
   private static func resolveProfilePictureData(_ raw: String?) async -> Data? {
-    // Bind the trimmed value and use it throughout. Emptiness used to be tested
-    // on the trimmed string while the prefix checks, URL parsing and base64
-    // decoding all read the untrimmed one, so a padded `" https://…"` missed the
-    // http prefix, fell through to the base64 branch and silently yielded nil.
-    guard let raw else { return nil }
-    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    if trimmed.hasPrefix("data:") {
-      guard let commaIndex = trimmed.firstIndex(of: ",") else { return nil }
-      return decodeBase64Picture(String(trimmed[trimmed.index(after: commaIndex)...]))
+    guard let input = OctopusProfilePictureInput.parse(raw) else { return nil }
+    let value: String
+    switch input {
+    case .base64(let payload):
+      return decodeBase64Picture(payload)
+    case .url(let url):
+      value = url
     }
-    let lowercased = trimmed.lowercased()
-    guard lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://") else {
-      return decodeBase64Picture(trimmed)
-    }
-    guard let url = URL(string: trimmed), let host = url.host, !host.isEmpty else {
-      NSLog("[OctopusSDK] Profile picture URL is invalid; connecting without a picture.")
+    guard let url = URL(string: value), let host = url.host, !host.isEmpty else {
+      profilePictureLogger.warning("Profile picture URL is invalid; connecting without a picture.")
       return nil
     }
     do {
@@ -212,7 +195,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       }
       guard let response = response as? HTTPURLResponse,
             (200...299).contains(response.statusCode) else {
-        NSLog("[OctopusSDK] Profile picture download returned an unsuccessful response; connecting without a picture.")
+        profilePictureLogger.warning("Profile picture download returned an unsuccessful response; connecting without a picture.")
         return nil
       }
       // Cap what this bridge decodes and forwards. `expectedContentLength` is
@@ -223,16 +206,16 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       // the transfer itself is the session's `timeoutIntervalForResource`.
       guard response.expectedContentLength <= Self.profilePictureMaxBytes,
             Int64(data.count) <= Self.profilePictureMaxBytes else {
-        NSLog("[OctopusSDK] Profile picture is larger than the bridge's \(Self.profilePictureMaxBytes)-byte cap; connecting without a picture.")
+        profilePictureLogger.warning("Profile picture exceeds the size limit; connecting without a picture.")
         return nil
       }
       guard UIImage(data: data) != nil else {
-        NSLog("[OctopusSDK] Profile picture download did not contain a supported image; connecting without a picture.")
+        profilePictureLogger.warning("Profile picture download did not contain a supported image; connecting without a picture.")
         return nil
       }
       return data
     } catch {
-      NSLog("[OctopusSDK] Profile picture download failed; connecting without a picture.")
+      profilePictureLogger.warning("Profile picture download failed; connecting without a picture.")
       return nil
     }
   }
@@ -260,29 +243,17 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         result(FlutterError(code: "INVALID_ARGS", message: "apiKey is required", details: nil))
         return
       }
+      guard let wrapperVersion = args["wrapperVersion"] as? String else {
+        result(FlutterError(code: "INVALID_ARGS", message: "wrapperVersion is required", details: nil))
+        return
+      }
 
       let appManagedFields = args["appManagedFields"] as? [String] ?? []
 
       do {
         let configuration = try Self.parseConfiguration(args)
+        OctopusSDK.setSdkFamily(.flutter, version: wrapperVersion)
         try setupSSO(apiKey: apiKey, appManagedFields: appManagedFields, configuration: configuration)
-        result(nil)
-      } catch {
-        result(FlutterError(code: "INITIALIZATION_ERROR", message: error.localizedDescription, details: nil))
-      }
-    case "initializeOctopusAuth":
-      guard let args = call.arguments as? [String: Any],
-            let apiKey = args["apiKey"] as? String
-      else {
-        result(FlutterError(code: "INVALID_ARGS", message: "apiKey is required", details: nil))
-        return
-      }
-
-      let deepLink = args["deepLink"] as? String
-
-      do {
-        let configuration = try Self.parseConfiguration(args)
-        try setupOctopusAuth(apiKey: apiKey, deepLink: deepLink, configuration: configuration)
         result(nil)
       } catch {
         result(FlutterError(code: "INITIALIZATION_ERROR", message: error.localizedDescription, details: nil))
@@ -294,35 +265,19 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         result(FlutterError(code: "INVALID_ARGS", message: "apiKey is required", details: nil))
         return
       }
+      guard let wrapperVersion = args["wrapperVersion"] as? String else {
+        result(FlutterError(code: "INVALID_ARGS", message: "wrapperVersion is required", details: nil))
+        return
+      }
 
       let appManagedFields = args["appManagedFields"] as? [String] ?? []
 
       do {
         let configuration = try Self.parseConfiguration(args)
+        OctopusSDK.setSdkFamily(.flutter, version: wrapperVersion)
         performSwitchCommunity(
           apiKey: apiKey,
           connectionMode: makeSSOConnectionMode(appManagedFields),
-          configuration: configuration,
-          result: result
-        )
-      } catch {
-        result(FlutterError(code: "SWITCH_COMMUNITY_ERROR", message: error.localizedDescription, details: nil))
-      }
-    case "switchCommunityOctopusAuth":
-      guard let args = call.arguments as? [String: Any],
-            let apiKey = args["apiKey"] as? String
-      else {
-        result(FlutterError(code: "INVALID_ARGS", message: "apiKey is required", details: nil))
-        return
-      }
-
-      let deepLink = args["deepLink"] as? String
-
-      do {
-        let configuration = try Self.parseConfiguration(args)
-        performSwitchCommunity(
-          apiKey: apiKey,
-          connectionMode: .octopus(deepLink: deepLink),
           configuration: configuration,
           result: result
         )
@@ -353,7 +308,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     case "connectUser":
       connectionGeneration += 1
       guard let octopus else {
-        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() or initializeOctopusAuth() first", details: nil))
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
         return
       }
       
@@ -404,7 +359,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       // current entitlement set), so the closure must round-trip back to
       // Dart on every invocation — not just capture a static token.
       guard let octopus else {
-        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() or initializeOctopusAuth() first", details: nil))
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
         return
       }
       guard let args = call.arguments as? [String: Any],
@@ -500,7 +455,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     case "disconnectUser":
       connectionGeneration += 1
       guard let octopus else {
-        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() or initializeOctopusAuth() first", details: nil))
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
         return
       }
       // Drain any parked client-user-token continuations before disconnecting.
@@ -915,6 +870,26 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         await OctopusDebugOverridesBridge.debugOverrideExposeClientUserId(octopus, enabled: enabled)
         result(nil)
       }
+    case "debugOverrideForceNicknameChoice":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool
+      Task {
+        await OctopusDebugOverridesBridge.debugOverrideForceNicknameChoice(octopus, enabled: enabled)
+        result(nil)
+      }
+    case "debugOverrideConsentTexts":
+      guard let octopus else {
+        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
+        return
+      }
+      let texts = (call.arguments as? [String: Any])?["texts"] as? [String: Any]
+      Task {
+        let applied = await OctopusDebugOverridesBridge.debugOverrideConsentTexts(octopus, textsMap: texts)
+        result(applied ? nil : Self.unsupportedDebugOverrideError(call.method))
+      }
     case "debugGetCommunityConfig":
       guard let octopus else {
         result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
@@ -1037,7 +1012,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
               let followed = m["followed"] as? Bool,
               let ms = m["actionDateMs"] as? NSNumber
         else {
-          NSLog("[OctopusSDK] syncFollowGroups: dropping malformed action entry \(m). Expected keys: groupId (String), followed (Bool), actionDateMs (Number).")
+          NSLog("[OctopusSDK] syncFollowGroups: dropping malformed action entry. Expected keys: groupId (String), followed (Bool), actionDateMs (Number).")
           return nil
         }
         let date = Date(timeIntervalSince1970: ms.doubleValue / 1000.0)
@@ -1090,6 +1065,13 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// Generous on purpose: the host's provider usually calls its own backend.
   /// Kept in step with Android's `CLIENT_USER_TOKEN_TIMEOUT_MS`.
   private static let clientUserTokenTimeout: TimeInterval = 60
+
+  // Same subsystem and category as `Logger.connection` in the native `Octopus` module
+  // (v1.14.0 `Sources/Octopus/Loggers/Loggers.swift`), which `OctopusSDK.connectUser`
+  // logs under; `OctopusCore` uses `.octopusSDK.core`. The extension is module-internal.
+  private static let profilePictureLogger = Logger(
+    subsystem: "\(Bundle.main.bundleIdentifier ?? "").octopusSDK", category: "Connection"
+  )
 
   /// How long this bridge waits for a profile picture URL to download before
   /// giving up and connecting without a picture.
@@ -1538,10 +1520,10 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         )
       )
     )
-    // Same leniency as the profile picture (#385); the `UIImage` check that makes
+    // Same leniency as the profile picture (#385, #404); the `UIImage` check that makes
     // it safe was already here.
     if let logoBase64,
-       let data = Data(base64Encoded: logoBase64, options: .ignoreUnknownCharacters),
+       let data = OctopusBase64.decode(logoBase64),
        let image = UIImage(data: data) {
       theme = OctopusTheme(colors: theme.colors, fonts: theme.fonts, assets: .init(logo: image))
     }
@@ -1551,7 +1533,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         let payload = source.hasPrefix("data:")
           ? source.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).dropFirst().first.map(String.init) ?? ""
           : source
-        guard let data = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
+        guard let data = OctopusBase64.decode(payload),
               let image = UIImage(data: data) else {
           NSLog("[OctopusSDK] Icon %@ could not be decoded; keeping the native default.", slot)
           continue
@@ -1690,12 +1672,6 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// `switchCommunity` cold-start fallback).
   private func setupSSO(apiKey: String, appManagedFields: [String], configuration: OctopusSDK.Configuration) throws {
     try setup(apiKey: apiKey, connectionMode: makeSSOConnectionMode(appManagedFields), configuration: configuration)
-  }
-
-  /// Creates the SDK in Octopus Auth mode. Shared by `initializeOctopusAuth`
-  /// (and the `switchCommunityOctopusAuth` cold-start fallback).
-  private func setupOctopusAuth(apiKey: String, deepLink: String?, configuration: OctopusSDK.Configuration) throws {
-    try setup(apiKey: apiKey, connectionMode: .octopus(deepLink: deepLink), configuration: configuration)
   }
 
   /// Switches to a different community. Uses the native

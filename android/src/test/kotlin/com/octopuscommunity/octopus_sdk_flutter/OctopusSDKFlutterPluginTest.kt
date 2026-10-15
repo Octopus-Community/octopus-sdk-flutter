@@ -1,11 +1,14 @@
 package com.octopuscommunity.octopus_sdk_flutter
 
+import android.net.Uri
 import com.octopuscommunity.sdk.domain.model.ConnectionMode
 import com.octopuscommunity.sdk.domain.model.ProfileField
+import com.octopuscommunity.sdk.domain.model.Resource
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import org.mockito.Mockito
 
 /*
@@ -20,6 +23,52 @@ import org.mockito.Mockito
  */
 
 internal class OctopusSDKFlutterPluginTest {
+  @Test
+  fun initializationPaths_requireTheWrapperVersionBeforeCallingTheNativeSdk() {
+    for (method in listOf("initialize", "switchCommunity")) {
+      val result = Mockito.mock(MethodChannel.Result::class.java)
+      OctopusSDKFlutterPlugin().onMethodCall(
+        MethodCall(method, mapOf("apiKey" to "test-key")),
+        result
+      )
+      Mockito.verify(result).error("INVALID_ARGS", "wrapperVersion is required", null)
+      Mockito.verifyNoMoreInteractions(result)
+    }
+  }
+
+  /**
+   * `toSdkImage` must trim once and dispatch on the trimmed value: a padded URL used to fall
+   * into the base64 branch, throw and yield `null` (the picture silently dropped).
+   */
+  @Test
+  fun toSdkImage_paddedUrl_isTreatedAsRemote() {
+    val plugin = OctopusSDKFlutterPlugin()
+
+    // android.net.Uri is a stub on the JVM; toSdkImage checks the parsed host.
+    Mockito.mockStatic(Uri::class.java).use { uri ->
+      val parsed = Mockito.mock(Uri::class.java)
+      Mockito.`when`(parsed.host).thenReturn("example.com")
+      uri.`when`<Uri> { Uri.parse(Mockito.anyString()) }.thenReturn(parsed)
+
+      assertEquals(
+        Resource.Remote(url = "https://example.com/a.png"),
+        plugin.toSdkImage("  \n https://example.com/a.png \t")
+      )
+      assertEquals(
+        Resource.Remote(url = "https://example.com/a.png"),
+        plugin.toSdkImage("https://example.com/a.png")
+      )
+    }
+  }
+
+  @Test
+  fun toSdkImage_nullOrBlank_returnsNull() {
+    val plugin = OctopusSDKFlutterPlugin()
+
+    assertNull(plugin.toSdkImage(null))
+    assertNull(plugin.toSdkImage("   \n\t "))
+  }
+
   @Test
   fun onMethodCall_getPlatformVersion_returnsExpectedValue() {
     val plugin = OctopusSDKFlutterPlugin()
@@ -54,19 +103,73 @@ internal class OctopusSDKFlutterPluginTest {
     Mockito.verifyNoMoreInteractions(mockResult)
   }
 
-  /**
-   * #423: `initializeOctopusAuth` and `switchCommunityOctopusAuth` used to omit
-   * `connectionMode`, and the native default is `ConnectionMode.SSO()` — so the Octopus Auth
-   * entry point started the SDK in SSO mode. Both paths now go through [connectionModeFor].
-   */
   @Test
-  fun connectionModeFor_octopusAuth_isOctopusAuthNotTheNativeSsoDefault() {
-    assertEquals(ConnectionMode.OctopusAuth, connectionModeFor(octopusAuth = true))
-    // appManagedFields are an SSO concept; they never leak into the Octopus Auth mode.
-    assertEquals(
-      ConnectionMode.OctopusAuth,
-      connectionModeFor(octopusAuth = true, appManagedFields = setOf(ProfileField.NICKNAME)),
-    )
+  fun onMethodCall_olderDebugOverrides_failureReturnsOverrideError() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for ((method, argument) in listOf(
+      "debugOverrideProfileFieldsLock" to "lock",
+      "debugOverrideContentOptions" to "options",
+      "debugOverrideTermsAcceptanceMode" to "mode",
+    )) {
+      val result = Mockito.mock(MethodChannel.Result::class.java)
+      // An invalid wire type fails while parsing, before calling the native SDK.
+      // The bridge must return the same error code as a failed native override.
+      plugin.onMethodCall(MethodCall(method, mapOf(argument to 42)), result)
+      Mockito.verify(result).error(
+        Mockito.eq("OVERRIDE_ERROR"), Mockito.anyString(), Mockito.isNull(),
+      )
+      Mockito.verifyNoMoreInteractions(result)
+    }
+  }
+
+  @Test
+  fun contentOptions_textRequired_defaultsAndNullableClear() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for (value in listOf(true, false, null, "wrong-type")) {
+      val options = plugin.parseContentOptions(MethodCall("debugOverrideContentOptions",
+        mapOf("options" to mapOf("post" to mapOf("textRequired" to value)))))
+      assertEquals(value as? Boolean ?: true, options?.post?.textRequired)
+    }
+    assertEquals(true, plugin.parseContentOptions(MethodCall("debugOverrideContentOptions",
+      mapOf("options" to emptyMap<String, Any>())))?.post?.textRequired)
+    assertNull(plugin.parseContentOptions(MethodCall("debugOverrideContentOptions", mapOf("options" to null))))
+  }
+
+  @Test
+  fun consentTexts_roundTripsAllVariantsWithoutNormalizingFields() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for (wire in listOf(
+      mapOf("mode" to "implicit", "notice" to "Unicode 世界\n[link](https://example.com)"),
+      mapOf("mode" to "multiCheckbox", "termsLabel" to "", "privacyLabel" to "   ", "rulesLabel" to null),
+      mapOf("mode" to "singleCheckbox", "label" to null, "belowText" to "first\n\nsecond"),
+    )) assertEquals(wire, plugin.serializeConsentTexts(plugin.parseConsentTexts(wire)))
+    assertNull(plugin.parseConsentTexts(null))
+    assertNull(plugin.serializeConsentTexts(null))
+    assertNull(plugin.parseConsentTexts(mapOf("mode" to "future")))
+    assertEquals(mapOf("mode" to "implicit", "notice" to null),
+      plugin.serializeConsentTexts(plugin.parseConsentTexts(mapOf("mode" to "implicit", "notice" to 42))))
+  }
+
+  @Test
+  fun newDebugOverrides_beforeInitialize_returnNotInitialized() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for (method in listOf("debugOverrideForceNicknameChoice", "debugOverrideConsentTexts")) {
+      val result = Mockito.mock(MethodChannel.Result::class.java)
+      plugin.onMethodCall(MethodCall(method, null), result)
+      Mockito.verify(result).error("NOT_INITIALIZED", "Call initialize() first", null)
+      Mockito.verifyNoMoreInteractions(result)
+    }
+  }
+
+  @Test
+  fun removedAuthenticationMethods_areNotImplemented() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for (method in listOf("initializeOctopusAuth", "switchCommunityOctopusAuth")) {
+      val result = Mockito.mock(MethodChannel.Result::class.java)
+      plugin.onMethodCall(MethodCall(method, null), result)
+      Mockito.verify(result).notImplemented()
+      Mockito.verifyNoMoreInteractions(result)
+    }
   }
 
   @Test
@@ -74,10 +177,9 @@ internal class OctopusSDKFlutterPluginTest {
     assertEquals(
       ConnectionMode.SSO(appManagedFields = setOf(ProfileField.NICKNAME, ProfileField.PICTURE)),
       connectionModeFor(
-        octopusAuth = false,
         appManagedFields = setOf(ProfileField.NICKNAME, ProfileField.PICTURE),
       ),
     )
-    assertEquals(ConnectionMode.SSO(), connectionModeFor(octopusAuth = false))
+    assertEquals(ConnectionMode.SSO(), connectionModeFor())
   }
 }

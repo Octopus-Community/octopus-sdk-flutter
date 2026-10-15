@@ -57,8 +57,8 @@ void main() {
       find.bySemanticsIdentifier('qa-groups-unfollow-discussion'),
       findsOneWidget,
     );
-    expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Unfollow'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Follow'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Unfollow'), findsOneWidget);
     expect(find.text('Managed by server'), findsOneWidget);
     expect(
       find.bySemanticsIdentifier('qa-groups-unfollow-announcements'),
@@ -85,8 +85,8 @@ void main() {
     await tester.tap(find.bySemanticsIdentifier('qa-groups-follow-news'));
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    final unfollow = find.widgetWithText(FilledButton, 'Unfollow');
-    expect(tester.widget<FilledButton>(unfollow).onPressed, isNotNull);
+    final unfollow = find.widgetWithText(OutlinedButton, 'Unfollow');
+    expect(tester.widget<OutlinedButton>(unfollow).onPressed, isNotNull);
     await tester.tap(unfollow);
     await tester.pump();
 
@@ -96,6 +96,6 @@ void main() {
     pendingFollow.complete({'type': 'success'});
     await tester.pumpAndSettle();
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Follow'), findsOneWidget);
   });
 }

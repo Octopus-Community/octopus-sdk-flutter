@@ -24,6 +24,7 @@ PARITY_MATRIX.md
 PARITY_VERIFICATION_*.md
 HANDOFF_*.md
 doc/superpowers/
+doc/archive/
 # Port inventories name private repos and internal tooling — mirror denylist covers
 # GitHub, this line covers pub.dev (two channels, told independently).
 doc/ports/

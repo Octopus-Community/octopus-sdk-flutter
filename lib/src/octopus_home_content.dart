@@ -66,6 +66,12 @@ class OctopusHomeContent extends StatefulWidget {
   /// Whether the widget is enabled (renders) — `false` renders an empty box.
   final bool enabled;
 
+  /// Whether this retained view may handle Android system Back.
+  ///
+  /// Defaults to `true`; a no-op on iOS. See [OctopusHomeScreen.isVisible]
+  /// for automatic visibility detection and host-controlled hiding.
+  final bool isVisible;
+
   /// Callback function called when the user navigates to login.
   final VoidCallback? onNavigateToLogin;
 
@@ -120,6 +126,7 @@ class OctopusHomeContent extends StatefulWidget {
     this.theme,
     this.navBarPrimaryColor = false,
     this.enabled = true,
+    this.isVisible = true,
     this.onNavigateToLogin,
     this.onModifyUser,
     this.onNavigateToProfile,
@@ -179,6 +186,7 @@ class _OctopusHomeContentState extends State<OctopusHomeContent> {
 
     return OctopusSDK.embeddedView(
       theme: widget.theme,
+      isVisible: widget.isVisible,
       navBarPrimaryColor: widget.navBarPrimaryColor,
       interceptUrls: widget.onNavigateToUrl != null,
       interceptProfileTaps: widget.onNavigateToProfile != null,

@@ -32,9 +32,9 @@ class OctopusPostCTA {
 
   /// The platform-channel representation handed to the native bridges.
   Map<String, dynamic> toMap() => <String, dynamic>{
-        'url': url.toString(),
-        'label': label,
-      };
+    'url': url.toString(),
+    'label': label,
+  };
 
   @override
   bool operator ==(Object other) =>
