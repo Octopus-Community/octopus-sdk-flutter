@@ -83,7 +83,8 @@ func octopusIcons(from images: [String: UIImage]) -> OctopusUI.OctopusTheme.Asse
         rage: images["content.reaction.rage"]
       ),
       delete: images["content.delete"],
-      report: images["content.report"]
+      report: images["content.report"],
+      translation: images["content.translation"]
     ),
     profile: Icons.Profile(
       addPicture: images["profile.addPicture"],

@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'octopus_view_visibility.dart';
 import 'octopus_initial_screen.dart';
 import 'octopus_nav_bar_leading_action.dart';
 import 'octopus_navigation_mode.dart';
@@ -393,6 +395,7 @@ class OctopusHomeScreen extends StatefulWidget {
 
 class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
   StreamSubscription<Map<String, dynamic>>? _eventSubscription;
+  int? _viewId;
 
   /// Whether the SDK is currently showing the main feed (root screen).
   ///
@@ -434,6 +437,15 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
     // Listen for events from native code
     _eventSubscription = OctopusSDK.eventStream.listen(
       (event) {
+        // Tagged Android callbacks belong to their embedded view. Untagged
+        // callbacks from the native create-post editor keep global routing,
+        // as do SDK analytics (including screenDisplayed) and iOS callbacks.
+        if (defaultTargetPlatform == TargetPlatform.android &&
+            event.containsKey('viewId') &&
+            event['event'] != 'sdkEvent' &&
+            (_viewId == null || event['viewId'] != _viewId)) {
+          return;
+        }
         if (event['event'] == 'loginRequired') {
           widget.onNavigateToLogin?.call();
         } else if (event['event'] == 'editUser') {
@@ -544,7 +556,12 @@ class _OctopusHomeScreenState extends State<OctopusHomeScreen> {
     );
     return Stack(
       children: [
-        Positioned.fill(child: embedded),
+        Positioned.fill(
+          child: OctopusViewEventScope(
+            onViewChanged: (id) => _viewId = id,
+            child: embedded,
+          ),
+        ),
         if (showOverlays && leading != null)
           Positioned(top: 0, left: 0, child: overlay(leading)),
         if (showOverlays && trailing != null)

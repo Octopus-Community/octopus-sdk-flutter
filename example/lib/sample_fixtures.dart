@@ -42,6 +42,9 @@ class SampleFixtures {
   // default. Defines are compile-time; existing input fields retarget at runtime.
   // The reaction-specific override wins over the legacy shared post override.
   final String postText;
+
+  /// Reserved for a comment-detail preset once the other samples expose one.
+  /// No scenario consumes it yet; OCTOPUS_DEMO_COMMENT_ID keeps its override.
   final String commentOnPost;
   final String userOther;
   final String topicDefault;

@@ -39,14 +39,24 @@ class CommunityAccessScenario extends StatelessWidget {
       api: 'overrideCommunityAccess',
       description:
           'Grant or deny community access with an SDK-enforced override, or '
-          'report access for analytics only. Tracking does not change access.',
+          'report access for analytics only. Tracking does not change access. '
+          'When the access is denied, the community shows why on its own '
+          'screen; communityAccessDeniedReason gives the same reason.',
       note:
           'There is no reset call for the override. Reapply the other '
           'override preset to reverse it.',
       resultTestId: 'communityAccess-result',
       liveState: KeyValueCard(
         title: 'Live state',
-        rows: [('hasAccessToCommunity', app.hasAccess?.toString() ?? '—')],
+        rows: [
+          ('hasAccessToCommunity', app.hasAccess?.toString() ?? '—'),
+          (
+            'communityAccessDeniedReason',
+            app.hasAccessDeniedReason
+                ? (app.accessDeniedReason?.name ?? 'null')
+                : '—',
+          ),
+        ],
       ),
       presets: [
         ScenarioPreset(

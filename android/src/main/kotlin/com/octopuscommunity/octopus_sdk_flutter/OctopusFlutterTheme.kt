@@ -3,6 +3,7 @@ package com.octopuscommunity.octopus_sdk_flutter
 import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -10,9 +11,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
 import com.octopuscommunity.sdk.ui.OctopusImagesDefaults
@@ -39,7 +42,6 @@ fun OctopusFlutterTheme(
     logoBase64: String?,
     icons: Map<String, String> = emptyMap(),
     iconPaths: Map<String, String> = emptyMap(),
-    navBarTitle: String?,
     navBarPrimaryColor: Boolean,
     fontSizeTitle1: Int?,
     fontSizeTitle2: Int?,
@@ -47,6 +49,16 @@ fun OctopusFlutterTheme(
     fontSizeBody2: Int?,
     fontSizeCaption1: Int?,
     fontSizeCaption2: Int?,
+    /**
+     * Android-only font of the top app bar title (`OctopusTheme.fontFamilyNavBarTitle`): a
+     * `res/font/` resource name of the host app. `null` keeps the bar's own font.
+     */
+    fontFamilyNavBarTitle: String? = null,
+    /**
+     * Android-only size of the top app bar title in sp (`OctopusTheme.fontSizeNavBarTitle`).
+     * `null` or non-positive keeps the bar's own size.
+     */
+    fontSizeNavBarTitle: Int? = null,
     content: @Composable () -> Unit
 ) {
     // Resolve the OctopusColorScheme BEFORE constructing OctopusTheme so the
@@ -121,20 +133,12 @@ fun OctopusFlutterTheme(
     // silently doing nothing.
     val context = LocalContext.current
     val resolvedFontFamily = fontFamily?.let { name ->
-        remember(name) {
-            val resId = context.resources.getIdentifier(name, "font", context.packageName)
-            if (resId != 0) {
-                FontFamily(Font(resId))
-            } else {
-                Log.w(
-                    TAG,
-                    "fontFamily '$name' was not found under res/font/ in the host app; " +
-                        "keeping the default SDK font. See OctopusTheme.fontFamily's " +
-                        "documentation for how to register a custom font natively."
-                )
-                null
-            }
-        }
+        remember(name) { resolveFontResource(context, name, "fontFamily") }
+    }
+    // Same resolution for the Android-only bar title font. Unresolved, it keeps the bar's own
+    // family (the size, when set, still applies).
+    val resolvedNavBarTitleFontFamily = fontFamilyNavBarTitle?.let { name ->
+        remember(name) { resolveFontResource(context, name, "fontFamilyNavBarTitle") }
     }
     // Unlike fontFamily, a numeric weight needs no native registration:
     // Compose renders the closest matching face the font actually provides.
@@ -170,22 +174,23 @@ fun OctopusFlutterTheme(
     }
 
     // The top app bar title has no dedicated typography role of its own; the
-    // SDK renders it with the ambient `LocalTextStyle` unless we pass one
-    // explicitly, and the style we pass REPLACES that ambient style instead of
-    // merging with it (`style = textStyle ?: LocalTextStyle.current` in the
-    // native `OctopusTopAppBarTitle`). A bare `TextStyle(fontFamily = ...)`
-    // would therefore drop the ambient font size too, so we have to supply a
-    // complete style — and we cannot supply the ambient one, because the title
-    // slot's real value (`titleLarge`, 22sp, provided by Material3's
-    // `TopAppBar`; `headlineSmall`, 24sp, on the medium bar) is only readable
-    // from inside that slot, which this call site is not.
+    // SDK renders it with the ambient `LocalTextStyle` at 17sp semibold unless
+    // we pass one explicitly, and the style we pass REPLACES that default
+    // instead of merging with it (`style = textStyle ?: LocalTextStyle.current
+    // .copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold)` in the native
+    // `OctopusTopAppBarTitle`, Android SDK 1.16; `nativeNavBarTitleStyle` below
+    // copies it, so recheck it on a native bump). A bare
+    // `TextStyle(fontFamily = ...)` would therefore drop the font size too, so
+    // we have to supply a complete style — and we cannot supply the ambient
+    // one, because the title slot's ambient style (Material3's `TopAppBar`
+    // `titleLarge`) is only readable from inside that slot, which this call
+    // site is not.
     //
     // Known consequence: basing the style on the resolved `body1` (18sp) means
     // a host that sets only a font override also gets the nav bar title at
-    // `fontSizeBody1`'s size. `fontSizeBody1` is the knob to take it back.
+    // `fontSizeBody1`'s size. `fontSizeBody1` is the knob to take it back, or
+    // `fontSizeNavBarTitle`, which is merged on top of this style (below).
     // Declared in `OctopusTheme.fontFamily`'s dartdoc and in the CHANGELOG.
-    // Fixing it properly needs a merge-capable `textStyle` on the native SDK,
-    // which is tracked internally.
     //
     // Only build an explicit style at all when a font override is requested,
     // so the default path keeps the ambient style untouched.
@@ -198,6 +203,33 @@ fun OctopusFlutterTheme(
         null
     }
 
+    // The Android-only bar title setting (`fontFamilyNavBarTitle` / `fontSizeNavBarTitle`) is
+    // MERGED onto the style the title would otherwise get, which is why it needs its own slot:
+    // only inside the slot can `LocalTextStyle.current` be read. With no style passed, the native
+    // title (1.16+) draws that ambient style at 17sp semibold, so the override is merged onto the
+    // same default (`nativeNavBarTitleStyle`). So a size alone keeps the font and the semibold
+    // weight, a font alone keeps the 17sp size. When the global font override above already
+    // built a complete style, that style is the base instead. Unset, the slot below is exactly
+    // the one used before.
+    val navBarTitleOverride = navBarTitleStyleOverride(
+        resolvedNavBarTitleFontFamily,
+        fontSizeNavBarTitle,
+    )
+    // The slot passes the text through unchanged. A `null` text only reaches it from the main
+    // feed, when the feed shows its logo (native 1.16.0+); the default slot then draws the logo.
+    // The main feed's text title is passed to the native screen as `titleText` instead (see
+    // `OctopusHomeScreen`), with the iOS bridge's precedence.
+    val titleSlot: @Composable (String?) -> Unit = if (navBarTitleOverride == null) {
+        OctopusTopAppBarDefaults.title(textStyle = navBarTitleTextStyle)
+    } else {
+        { octopusText ->
+            OctopusTopAppBarDefaults.title(
+                textStyle = (navBarTitleTextStyle ?: nativeNavBarTitleStyle(LocalTextStyle.current))
+                    .merge(navBarTitleOverride),
+            )(octopusText)
+        }
+    }
+
     val iconPainters = remember(icons, iconPaths) {
         icons.mapNotNull { (slot, source) ->
             decodeIconSource(slot, source)?.asImageBitmap()?.let { slot to BitmapPainter(it) }
@@ -208,10 +240,7 @@ fun OctopusFlutterTheme(
     val resolvedIcons = remember(iconPainters) { octopusIconsWithOverrides(iconPainters) }
     OctopusTheme(
         topAppBar = OctopusTopAppBarDefaults.topAppBar(
-            title = OctopusTopAppBarDefaults.title(
-                textStyle = navBarTitleTextStyle,
-                text = { it ?: navBarTitle }
-            ),
+            title = titleSlot,
             colors = TopAppBarDefaults.topAppBarColors(
                 // `navBarPrimaryColor: true` → use the resolved primary tint
                 // (typical brand-on-feed pattern). Otherwise track the
@@ -254,6 +283,43 @@ private fun androidx.compose.ui.text.TextStyle.withOverrides(
     fontFamily = fontFamily ?: this.fontFamily,
     fontWeight = fontWeight ?: this.fontWeight,
 )
+
+/**
+ * The part of the top app bar title style that the Android-only `fontFamilyNavBarTitle` /
+ * `fontSizeNavBarTitle` theme keys set, to be merged onto the bar's own title style; `null` when
+ * neither applies (no font resolved and no positive size), so the caller keeps its existing slot.
+ */
+internal fun navBarTitleStyleOverride(fontFamily: FontFamily?, fontSizeSp: Int?): TextStyle? {
+    val size = fontSizeSp?.takeIf { it > 0 }
+    if (fontFamily == null && size == null) return null
+    return TextStyle(fontFamily = fontFamily, fontSize = size?.sp ?: TextUnit.Unspecified)
+}
+
+/**
+ * The style the native top app bar title (`OctopusTopAppBarTitle`, Android SDK 1.16+) draws when
+ * it is given none: the bar's [ambient] style at 17sp semibold, the iOS navigation title style.
+ * The Android-only title keys are merged onto it so that setting one keeps the other defaults.
+ */
+internal fun nativeNavBarTitleStyle(ambient: TextStyle): TextStyle =
+    ambient.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+
+/**
+ * Resolves [name] to a font resource shipped by the host app under `res/font/`. This name is
+ * NEVER read from the Flutter asset bundle (a font declared in the Flutter app's pubspec.yaml is
+ * invisible to this native Compose tree). `getIdentifier` returns 0 when there is no match, in
+ * which case we log a warning and return `null`, so the caller keeps its default font rather
+ * than silently doing nothing.
+ */
+private fun resolveFontResource(context: android.content.Context, name: String, key: String): FontFamily? {
+    val resId = context.resources.getIdentifier(name, "font", context.packageName)
+    if (resId != 0) return FontFamily(Font(resId))
+    Log.w(
+        TAG,
+        "$key '$name' was not found under res/font/ in the host app; keeping the default " +
+            "font. See OctopusTheme.$key's documentation for how to register a custom font natively."
+    )
+    return null
+}
 
 fun Int.toColor() = Color(this)
 

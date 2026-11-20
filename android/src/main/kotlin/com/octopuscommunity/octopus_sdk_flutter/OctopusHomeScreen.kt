@@ -94,6 +94,10 @@ fun OctopusHomeScreen(
     fontSizeBody2: Int? = null,
     fontSizeCaption1: Int? = null,
     fontSizeCaption2: Int? = null,
+    /** Android-only top app bar title font, see [OctopusFlutterTheme]. */
+    fontFamilyNavBarTitle: String? = null,
+    /** Android-only top app bar title size in sp, see [OctopusFlutterTheme]. */
+    fontSizeNavBarTitle: Int? = null,
     onBack: (() -> Unit)? = null,
     onNavigateToUrl: ((String) -> UrlOpeningStrategy)? = null,
     onNavigateToClientObject: ((String) -> Unit)? = null,
@@ -149,14 +153,15 @@ fun OctopusHomeScreen(
         fontWeight = fontWeight,
         logoBase64 = logoBase64,
         icons = icons,
-        navBarTitle = navBarTitle,
         navBarPrimaryColor = navBarPrimaryColor,
         fontSizeTitle1 = fontSizeTitle1,
         fontSizeTitle2 = fontSizeTitle2,
         fontSizeBody1 = fontSizeBody1,
         fontSizeBody2 = fontSizeBody2,
         fontSizeCaption1 = fontSizeCaption1,
-        fontSizeCaption2 = fontSizeCaption2
+        fontSizeCaption2 = fontSizeCaption2,
+        fontFamilyNavBarTitle = fontFamilyNavBarTitle,
+        fontSizeNavBarTitle = fontSizeNavBarTitle,
     ) {
         val navController = rememberNavController()
         val defaultBottom = OctopusHomeDefaults.contentPadding()
@@ -220,10 +225,12 @@ fun OctopusHomeScreen(
                 groupId = initialScreen.topicId,
                 prefilledText = initialScreen.text,
                 // No image: bytes are dropped on the embedded create-post
-                // entry point (see InitialScreenSpec.CreatePost docs).
-                prefilledImageUri = null,
+                // entry point (see InitialScreenSpec.CreatePost docs), so
+                // prefilledImageUris keeps its empty default.
                 prefilledCustomActionLabel = initialScreen.ctaLabel,
                 prefilledCustomActionUrl = initialScreen.ctaUrl?.toString(),
+                prefilledCustomActionLabelLanguage = initialScreen.ctaLabelLanguage,
+                prefilledCustomActionLabelTranslations = initialScreen.ctaLabelTranslations,
             )
         }
         val startDestination: Any = bridgeTarget?.let { BridgeRootRoute } ?: OctopusHomeRoute
@@ -269,6 +276,16 @@ fun OctopusHomeScreen(
                         backIcon = showBackButton,
                         leadingNavigationIcon = leadingNavigationIcon,
                         titleCentered = titleCentered,
+                        // Same precedence as the iOS bridge's main feed title: a custom
+                        // logo wins, then `navBarTitle`, then the native default. The
+                        // native text title would otherwise win over the theme logo.
+                        // "Custom logo" is the decoded one `OctopusFlutterTheme` put in
+                        // the theme, as iOS requires a decodable image: an empty or
+                        // invalid `logoBase64` does not hide `navBarTitle`.
+                        titleText = mainFeedTitleText(
+                            navBarTitle = navBarTitle,
+                            hasCustomLogo = OctopusTheme.images.logo != null,
+                        ),
                         contentPadding = contentPadding,
                         onBack = { onBack?.invoke() ?: navController.navigateUp() },
                         onNavigateToLogin = onNavigateToLogin,
@@ -346,3 +363,10 @@ fun OctopusHomeScreen(
         }
     }
 }
+
+/**
+ * The main feed's native `titleText`, with the iOS bridge's precedence: a custom logo wins (no
+ * text, so the native bar draws the logo), then [navBarTitle], then the native default (`null`).
+ */
+internal fun mainFeedTitleText(navBarTitle: String?, hasCustomLogo: Boolean): String? =
+    navBarTitle.takeIf { !hasCustomLogo }

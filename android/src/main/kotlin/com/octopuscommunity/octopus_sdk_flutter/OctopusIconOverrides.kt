@@ -120,7 +120,8 @@ internal fun octopusIconsWithOverrides(overrides: Map<String, Painter>): Octopus
         rage = slot("content.reaction.rage", reaction.rage)
       ),
       delete = slot("content.delete", content.delete),
-      report = slot("content.report", content.report)
+      report = slot("content.report", content.report),
+      translation = slot("content.translation", content.translation)
     ),
     gamification = gamification.copy(
       badge = slot("gamification.badge", gamification.badge),

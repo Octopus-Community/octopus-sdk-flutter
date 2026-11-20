@@ -24,6 +24,7 @@ import 'force_octopus_ab_tests_scenario.dart';
 import 'fullscreen_scenario.dart';
 import 'group_access_denied_scenario.dart';
 import 'groups_scenario.dart';
+import 'host_lifecycles_scenario.dart';
 import 'initial_screen_scenario.dart';
 import 'locale_scenario.dart';
 import 'modal_scenario.dart';
@@ -113,6 +114,7 @@ Widget _modal(BuildContext _) => const ModalScenario();
 Widget _fullscreen(BuildContext _) => const FullscreenScenario();
 Widget _sheet(BuildContext _) => const SheetScenario();
 Widget _events(BuildContext _) => const EventsScenario();
+Widget _hostLifecycles(BuildContext _) => const HostLifecyclesScenario();
 Widget _notSeenNotifications(BuildContext _) =>
     const NotSeenNotificationsScenario();
 Widget _pushNotifications(BuildContext _) => const PushNotificationsScenario();
@@ -355,6 +357,13 @@ const List<_ScenarioSection> _sections = [
     id: 'hostCallbacks',
     title: 'Host callbacks & events',
     scenarios: [
+      _ScenarioDescriptor(
+        id: 'hostLifecycles',
+        title: 'Host lifecycles',
+        subtitle: 'Keep or recreate the community under a host route.',
+        api: 'host: PlatformView retention / recreation',
+        builder: _hostLifecycles,
+      ),
       _ScenarioDescriptor(
         id: 'customEvents',
         title: "Send a custom analytics event",
@@ -738,7 +747,10 @@ class _ScenarioCard extends StatelessWidget {
           color: Colors.transparent,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            side: BorderSide(color: sampleBorderFor(brightness)),
+            side: BorderSide(
+              color: sampleBorderFor(brightness),
+              width: sampleOutlineWidthFor(brightness),
+            ),
             borderRadius: BorderRadius.circular(SampleRadius.lg),
           ),
           child: InkWell(

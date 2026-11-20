@@ -136,17 +136,23 @@ class OctopusPostIcons {
 
   /// Illustration of an empty group feed.
   /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
-  /// for this screen instead; this field preserves the native public surface.
+  /// for this screen instead. Set that slot on [OctopusIcons.screenStates];
+  /// this legacy field is retained for compatibility.
+  @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
   final OctopusIconSource? emptyFeedInGroups;
 
   /// Illustration of the current user's empty post feed on their profile.
   /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
-  /// for this screen instead; this field preserves the native public surface.
+  /// for this screen instead. Set that slot on [OctopusIcons.screenStates];
+  /// this legacy field is retained for compatibility.
+  @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
   final OctopusIconSource? emptyFeedInCurrentUserProfile;
 
   /// Illustration of another user's empty post feed on their profile.
   /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
-  /// for this screen instead; this field preserves the native public surface.
+  /// for this screen instead. Set that slot on [OctopusIcons.screenStates];
+  /// this legacy field is retained for compatibility.
+  @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
   final OctopusIconSource? emptyFeedInOtherUserProfile;
 
   /// Shown in place of a post that is no longer available.
@@ -173,8 +179,11 @@ class OctopusPostIcons {
   /// Creates optional icon overrides.
   const OctopusPostIcons({
     this.creation,
+    @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
     this.emptyFeedInGroups,
+    @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
     this.emptyFeedInCurrentUserProfile,
+    @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
     this.emptyFeedInOtherUserProfile,
     this.notAvailable,
     this.commentCount,
@@ -241,7 +250,9 @@ class OctopusCommentIcons {
 
   /// Illustration of a post without comments.
   /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyContent`
-  /// for this screen instead; this field preserves the native public surface.
+  /// for this screen instead. Set that slot on [OctopusIcons.screenStates];
+  /// this legacy field is retained for compatibility.
+  @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
   final OctopusIconSource? emptyFeed;
 
   /// Shown in place of a comment that is no longer available.
@@ -256,6 +267,7 @@ class OctopusCommentIcons {
   /// Creates optional icon overrides.
   const OctopusCommentIcons({
     this.creation,
+    @Deprecated('Use OctopusIcons.screenStates.emptyContent instead.')
     this.emptyFeed,
     this.notAvailable,
     this.seeReply,
@@ -435,6 +447,10 @@ class OctopusContentIcons {
   /// The "report" action of a content.
   final OctopusIconSource? report;
 
+  /// Switches an automatically translated post, comment or reply between its
+  /// translation and original text. Tinted with the toggle's text color.
+  final OctopusIconSource? translation;
+
   /// Creates optional icon overrides.
   const OctopusContentIcons({
     this.post,
@@ -445,6 +461,7 @@ class OctopusContentIcons {
     this.reaction,
     this.delete,
     this.report,
+    this.translation,
   });
 
   Map<String, String> _flatten(String prefix) => {
@@ -456,6 +473,7 @@ class OctopusContentIcons {
     if (reaction != null) ...reaction!._flatten('${prefix}reaction.'),
     if (delete != null) '${prefix}delete': delete!.base64,
     if (report != null) '${prefix}report': report!.base64,
+    if (translation != null) '${prefix}translation': translation!.base64,
   };
 }
 
@@ -551,7 +569,9 @@ class OctopusProfileIcons {
 
   /// Illustration of an empty notification list.
   /// Both Android 1.15.0 and iOS 1.15.0 render `screenStates.emptyNotifications`
-  /// for this screen instead; this field preserves the native public surface.
+  /// for this screen instead. Set that slot on [OctopusIcons.screenStates];
+  /// this legacy field is retained for compatibility.
+  @Deprecated('Use OctopusIcons.screenStates.emptyNotifications instead.')
   final OctopusIconSource? emptyNotifications;
 
   /// Reports a profile.
@@ -568,6 +588,7 @@ class OctopusProfileIcons {
     this.addPicture,
     this.editPicture,
     this.addBio,
+    @Deprecated('Use OctopusIcons.screenStates.emptyNotifications instead.')
     this.emptyNotifications,
     this.report,
     this.notConnected,

@@ -1,5 +1,6 @@
 package com.octopuscommunity.octopus_sdk_flutter
 
+import android.app.Application
 import android.content.Context
 import android.util.Log
 import android.view.ViewGroup
@@ -27,6 +28,19 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.HasDefaultViewModelProviderFactory
+import androidx.lifecycle.SavedStateViewModelFactory
+import androidx.lifecycle.SAVED_STATE_REGISTRY_OWNER_KEY
+import androidx.lifecycle.VIEW_MODEL_STORE_OWNER_KEY
+import androidx.lifecycle.enableSavedStateHandles
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.lifecycle.viewmodel.MutableCreationExtras
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import androidx.savedstate.compose.LocalSavedStateRegistryOwner
 import com.octopuscommunity.sdk.OctopusSDK
 import com.octopuscommunity.sdk.domain.model.ProfileField
 import com.octopuscommunity.sdk.ui.components.NavigationIconType
@@ -66,6 +80,8 @@ class OctopusEmbeddedView(
     private val fontSizeBody2: Int? = null,
     private val fontSizeCaption1: Int? = null,
     private val fontSizeCaption2: Int? = null,
+    private val fontFamilyNavBarTitle: String? = null,
+    private val fontSizeNavBarTitle: Int? = null,
     private val onNavigateToLoginCallbackId: String? = null,
     private val onModifyUserCallbackId: String? = null,
     private val interceptUrls: Boolean = false,
@@ -75,7 +91,8 @@ class OctopusEmbeddedView(
     private val showNavBar: Boolean = true,
     private val initialScreen: InitialScreenSpec = InitialScreenSpec.MainFeed,
     private val navBarLeadingAction: NavigationIconType? = null
-) : PlatformView, LifecycleOwner, ViewModelStoreOwner {
+) : PlatformView, LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner,
+    HasDefaultViewModelProviderFactory {
 
     class Factory(private val messenger: BinaryMessenger) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
         override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
@@ -162,6 +179,8 @@ class OctopusEmbeddedView(
                     fontSizeBody2 = args["fontSizeBody2"] as? Int,
                     fontSizeCaption1 = args["fontSizeCaption1"] as? Int?,
                     fontSizeCaption2 = args["fontSizeCaption2"] as? Int?,
+                    fontFamilyNavBarTitle = args["fontFamilyNavBarTitle"] as? String,
+                    fontSizeNavBarTitle = (args["fontSizeNavBarTitle"] as? Number)?.toInt(),
                     onNavigateToLoginCallbackId = args["onNavigateToLoginCallbackId"] as? String,
                     onModifyUserCallbackId = args["onModifyUserCallbackId"] as? String,
                     interceptUrls = args["interceptUrls"] as? Boolean ?: false,
@@ -182,6 +201,16 @@ class OctopusEmbeddedView(
 
     override val lifecycle: Lifecycle = LifecycleRegistry(this)
     override val viewModelStore = ViewModelStore()
+    private val savedStateController = SavedStateRegistryController.create(this)
+    override val savedStateRegistry get() = savedStateController.savedStateRegistry
+    override val defaultViewModelProviderFactory = SavedStateViewModelFactory(null, this)
+    override val defaultViewModelCreationExtras get() = MutableCreationExtras().apply {
+        set(APPLICATION_KEY, context.applicationContext as Application)
+        set(SAVED_STATE_REGISTRY_OWNER_KEY, this@OctopusEmbeddedView)
+        set(VIEW_MODEL_STORE_OWNER_KEY, this@OctopusEmbeddedView)
+    }
+    private lateinit var composeView: ComposeView
+    private var viewId: Int? = null
 
     private val lifecycleRegistry = lifecycle as LifecycleRegistry
     private var visible = false
@@ -197,6 +226,7 @@ class OctopusEmbeddedView(
     }
 
     private fun attachVisibilityChannel(messenger: BinaryMessenger, viewId: Int) {
+        this.viewId = viewId
         visibilityChannel = MethodChannel(messenger, "octopus_sdk_flutter/native_view/$viewId").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method == "setVisible" && call.arguments is Boolean) {
@@ -208,6 +238,11 @@ class OctopusEmbeddedView(
                 }
             }
         }
+    }
+
+    internal fun sendViewEvent(name: String, data: Map<String, Any?>? = null) {
+        if (disposed) return
+        OctopusSDKFlutterPlugin.sendEvent(name, (data ?: emptyMap()) + mapOf("viewId" to viewId))
     }
 
     // NavHost and every native BackHandler use this lifecycle. CREATED disables
@@ -225,14 +260,26 @@ class OctopusEmbeddedView(
                 parentLifecycle = null
             }
         }
-        CompositionLocalProvider(LocalLifecycleOwner provides this) {
+        CompositionLocalProvider(
+            LocalLifecycleOwner provides this,
+            LocalViewModelStoreOwner provides this,
+            LocalSavedStateRegistryOwner provides this
+        ) {
             MaterialTheme(content = content)
         }
     }
 
     init {
+        savedStateController.performAttach()
+        savedStateController.performRestore(null)
+        enableSavedStateHandles()
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        // Keep the host lifecycle/back dispatcher, but isolate navigation and VM state.
+        containerView.setViewTreeViewModelStoreOwner(this)
+        containerView.setViewTreeSavedStateRegistryOwner(this)
         containerView.addView(
             ComposeView(context).apply {
+                composeView = this
                 isScrollContainer = true
                 isVerticalScrollBarEnabled = true
                 isHorizontalScrollBarEnabled = false
@@ -336,12 +383,14 @@ class OctopusEmbeddedView(
                             fontSizeBody2 = fontSizeBody2,
                             fontSizeCaption1 = fontSizeCaption1,
                             fontSizeCaption2 = fontSizeCaption2,
+                            fontFamilyNavBarTitle = fontFamilyNavBarTitle,
+                            fontSizeNavBarTitle = fontSizeNavBarTitle,
                             onNavigateToLogin = {
                                 Log.d(
                                     "OctopusEmbeddedView",
                                     "onNavigateToLogin called - sending event"
                                 )
-                                OctopusSDKFlutterPlugin.sendEvent("loginRequired", null)
+                                sendViewEvent("loginRequired")
                             },
                             onNavigateToProfileEdit = { profileField: ProfileField? ->
                                 Log.d(
@@ -354,7 +403,7 @@ class OctopusEmbeddedView(
                                     ProfileField.BIO -> "BIO"
                                     null -> null
                                 }
-                                OctopusSDKFlutterPlugin.sendEvent(
+                                sendViewEvent(
                                     "editUser",
                                     mapOf("fieldToEdit" to fieldToEdit)
                                 )
@@ -364,14 +413,14 @@ class OctopusEmbeddedView(
                                     "OctopusEmbeddedView",
                                     "onBack called - sending backRequested event"
                                 )
-                                OctopusSDKFlutterPlugin.sendEvent("backRequested", null)
+                                sendViewEvent("backRequested")
                             },
                             onNavigateToUrl = if (interceptUrls) { url ->
                                 Log.d(
                                     "OctopusEmbeddedView",
                                     "onNavigateToUrl called - sending event"
                                 )
-                                OctopusSDKFlutterPlugin.sendEvent(
+                                sendViewEvent(
                                     "navigateToUrl",
                                     mapOf("url" to url)
                                 )
@@ -388,7 +437,7 @@ class OctopusEmbeddedView(
                                     "OctopusEmbeddedView",
                                     "onNavigateToProfile called - sending event"
                                 )
-                                OctopusSDKFlutterPlugin.sendEvent(
+                                sendViewEvent(
                                     "navigateToProfile",
                                     mapOf("clientUserId" to clientUserId)
                                 )
@@ -398,7 +447,7 @@ class OctopusEmbeddedView(
                                     "OctopusEmbeddedView",
                                     "onNavigateToClientObject called - sending event"
                                 )
-                                OctopusSDKFlutterPlugin.sendEvent(
+                                sendViewEvent(
                                     "navigateToClientObject",
                                     mapOf("objectId" to objectId)
                                 )
@@ -417,15 +466,16 @@ class OctopusEmbeddedView(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
-
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
     override fun getView() = containerView
 
     override fun dispose() {
+        if (disposed) return
         disposed = true
         visibilityChannel?.setMethodCallHandler(null)
+        // Composition cleanup can still use its VMs/scopes; clear them afterwards.
+        composeView.disposeComposition()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         viewModelStore.clear()
     }

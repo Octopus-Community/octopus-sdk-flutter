@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
@@ -78,6 +79,28 @@ class ConnectionScenario extends StatelessWidget {
         ],
       ),
       presets: [
+        if (kDebugMode)
+          ScenarioPreset(
+            testId: 'qa-preset-connection-invalid-token',
+            label: 'Debug · Refuse a malformed demo token',
+            onRun: (setResult) async {
+              try {
+                // A synthetic subject and a deliberately invalid token; no
+                // injected credential or demo user token is read or replaced.
+                final result = await app.octopus.connectUser(
+                  userId: 'demo-invalid-token',
+                  tokenProvider: () async => 'not-a-jwt',
+                );
+                final failure = describeConnectUserFailure(result);
+                setResult(
+                  failure ?? 'Unexpected success for the malformed token.',
+                  isError: true,
+                );
+              } catch (e) {
+                setResult('connectUser failed: $e', isError: true);
+              }
+            },
+          ),
         ScenarioPreset(
           testId: 'qa-preset-connection-1',
           label: 'connectUser() · Execute',

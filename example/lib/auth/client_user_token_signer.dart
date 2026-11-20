@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
 
 import '../octopus_demo_config.dart';
 
@@ -13,9 +12,8 @@ import '../octopus_demo_config.dart';
 /// (e.g. when `refreshEntitlements()` mints a new JWT with the host's
 /// updated entitlement set).
 ///
-/// **Demo-only**: this signer reads the secret from a `--dart-define`,
-/// matching iOS's `TokenProvider.swift` which reads it from
-/// `Bundle.main.infoDictionary["CLIENT_USER_TOKEN_SECRET"]`. A production
+/// **Local development only**: this signer reads the secret from a
+/// `--dart-define`. Distributed builds use pre-signed demo user tokens. A production
 /// host should call a trusted backend route that mints the user JWT and
 /// returns it — the secret never belongs in the client binary.
 ///
@@ -64,7 +62,6 @@ class ClientUserTokenSigner {
   /// - Entitlements list is sorted (alphabetical) so two semantically equal
   ///   sets produce the same JWT bytes — mirrors iOS's
   ///   `currentEntitlements.map(\.rawValue).sorted()` in `AppUserManager`.
-  @visibleForTesting
   static String signWith({
     required String secret,
     required String userId,

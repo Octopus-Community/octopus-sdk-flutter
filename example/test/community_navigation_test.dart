@@ -210,37 +210,108 @@ void main() {
     );
   }
 
-  navigationTest('mode picker persists Full screen across a new app instance', (
+  navigationTest('Settings navigation choice applies live and persists', (
     tester,
   ) async {
     final app = _App();
     await pumpShell(tester, state: app);
     await selectTab(tester, SampleTab.community);
     expect(app.communityNavigation, CommunityNavigation.inTab);
+    final embedded = tester.element(find.byType(OctopusHomeScreen));
+    await selectTab(tester, SampleTab.settings);
+    final developerTools = find.bySemanticsIdentifier(
+      'settings-devtools-entry',
+    );
+    await tester.scrollUntilVisible(
+      developerTools,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(developerTools);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.bySemanticsIdentifier('devtools-host-integration-entry'),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.bySemanticsIdentifier('community-navigation-select'),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Full screen'));
     await tester.pumpAndSettle();
     expect(app.communityNavigation, CommunityNavigation.fullScreen);
-    expect(find.byType(NavigationBar), findsNothing);
-    expect(find.byType(AppBar), findsNothing);
-    final surface = tester.widget<OctopusHomeScreen>(
-      find.byType(OctopusHomeScreen),
-    );
-    expect(surface.navBarLeadingAction, OctopusNavBarLeadingAction.back);
-    surface.onBack!();
-    await tester.pumpAndSettle();
-    expect(find.byType(AppBar), findsOneWidget);
+    expect(embedded.mounted, isFalse);
     final restarted = _App();
     await restarted.restoreCommunityNavigation();
     expect(restarted.communityNavigation, CommunityNavigation.fullScreen);
     restarted.dispose();
     await tester.tap(find.text('In tab'));
     await tester.pumpAndSettle();
-    expect(find.byType(AppBar), findsNothing);
+    expect(app.communityNavigation, CommunityNavigation.inTab);
+    expect(
+      find.bySemanticsIdentifier('community-navigation-select'),
+      findsOneWidget,
+    );
     final again = _App();
     await again.restoreCommunityNavigation();
     expect(again.communityNavigation, CommunityNavigation.inTab);
     again.dispose();
   });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    navigationTest(
+      '$platform Settings Full screen choice launches Community exactly once',
+      (tester) async {
+        final app = _App();
+        await pumpShell(tester, state: app, platform: platform);
+        await selectTab(tester, SampleTab.settings);
+        final tools = find.bySemanticsIdentifier('settings-devtools-entry');
+        await tester.scrollUntilVisible(
+          tools,
+          300,
+          scrollable: find.byType(Scrollable).last,
+        );
+        await tester.tap(tools);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.bySemanticsIdentifier('devtools-host-integration-entry'),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Full screen'));
+        await tester.pumpAndSettle();
+        expect(app.communityNavigation, CommunityNavigation.fullScreen);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        final before = creations.length;
+        await selectTab(tester, SampleTab.community);
+        await tester.pumpAndSettle();
+        expect(find.byType(OctopusHomeScreen), findsOneWidget);
+        expect(creations, hasLength(before + 1));
+        expect(find.byType(NavigationBar).hitTestable(), findsNothing);
+        tester
+            .widget<OctopusHomeScreen>(find.byType(OctopusHomeScreen))
+            .onBack!();
+        await tester.pumpAndSettle();
+        // Known Full screen state: Back leaves an empty Community tab. A retap
+        // opens a fresh presentation; it must not reopen automatically.
+        expect(find.byType(OctopusHomeScreen), findsNothing);
+        expect(creations, hasLength(before + 1));
+        expect(
+          tester
+              .widget<NavigationBar>(find.byType(NavigationBar))
+              .selectedIndex,
+          SampleTab.community.index,
+        );
+        await selectTab(tester, SampleTab.community);
+        await tester.pumpAndSettle();
+        expect(find.byType(OctopusHomeScreen), findsOneWidget);
+        expect(creations, hasLength(before + 2));
+      },
+      platform: platform,
+    );
+  }
 
   navigationTest('missing or obsolete preference defaults to In tab', (
     tester,
@@ -307,15 +378,20 @@ void main() {
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     navigationTest(
-      '$platform In tab picker sits below the SDK header and surface',
+      '$platform In tab gives the SDK the full height above the tabs',
       (tester) async {
         await pumpShell(tester, state: _App(), platform: platform);
         await selectTab(tester, SampleTab.community);
         final surface = tester.getRect(find.byType(OctopusHomeScreen));
-        final picker = tester.getRect(
-          find.byType(SegmentedButton<CommunityNavigation>),
+        final tabs = tester.getRect(find.byType(NavigationBar));
+        expect(surface.top, 24);
+        expect(surface.bottom, tabs.top);
+        expect(find.byType(SegmentedButton<CommunityNavigation>), findsNothing);
+        expect(
+          find.bySemanticsIdentifier('community-navigation-select'),
+          findsNothing,
         );
-        expect(picker.top, greaterThanOrEqualTo(surface.bottom));
+        expect(find.text('Full screen'), findsNothing);
         expect(find.byType(AppBar), findsNothing);
       },
       platform: platform,

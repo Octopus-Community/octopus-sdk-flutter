@@ -30,6 +30,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.octopuscommunity.sdk.OctopusSDK
 import com.octopuscommunity.sdk.domain.model.CreatePostScreenInfo
+import com.octopuscommunity.sdk.domain.model.OctopusLocalizedText
 import com.octopuscommunity.sdk.domain.model.OctopusPostCTA
 import com.octopuscommunity.sdk.domain.model.OctopusPrefilledPost
 import com.octopuscommunity.sdk.domain.model.ProfileField
@@ -51,9 +52,9 @@ import java.io.File
  * destination (no PlatformView / NavHost shenanigans, no inset clipping).
  *
  * Prefill payload is passed via Intent extras (the host marshalled the same map
- * that previously flew through the PlatformView creationParams). Image bytes
- * are materialized to a temp file and passed as a `file://` URI so the Intent
- * stays light.
+ * that previously flew through the PlatformView creationParams). Each image's
+ * bytes are materialized to a temp file and passed as a `file://` URI so the
+ * Intent stays light; the files live as long as the editor does.
  *
  * On `finish()` (X tap, system back, or publish success) the activity ends and
  * the plugin completes its `Result.success(null)` waiting on the Dart side.
@@ -126,14 +127,15 @@ class OctopusCreatePostActivity : ComponentActivity() {
                     iconPaths = intent.getBundleExtra(EXTRA_ICONS)?.let { bundle ->
                         bundle.keySet().mapNotNull { key -> bundle.getString(key)?.let { key to it } }.toMap()
                     } ?: emptyMap(),
-                    navBarTitle = null,
                     navBarPrimaryColor = false,
                     fontSizeTitle1 = intent.getIntExtraOrNull(EXTRA_FONT_TITLE1),
                     fontSizeTitle2 = intent.getIntExtraOrNull(EXTRA_FONT_TITLE2),
                     fontSizeBody1 = intent.getIntExtraOrNull(EXTRA_FONT_BODY1),
                     fontSizeBody2 = intent.getIntExtraOrNull(EXTRA_FONT_BODY2),
                     fontSizeCaption1 = intent.getIntExtraOrNull(EXTRA_FONT_CAPTION1),
-                    fontSizeCaption2 = intent.getIntExtraOrNull(EXTRA_FONT_CAPTION2)
+                    fontSizeCaption2 = intent.getIntExtraOrNull(EXTRA_FONT_CAPTION2),
+                    fontFamilyNavBarTitle = intent.getStringExtra(EXTRA_FONT_FAMILY_NAV_BAR_TITLE),
+                    fontSizeNavBarTitle = intent.getIntExtraOrNull(EXTRA_FONT_SIZE_NAV_BAR_TITLE),
                 ) {
                     // Read the same resolved surface as the editor, including forced
                     // Light/Dark and a host-provided background override.
@@ -260,8 +262,13 @@ class OctopusCreatePostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // Keep files through rotation; final dismissal releases this editor's images.
-        if (isFinishing) cleanupIconFiles(intent)
+        // Keep files through rotation; final dismissal releases this editor's images. Nothing reads
+        // the prefilled photos after that: the editor publishes from its ViewModel, which goes with
+        // the activity.
+        if (isFinishing) {
+            cleanupIconFiles(intent)
+            cleanupPrefilledImageFiles(intent)
+        }
         super.onDestroy()
     }
 
@@ -272,31 +279,8 @@ class OctopusCreatePostActivity : ComponentActivity() {
         // OctopusSDK.setBridgeShareTokenProvider ourselves.
         val bridgeShareTokenProvider = bridgeShareTokenProviderFromIntent(intent)
         return try {
-            val text = intent.getStringExtra(EXTRA_TEXT)
-            val topicId = intent.getStringExtra(EXTRA_TOPIC_ID)
-            val ctaUrl = intent.getStringExtra(EXTRA_CTA_URL)
-            val ctaLabel = intent.getStringExtra(EXTRA_CTA_LABEL)
-            val imagePath = intent.getStringExtra(EXTRA_IMAGE_PATH)
-            val cta = if (ctaUrl != null && ctaLabel != null) {
-                OctopusPostCTA(url = Uri.parse(ctaUrl), label = ctaLabel)
-            } else null
-            val imageUri = imagePath?.let { Uri.fromFile(File(it)) }
-            // Text and image are both optional since native 1.13: a topicId- or
-            // CTA-only prefill opens the editor on the preselected group with
-            // empty, user-editable fields. Only a wholly empty prefill is
-            // dropped — it is indistinguishable from opening a plain editor.
-            if (text == null && imageUri == null && topicId == null && cta == null) {
-                return CreatePostScreenInfo(
-                    bridgeShareTokenProvider = bridgeShareTokenProvider
-                )
-            }
             CreatePostScreenInfo(
-                prefilledPost = OctopusPrefilledPost(
-                    text = text,
-                    image = imageUri,
-                    topicId = topicId,
-                    cta = cta
-                ),
+                prefilledPost = prefilledPostFromIntent(intent),
                 bridgeShareTokenProvider = bridgeShareTokenProvider
             )
         } catch (e: Exception) {
@@ -330,9 +314,12 @@ class OctopusCreatePostActivity : ComponentActivity() {
         private const val EXTRA_TEXT = "octopus.text"
         private const val EXTRA_BRIDGE_TOKEN_REQUEST_ID = "octopus.bridgeTokenRequestId"
         private const val EXTRA_TOPIC_ID = "octopus.topicId"
-        private const val EXTRA_IMAGE_PATH = "octopus.imagePath"
+        private const val EXTRA_IMAGE_PATHS = "octopus.imagePaths"
         private const val EXTRA_CTA_URL = "octopus.ctaUrl"
         private const val EXTRA_CTA_LABEL = "octopus.ctaLabel"
+        private const val EXTRA_CTA_LABEL_DEFAULT_LANGUAGE = "octopus.ctaLabelDefaultLanguage"
+        private const val EXTRA_CTA_LABEL_LANGUAGES = "octopus.ctaLabelLanguages"
+        private const val EXTRA_CTA_LABEL_TEXTS = "octopus.ctaLabelTexts"
         private const val EXTRA_THEME_MODE = "octopus.themeMode"
         private const val EXTRA_PRIMARY_MAIN = "octopus.primaryMain"
         private const val EXTRA_PRIMARY_LOW = "octopus.primaryLow"
@@ -350,6 +337,8 @@ class OctopusCreatePostActivity : ComponentActivity() {
         private const val EXTRA_FONT_BODY2 = "octopus.fontBody2"
         private const val EXTRA_FONT_CAPTION1 = "octopus.fontCaption1"
         private const val EXTRA_FONT_CAPTION2 = "octopus.fontCaption2"
+        private const val EXTRA_FONT_FAMILY_NAV_BAR_TITLE = "octopus.fontFamilyNavBarTitle"
+        private const val EXTRA_FONT_SIZE_NAV_BAR_TITLE = "octopus.fontSizeNavBarTitle"
 
         /**
          * Builds the Intent the plugin uses to launch the create-post activity.
@@ -376,12 +365,17 @@ class OctopusCreatePostActivity : ComponentActivity() {
                 @Suppress("UNCHECKED_CAST")
                 (prefilled["cta"] as? Map<String, Any?>)?.let { cta ->
                     (cta["url"] as? String)?.let { intent.putExtra(EXTRA_CTA_URL, it) }
-                    (cta["label"] as? String)?.let { intent.putExtra(EXTRA_CTA_LABEL, it) }
+                    val localizedLabel = cta["localizedLabel"] as? Map<*, *>
+                    val autoTranslatedText = localizedLabel
+                        ?.takeIf { it["type"] == "autoTranslated" }
+                        ?.get("text") as? String
+                    (autoTranslatedText ?: cta["label"] as? String)?.let {
+                        intent.putExtra(EXTRA_CTA_LABEL, it)
+                    }
+                    putPerLanguageLabelExtras(intent, localizedLabel)
                 }
-                (prefilled["image"] as? ByteArray)?.let { bytes ->
-                    val path = materializeImage(context, bytes)
-                    intent.putExtra(EXTRA_IMAGE_PATH, path)
-                }
+                val imagePaths = materializeImages(context, prefilled["images"])
+                if (imagePaths.isNotEmpty()) intent.putExtra(EXTRA_IMAGE_PATHS, imagePaths.toTypedArray())
             }
 
             // Theme / fonts — same wire as the existing PlatformView creationParams
@@ -410,11 +404,102 @@ class OctopusCreatePostActivity : ComponentActivity() {
             (args["fontSizeBody2"] as? Int)?.let { intent.putExtra(EXTRA_FONT_BODY2, it) }
             (args["fontSizeCaption1"] as? Int)?.let { intent.putExtra(EXTRA_FONT_CAPTION1, it) }
             (args["fontSizeCaption2"] as? Int)?.let { intent.putExtra(EXTRA_FONT_CAPTION2, it) }
+            (args["fontFamilyNavBarTitle"] as? String)?.let { intent.putExtra(EXTRA_FONT_FAMILY_NAV_BAR_TITLE, it) }
+            (args["fontSizeNavBarTitle"] as? Number)?.let { intent.putExtra(EXTRA_FONT_SIZE_NAV_BAR_TITLE, it.toInt()) }
             // `fontSizeNavBarItem` is deliberately NOT forwarded: the native
             // Android `OctopusTypography` has no nav-bar-item slot to map it
             // onto. See the Factory comment in `OctopusEmbeddedView.kt`.
 
             return intent
+        }
+
+        /**
+         * The native prefilled post the [newIntent] extras carry, or `null` when they carry none.
+         *
+         * Text and images are all optional since native 1.13: a topicId- or CTA-only prefill opens
+         * the editor on the preselected group with empty, user-editable fields. Only a wholly empty
+         * prefill is dropped — it is indistinguishable from opening a plain editor.
+         *
+         * @throws IllegalArgumentException when the native constructor refuses the payload.
+         */
+        internal fun prefilledPostFromIntent(intent: Intent): OctopusPrefilledPost? {
+            val text = intent.getStringExtra(EXTRA_TEXT)
+            val topicId = intent.getStringExtra(EXTRA_TOPIC_ID)
+            val ctaUrl = intent.getStringExtra(EXTRA_CTA_URL)
+            val ctaLabel = intent.getStringExtra(EXTRA_CTA_LABEL)
+            // A per-language label the native SDK refuses drops the CTA only, as the iOS bridge
+            // does: the text, images and group still prefill the editor.
+            val localizedLabel = try {
+                perLanguageLabelFromExtras(intent) ?: ctaLabel?.let { OctopusLocalizedText.AutoTranslated(it) }
+            } catch (e: OctopusLocalizedText.ValidationError) {
+                Log.w(TAG, "Prefilled CTA label refused — opening the editor without the CTA", e)
+                null
+            }
+            val cta = if (ctaUrl != null && localizedLabel != null) {
+                OctopusPostCTA(url = Uri.parse(ctaUrl), localizedLabel = localizedLabel)
+            } else null
+            val imageUris = intent.getStringArrayExtra(EXTRA_IMAGE_PATHS).orEmpty()
+                .map { Uri.fromFile(File(it)) }
+            if (text == null && imageUris.isEmpty() && topicId == null && cta == null) return null
+            return OctopusPrefilledPost(text = text, topicId = topicId, cta = cta, images = imageUris)
+        }
+
+        /**
+         * Carries a per-language CTA label (the wire `localizedLabel`) in the intent as three
+         * extras, since an intent extra cannot be a map. An auto-translated label needs none: the
+         * plain label extra is that text.
+         */
+        private fun putPerLanguageLabelExtras(intent: Intent, localizedLabel: Map<*, *>?) {
+            if (localizedLabel?.get("type") != "perLanguage") return
+            val entries = (localizedLabel["texts"] as? List<*>).orEmpty().mapNotNull { it as? Map<*, *> }
+            intent.putExtra(EXTRA_CTA_LABEL_DEFAULT_LANGUAGE, localizedLabel["defaultLanguage"] as? String ?: "")
+            intent.putExtra(EXTRA_CTA_LABEL_LANGUAGES, entries.map { it["language"] as? String ?: "" }.toTypedArray())
+            intent.putExtra(EXTRA_CTA_LABEL_TEXTS, entries.map { it["text"] as? String ?: "" }.toTypedArray())
+        }
+
+        /**
+         * The per-language CTA label [putPerLanguageLabelExtras] carried, or `null` when there is none.
+         *
+         * @throws OctopusLocalizedText.ValidationError when the native SDK refuses it.
+         */
+        private fun perLanguageLabelFromExtras(intent: Intent): OctopusLocalizedText? {
+            val defaultLanguage = intent.getStringExtra(EXTRA_CTA_LABEL_DEFAULT_LANGUAGE) ?: return null
+            val languages = intent.getStringArrayExtra(EXTRA_CTA_LABEL_LANGUAGES).orEmpty()
+            val texts = intent.getStringArrayExtra(EXTRA_CTA_LABEL_TEXTS).orEmpty()
+            return decodeLocalizedText(
+                mapOf(
+                    "type" to "perLanguage",
+                    "texts" to languages.zip(texts).map { (language, text) ->
+                        mapOf("language" to language, "text" to text)
+                    },
+                    "defaultLanguage" to defaultLanguage,
+                )
+            )
+        }
+
+        /** Deletes the temp files [newIntent] wrote the prefilled images to. */
+        internal fun cleanupPrefilledImageFiles(intent: Intent) {
+            intent.getStringArrayExtra(EXTRA_IMAGE_PATHS)?.forEach { path ->
+                if (!File(path).delete()) Log.w(TAG, "Could not remove a cached prefilled image")
+            }
+        }
+
+        /**
+         * Writes each non-empty byte array of the wire `images` list to its own temp file, in order,
+         * and returns their paths. A failure removes the files already written before rethrowing.
+         */
+        private fun materializeImages(context: Context, rawImages: Any?): List<String> {
+            val paths = mutableListOf<String>()
+            try {
+                (rawImages as? List<*>).orEmpty().forEach { raw ->
+                    val bytes = raw as? ByteArray
+                    if (bytes != null && bytes.isNotEmpty()) paths += materializeImage(context, bytes)
+                }
+            } catch (e: Exception) {
+                paths.forEach { File(it).delete() }
+                throw e
+            }
+            return paths
         }
 
         internal fun cleanupIconFiles(intent: Intent) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
@@ -11,6 +12,7 @@ import '../sample_fixtures.dart';
 import '../widgets/scenario_scaffold.dart';
 import '../design.dart';
 import 'embedded_back_scenario.dart';
+import 'keyboard_mount_page.dart';
 
 /// Height of the fake host bottom bar used by Preset 3.
 ///
@@ -254,6 +256,21 @@ class FullscreenScenario extends StatelessWidget {
         ),
       ),
       presets: [
+        if (kDebugMode)
+          ScenarioPreset(
+            testId: 'qa-preset-fullscreen-keyboard',
+            label: 'Debug · Mount with the keyboard open',
+            onRun: (setResult) async {
+              setResult('Focus the host field, then mount the community.');
+              unawaited(
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const KeyboardMountPage(),
+                  ),
+                ),
+              );
+            },
+          ),
         ScenarioPreset(
           testId: 'qa-preset-fullscreen-1',
           label: 'Preset 1 · Open SDK as full-screen route',

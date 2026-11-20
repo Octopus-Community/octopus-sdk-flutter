@@ -109,7 +109,7 @@ void main() {
         MockStreamHandler.inline(onListen: (_, _) {}),
       );
       messenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method == 'connectUserWithTokenProvider') calls.add(call);
+        if (call.method == 'connectUser') calls.add(call);
         if (call.method == 'provideClientUserToken') {
           tokenReplies.add(call.arguments as Map);
         }

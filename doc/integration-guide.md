@@ -39,7 +39,22 @@ guide (including Swift Package Manager): the
   ```xml
   <uses-permission android:name="android.permission.INTERNET" />
   ```
-- Keep `minSdk 23` / `compileSdk 35` (see the requirements table in the README).
+- Use `minSdk 23` / `compileSdk 36` or later, with Android Gradle Plugin 8.9.1 or
+  later (see the requirements table in the README).
+
+#### Predictive back (Android 14+)
+
+The native create-post screen (`OctopusCreatePostActivity`) opts in to predictive
+back by itself. The home screen and embedded view run inside your host activity,
+so opt in that activity in `android/app/src/main/AndroidManifest.xml` by adding
+`android:enableOnBackInvokedCallback="true"` to its existing `<activity>` element
+(usually `.MainActivity`, extending `FlutterFragmentActivity`).
+
+With the host activity opted in, Flutter routes back through its predictive-back
+support. Use `PopScope` for route back handling; legacy `WillPopScope` does not
+support predictive back, so apps still using it have different gesture behavior.
+See Flutter's "Android predictive back" migration guide for the migration to
+`PopScope`.
 
 ### iOS
 
@@ -92,9 +107,12 @@ app's login flow when an anonymous member performs an action that requires sign-
 
 ### Connect the signed-in user (SSO)
 
-When your user logs into your app, hand Octopus a JWT signed by your backend.
-Use a **token provider** (not a static token) so the SDK can refresh the JWT
-when entitlements change:
+When your user logs into your app, call `connectUser` with its required
+`tokenProvider`. The SDK calls it for the initial token and every subsequent
+token request. Fetch a fresh JWT signed by your backend each time: SSO JWTs
+expire, so returning a captured token will replay a stale JWT on refresh.
+See the [migration guide](../MIGRATING.md#to-1160-from-115x) when upgrading
+from 1.15.x.
 
 ```dart
 final result = await OctopusSDK().connectUser(
@@ -211,7 +229,9 @@ final result = await OctopusSDK().fetchOrCreateClientObjectRelatedPost(
     objectId: article.id,
     text: article.title,
     catchPhrase: article.subtitle,
-    viewObjectButtonText: 'Read the article',
+    viewObjectButton: OctopusLocalizedText.autoTranslated('Read the article'),
+    // Up to 10 images, local bytes or remote URLs, in display order.
+    medias: [OctopusRemoteImageAttachment(article.coverUrl)],
   ),
 );
 
@@ -221,6 +241,60 @@ result.onSuccess((post) {
   ));
 });
 ```
+
+### Button labels per language
+
+The label of the "view object" button, and of the call-to-action of a
+prefilled post (`OctopusPostCTA.localized`), is an `OctopusLocalizedText`:
+
+- `OctopusLocalizedText.autoTranslated(text)` — one label, which Octopus
+  translates automatically for every reader;
+- `OctopusLocalizedText.perLanguage(texts, defaultLanguage: ...)` — one label
+  per language your app has, keyed by BCP-47 language tag (`'en'`, `'pt-BR'`,
+  `'zh-Hant-TW'`). A reader whose language is in the list sees that label as
+  is; any other reader sees an automatic translation of the default language's
+  label.
+
+```dart
+ClientPost(
+  objectId: article.id,
+  text: article.title,
+  viewObjectButton: OctopusLocalizedText.perLanguage({
+    'en': 'Read the article',
+    'fr': "Lire l'article",
+    'pt-BR': 'Ler o artigo',
+  }, defaultLanguage: 'en'),
+)
+
+OctopusPostCTA.localized(
+  url: Uri.parse('myapp://article/42'),
+  localizedLabel: OctopusLocalizedText.perLanguage({
+    'en': 'Read',
+    'fr': 'Lire',
+  }, defaultLanguage: 'en'),
+)
+```
+
+Give BCP-47 tags (`'en'`, `'pt-BR'`, `'zh-Hant-TW'`). The wrapper checks
+nothing and sends the tags as you wrote them; the bridges only read an
+underscore as a hyphen. The native SDK validates the label when it is used:
+`fetchOrCreateClientObjectRelatedPost` when it sends the post,
+`showOctopusCreatePostScreen` before the editor opens. When it refuses the
+label, the call throws an `OctopusLocalizedTextValidationError` (an
+`ArgumentError`) carrying a `kind` and, when it concerns one language, the
+`languageCode` the native SDK built: no text (`emptyTexts`), a tag without a
+language, `und` included (`emptyLanguage`), an empty or blank label (`blankText`), two tags of
+the same language (`duplicateLanguage`), or a default language with no label
+(`defaultLanguageMissing`). On the embedded `OctopusInitialScreen.createPost`
+route, which returns nothing to Dart, a refused label drops the CTA instead.
+
+Labels are taken when the post is created only: a post that already exists for
+the `objectId` keeps its button. Keep each label under 28 characters so that it
+fits on one line; a longer one wraps. Octopus groups the regions of one
+language (`en-US`, `en-GB`), except for Chinese: give `zh-Hans` and `zh-Hant`
+(or a region) apart. When your backend signs bridge posts, it signs the
+language codes the native SDK sends: `language[-Script][-REGION]`, with Hebrew,
+Indonesian and Yiddish under `he`, `id` and `yi`.
 
 Wire the "view object" button so a tap returns to your article:
 
@@ -268,6 +342,7 @@ value replayed, so a widget mounting after `initialize()` does not miss it.
 | `OctopusSDK.notSeenNotificationsCount` | `int` — unread badge count |
 | `OctopusSDK.groups` | `List<OctopusGroup>` — community groups |
 | `OctopusSDK.hasAccessToCommunity` | `bool` — A/B cohort flag |
+| `OctopusSDK.communityAccessDeniedReason` | `CommunityAccessDeniedReason?` — why the access is denied, `null` when granted or not known yet |
 | `OctopusSDK.events` | `OctopusEvent` — typed analytics-grade event stream |
 
 Example: keep a badge updated.

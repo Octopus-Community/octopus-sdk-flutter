@@ -59,8 +59,17 @@ const String octopusUserToken = String.fromEnvironment(
   defaultValue: '',
 );
 
-/// SSO `CLIENT_USER_TOKEN_SECRET` for the demo community, injected at build
-/// time. **Demo-only** — production hosts should never ship the secret inside
+/// JSON object mapping bundled demo user ids to pre-signed, expiring JWTs.
+///
+/// Distributed builds inject only these tokens, never the signing secret.
+/// When present, this map takes precedence over local signing and the legacy
+/// [octopusUserToken]. Custom user ids require their own backend-issued token.
+const String octopusDemoUserTokens = String.fromEnvironment(
+  'OCTOPUS_DEMO_USER_TOKENS',
+);
+
+/// SSO `CLIENT_USER_TOKEN_SECRET` for local development only, injected at build
+/// time. Distributed builds must never ship the secret inside
 /// the client binary; they should call a trusted backend route that returns
 /// the bridge signature (the secret stays server-side).
 ///

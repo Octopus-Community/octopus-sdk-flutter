@@ -21,8 +21,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -48,7 +51,9 @@ import org.robolectric.shadows.ShadowLog
 class ModernizationRegressionTest {
     private val dispatcher = StandardTestDispatcher()
     private lateinit var plugin: OctopusSDKFlutterPlugin
+    private lateinit var pluginJob: Job
     private lateinit var context: Context
+    private var wasInitialised = false
     private val connect = Mockito.mock(ConnectUseCase::class.java)
     private val disconnect = Mockito.mock(DisconnectUseCase::class.java)
     private val groups = Mockito.mock(GroupRepository::class.java)
@@ -64,20 +69,27 @@ class ModernizationRegressionTest {
         context = RuntimeEnvironment.getApplication()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("octopus_image") }?.forEach { it.delete() }
         plugin = OctopusSDKFlutterPlugin()
+        pluginJob = (OctopusSDKFlutterPlugin::class.java.getDeclaredField("scope").apply {
+            isAccessible = true
+        }.get(plugin) as CoroutineScope).coroutineContext[Job]!!
         // Keep tests compatible with the base revision: no production-only test constructor.
         OctopusSDKFlutterPlugin::class.java.getDeclaredField("context").apply {
             isAccessible = true
             set(plugin, context)
         }
+        wasInitialised = OctopusSDK.isInitialised
         OctopusSDK.koin.loadModules(listOf(testModule))
+        OctopusSDK.isInitialisedFlow.value = true
         ShadowLog.clear()
     }
 
     @After
     fun tearDown() {
+        pluginJob.cancel()
         OctopusEventEmitter.setEventSink(null)
         OctopusSDKFlutterPlugin.bridgeTokenDeferreds.values.forEach { it.cancel() }
         OctopusSDKFlutterPlugin.bridgeTokenDeferreds.clear()
+        OctopusSDK.isInitialisedFlow.value = wasInitialised
         OctopusSDK.koin.unloadModules(listOf(testModule))
         Dispatchers.resetMain()
     }
@@ -104,8 +116,10 @@ class ModernizationRegressionTest {
         Mockito.`when`(connect.invoke(anyUser(), anyTokenProvider())).thenReturn(
             OctopusResult.Success(ConnectUseCase.Result(ConnectionState.NotConnected, null, null))
         )
-        plugin.onMethodCall(connectCall(), result())
-        advanceUntilIdle()
+        val result = result()
+        plugin.onMethodCall(connectCall(), result)
+        awaitPluginCalls()
+        Mockito.verify(result).success(mapOf("type" to "success"))
         assertFalse(ShadowLog.getLogs().any { it.msg.contains("private-") })
     }
 
@@ -120,7 +134,7 @@ class ModernizationRegressionTest {
         val valid = mapOf("groupId" to "group-a", "followed" to false, "actionDateMs" to 1234L)
         plugin.onMethodCall(MethodCall("syncFollowGroups", mapOf("actions" to listOf(
             valid, valid + ("groupId" to 3), valid + ("followed" to "yes"),
-            valid + ("actionDateMs" to "yesterday"), emptyMap<String, Any>(), null, "invalid", valid,
+            valid + ("actionDateMs" to "yesterday"), emptyMap<String, Any>(), valid,
         ))), result)
         advanceUntilIdle()
         assertEquals(listOf("group-a", "group-a"), received?.map { it.groupId })
@@ -130,12 +144,63 @@ class ModernizationRegressionTest {
         Mockito.verifyNoMoreInteractions(result)
     }
 
+    // Like iOS (`as? [[String: Any]]`), a batch holding a non-map entry is rejected whole.
     @Test
-    fun syncFollowGroupsWithOnlyMalformedEntriesReturnsEmpty() = runTest(dispatcher) {
+    fun syncFollowGroupsRejectsBatchesWithNonMapEntries() {
+        val valid = mapOf("groupId" to "group-a", "followed" to false, "actionDateMs" to 1234L)
+        for (actions in listOf(listOf(valid, null), listOf(valid, "invalid"), listOf(valid + (7 to "invalid key")))) {
+            val result = result()
+            plugin.onMethodCall(MethodCall("syncFollowGroups", mapOf("actions" to actions)), result)
+            Mockito.verify(result).error("other", "actions list is required", null)
+            Mockito.verifyNoMoreInteractions(result)
+        }
+        Mockito.verifyNoInteractions(groups)
+    }
+
+    // Like iOS, only a genuinely empty list skips the native call; a nonempty
+    // batch with no valid action still reaches it so native errors surface.
+    @Test
+    fun syncFollowGroupsWithOnlyMalformedEntriesStillCallsNative() = runTest(dispatcher) {
+        var received: List<SyncFollowGroupAction>? = null
+        Mockito.`when`(groups.syncFollowGroups(Mockito.anyList())).thenAnswer {
+            received = it.getArgument(0)
+            OctopusResult.Success(emptyList<Any>())
+        }
         val result = result()
-        plugin.onMethodCall(MethodCall("syncFollowGroups", mapOf("actions" to listOf(null, 7, emptyMap<String, Any>()))), result)
+        plugin.onMethodCall(MethodCall("syncFollowGroups", mapOf("actions" to listOf(
+            emptyMap<String, Any>(), mapOf("groupId" to 3),
+        ))), result)
         advanceUntilIdle()
+        assertEquals(emptyList(), received)
         Mockito.verify(result).success(emptyList<Any>())
+    }
+
+    @Test
+    fun syncFollowGroupsWithEmptyListReturnsEmptyWithoutNativeCall() {
+        val result = result()
+        plugin.onMethodCall(MethodCall("syncFollowGroups", mapOf("actions" to emptyList<Any>())), result)
+        Mockito.verify(result).success(emptyList<Any>())
+        Mockito.verifyNoInteractions(groups)
+    }
+
+    @Test
+    fun syncFollowGroupsBeforeInitializeReturnsNotConnected() {
+        OctopusSDK.isInitialisedFlow.value = false
+        val result = result()
+        plugin.onMethodCall(MethodCall("syncFollowGroups", mapOf("actions" to emptyList<Any>())), result)
+        Mockito.verify(result).error("not_connected", "Call initialize() and connectUser() first", null)
+        Mockito.verifyNoMoreInteractions(result)
+        Mockito.verifyNoInteractions(groups)
+    }
+
+    @Test
+    fun syncFollowGroupsRequiresAnActionsList() {
+        for (arguments in listOf(null, emptyMap<String, Any>(), mapOf("actions" to "invalid"))) {
+            val result = result()
+            plugin.onMethodCall(MethodCall("syncFollowGroups", arguments), result)
+            Mockito.verify(result).error("other", "actions list is required", null)
+            Mockito.verifyNoMoreInteractions(result)
+        }
         Mockito.verifyNoInteractions(groups)
     }
 
@@ -185,7 +250,7 @@ class ModernizationRegressionTest {
         }
         val result = result()
         plugin.onMethodCall(connectCall(png()), result)
-        advanceUntilIdle()
+        awaitPluginCalls()
         Mockito.verify(result).success(mapOf("type" to "success"))
         assertFalse(consumed!!.exists(), "Consumed avatar remains in cache")
     }
@@ -195,7 +260,7 @@ class ModernizationRegressionTest {
         Mockito.`when`(connect.invoke(anyUser(), anyTokenProvider())).thenThrow(IllegalStateException("fake refusal"))
         val result = result()
         plugin.onMethodCall(connectCall(png()), result)
-        advanceUntilIdle()
+        awaitPluginCalls()
         Mockito.verify(result).error("CONNECT_ERROR", "fake refusal", null)
         assertTrue(context.cacheDir.listFiles()!!.none { it.name.startsWith("octopus_image") })
     }
@@ -207,13 +272,19 @@ class ModernizationRegressionTest {
         val similar = File(context.cacheDir, "octopus_image-host.png").apply { writeText("keep") }
         val result = result()
         plugin.onMethodCall(MethodCall("disconnectUser", null), result)
-        advanceUntilIdle()
+        awaitPluginCalls()
         Mockito.verify(result).success(null)
         assertFalse(old.exists(), "Old plugin avatar survives disconnect")
         assertTrue(unrelated.exists())
         assertTrue(similar.exists())
         unrelated.delete()
         similar.delete()
+    }
+
+    // advanceUntilIdle only drains the test dispatcher. Joining the plugin's jobs
+    // also waits for real Dispatchers.IO work, including the finally cleanup.
+    private suspend fun awaitPluginCalls() {
+        pluginJob.children.toList().joinAll()
     }
 
     // Mockito's Java matchers return null; supply a dummy after registering the matcher
@@ -224,7 +295,7 @@ class ModernizationRegressionTest {
     private fun result() = Mockito.mock(MethodChannel.Result::class.java)
 
     private fun connectCall(picture: String? = null) = MethodCall("connectUser", mapOf(
-        "userId" to "private-user-id", "token" to "fake-token", "nickname" to "private-nickname",
+        "userId" to "private-user-id", "providerId" to "fake-provider", "nickname" to "private-nickname",
         "bio" to "private-bio", "picture" to picture,
     ))
 

@@ -138,40 +138,9 @@ class CommunityTab extends StatelessWidget {
               ? (app.pendingCommunityNotification != null
                     ? const Center(child: CircularProgressIndicator())
                     : CommunitySurface(app: app, active: active))
-              : Center(
-                  child: FilledButton(
-                    onPressed: () => openCommunityFullScreen(context),
-                    child: const Text('Open the community'),
-                  ),
-                ),
+              : const SizedBox.expand(),
         ),
-        const CommunityNavigationPicker(),
       ],
-    );
-  }
-}
-
-/// Temporary Community control below the SDK; Settings placement belongs to F5.
-class CommunityNavigationPicker extends StatelessWidget {
-  const CommunityNavigationPicker({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final app = AppScope.of(context);
-    return Padding(
-      padding: const EdgeInsets.all(SampleSpacing.space2),
-      child: Semantics(
-        identifier: 'community-navigation-mode',
-        child: SegmentedButton<CommunityNavigation>(
-          segments: [
-            for (final mode in CommunityNavigation.values)
-              ButtonSegment(value: mode, label: Text(mode.label)),
-          ],
-          selected: {app.communityNavigation},
-          onSelectionChanged: (selection) =>
-              app.setCommunityNavigation(selection.single),
-        ),
-      ),
     );
   }
 }

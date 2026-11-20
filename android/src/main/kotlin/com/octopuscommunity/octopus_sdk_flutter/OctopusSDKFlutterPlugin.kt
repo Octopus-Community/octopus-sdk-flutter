@@ -20,6 +20,7 @@ import com.octopuscommunity.sdk.domain.model.Moderation
 import com.octopuscommunity.sdk.domain.model.OctopusEvent
 import com.octopuscommunity.sdk.domain.model.OctopusCommunityData
 import com.octopuscommunity.sdk.domain.model.OctopusItem
+import com.octopuscommunity.sdk.domain.model.OctopusLocalizedText
 import com.octopuscommunity.sdk.domain.model.OctopusPost
 import com.octopuscommunity.sdk.domain.model.OctopusReactionKind
 import com.octopuscommunity.sdk.domain.model.ProfileField
@@ -50,6 +51,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -72,8 +74,16 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     // that belongs to another FlutterEngine.
     private var listeningSink: EventChannel.EventSink? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // Accessed on Main. Avatar preparation suspends while IO runs, so a later
+    // session call must invalidate a connect that has not reached the SDK yet.
+    private var connectionGeneration = 0L
+    // All avatar file operations run on IO. Keep disconnect's cache sweep from
+    // deleting a file another connection is still preparing or using.
+    private val profilePictureLock = Any()
+    private val activeProfilePicturePaths = mutableSetOf<String>()
     private var notSeenNotificationsJob: Job? = null
     private var hasAccessToCommunityJob: Job? = null
+    private var communityAccessDeniedReasonJob: Job? = null
     private var profileJob: Job? = null
     private var groupsJob: Job? = null
     private var connectionStateJob: Job? = null
@@ -82,7 +92,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
     // Pending client-user-token requests, keyed by the in-flight requestId. The
     // persistent connectUser tokenProvider lambda registered via
-    // `connectUserWithTokenProvider` parks a CompletableDeferred here and
+    // `connectUser` parks a CompletableDeferred here and
     // awaits it; the Dart `provideClientUserToken` reply completes it. The
     // native SDK calls the lambda initially and on every subsequent refresh
     // (e.g. `refreshEntitlements()`), so each invocation gets a fresh
@@ -215,6 +225,10 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     @OptIn(InternalOctopusApi::class)
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
+            "connectUser", "disconnectUser",
+            "initialize", "switchCommunity", "reset", "stop" -> connectionGeneration += 1
+        }
+        when (call.method) {
             "getPlatformVersion" -> {
                 result.success("Android ${android.os.Build.VERSION.RELEASE}")
             }
@@ -237,10 +251,6 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
             "connectUser" -> {
                 connectUser(call, result)
-            }
-
-            "connectUserWithTokenProvider" -> {
-                connectUserWithTokenProvider(call, result)
             }
 
             "provideClientUserToken" -> {
@@ -622,7 +632,24 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             }
 
             "syncFollowGroups" -> {
-                val rawActions = call.argument<List<Any?>>("actions") ?: emptyList()
+                if (!OctopusSDK.isInitialised) {
+                    result.error("not_connected", "Call initialize() and connectUser() first", null)
+                    return
+                }
+                val args = call.arguments as? Map<*, *>
+                val rawActions = args?.get("actions") as? List<*>
+                if (rawActions == null || rawActions.any { entry ->
+                        entry !is Map<*, *> || entry.keys.any { it !is String }
+                    }) {
+                    result.error("other", "actions list is required", null)
+                    return
+                }
+                // Like iOS, only a genuinely empty input bypasses the native call.
+                // A nonempty list with no valid actions must still report native errors.
+                if (rawActions.isEmpty()) {
+                    result.success(emptyList<Map<String, Any>>())
+                    return
+                }
                 val actions = rawActions.mapNotNull { entry ->
                     val m = entry as? Map<*, *> ?: return@mapNotNull null
                     val groupId = m["groupId"] as? String ?: return@mapNotNull null
@@ -630,9 +657,10 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                     val ms = m["actionDateMs"] as? Number ?: return@mapNotNull null
                     SyncFollowGroupAction(groupId, followed, Date(ms.toLong()))
                 }
-                if (actions.isEmpty()) {
-                    result.success(emptyList<Map<String, Any>>())
-                    return
+                val droppedCount = rawActions.size - actions.size
+                if (droppedCount > 0) {
+                    Log.w("OctopusSDK", "syncFollowGroups: dropping $droppedCount malformed action entries. " +
+                        "Expected keys: groupId (String), followed (Bool), actionDateMs (Number).")
                 }
                 scope.launch {
                     try {
@@ -725,6 +753,8 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 enablePictures = post?.get("enablePictures") as? Boolean ?: true,
                 enablePolls = post?.get("enablePolls") as? Boolean ?: true,
                 textRequired = post?.get("textRequired") as? Boolean ?: true,
+                imageTapOpensPost = post?.get("imageTapOpensPost") as? Boolean ?: false,
+                groupNameTapOpensGroup = post?.get("groupNameTapOpensGroup") as? Boolean ?: false,
             ),
             comment = CommunityConfig.ContentOptions.CommentOptions(
                 enablePictures = comment?.get("enablePictures") as? Boolean ?: true,
@@ -828,6 +858,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
             startNotSeenNotificationsCollection()
             startHasAccessToCommunityCollection()
+            startCommunityAccessDeniedReasonCollection()
             startProfileCollection()
             startGroupsCollection()
             startConnectionStateCollection()
@@ -870,6 +901,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
                 startNotSeenNotificationsCollection()
                 startHasAccessToCommunityCollection()
+                startCommunityAccessDeniedReasonCollection()
                 startProfileCollection()
                 startGroupsCollection()
                 startConnectionStateCollection()
@@ -900,6 +932,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         try {
             notSeenNotificationsJob?.cancel()
             hasAccessToCommunityJob?.cancel()
+            communityAccessDeniedReasonJob?.cancel()
             profileJob?.cancel()
             groupsJob?.cancel()
             connectionStateJob?.cancel()
@@ -916,57 +949,26 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
     }
 
-    private fun connectUser(call: MethodCall, result: Result) {
-        val userId = call.argument<String>("userId")
-            ?: return result.error("INVALID_ARGS", "userId is required", null)
-
-        val token = call.argument<String>("token")
-            ?: return result.error("INVALID_ARGS", "token is required", null)
-
-        val nickname = call.argument<String>("nickname")
-        val bio = call.argument<String>("bio")
-        val picture = call.argument<String>("picture")
-
-        Log.d(
-            "OctopusSdkFlutter",
-            "ConnectUser called"
-        )
-
-        val clientUser = ClientUser(
-            userId = userId,
-            profile = ClientUser.Profile(
-                nickname = nickname,
-                bio = bio,
-                picture = toSdkImage(picture)
-            )
-        )
-
-        scope.launch {
-            try {
-                // The native SDK REPORTS a refusal (banned user, rejected JWT,
-                // missing token) in its OctopusResult — it does not throw.
-                // Dropping it would report success while the user stays
-                // anonymous, so forward it to Dart.
-                val connectResult =
-                    OctopusSDK.connectUser(user = clientUser, tokenProvider = { token })
-                result.success(encodeOctopusResult(connectResult, ::encodeClientUserError))
-            } catch (e: Exception) {
-                Log.e("OctopusSdkFlutter", "Error connecting user", e)
-                result.error("CONNECT_ERROR", e.message, null)
-            } finally {
-                deleteProfilePicture(clientUser.profile?.picture)
-            }
-        }
+    // Same failure shape as iOS when picture preparation outlives its session.
+    private fun checkConnectionGeneration(generation: Long, result: Result): Boolean {
+        if (generation == connectionGeneration) return true
+        result.success(mapOf(
+            "type" to "failure", "kind" to "statusError", "code" to -1,
+            "description" to "connectUser superseded by a later session call " +
+                "(connect, disconnect, initialize, switchCommunity, reset or stop) " +
+                "before the profile picture finished processing"
+        ))
+        return false
     }
 
     /// Persistent tokenProvider path — mirrors iOS's
-    /// `connectUserWithTokenProvider`. The lambda is invoked initially (on
+    /// `connectUser`. The lambda is invoked initially (on
     /// connect) AND on every refresh (e.g. `refreshEntitlements()` minting a
     /// fresh JWT with the host's current entitlement set), so the lambda
     /// must round-trip back to Dart on every invocation — not capture a
     /// static token. The Dart side keys its provider on `providerId`, the
     /// requestId scopes one invocation.
-    private fun connectUserWithTokenProvider(call: MethodCall, result: Result) {
+    private fun connectUser(call: MethodCall, result: Result) {
         if (!OctopusSDK.isInitialised) {
             result.error("NOT_INITIALIZED", "Call initialize() first", null)
             return
@@ -978,16 +980,20 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         val nickname = call.argument<String>("nickname")
         val bio = call.argument<String>("bio")
         val picture = call.argument<String>("picture")
-        val clientUser = ClientUser(
-            userId = userId,
-            profile = ClientUser.Profile(
-                nickname = nickname,
-                bio = bio,
-                picture = toSdkImage(picture)
-            )
-        )
+        val generation = connectionGeneration
         scope.launch {
+            var sdkPicture: Resource? = null
             try {
+                withContext(Dispatchers.IO) { sdkPicture = toSdkImage(picture) }
+                if (!checkConnectionGeneration(generation, result)) return@launch
+                val clientUser = ClientUser(
+                    userId = userId,
+                    profile = ClientUser.Profile(
+                        nickname = nickname,
+                        bio = bio,
+                        picture = sdkPicture
+                    )
+                )
                 val connectResult = OctopusSDK.connectUser(
                     user = clientUser,
                     tokenProvider = {
@@ -1025,11 +1031,13 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                     }
                 )
                 result.success(encodeOctopusResult(connectResult, ::encodeClientUserError))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("OctopusSdkFlutter", "Error connecting user with tokenProvider", e)
                 result.error("CONNECT_ERROR", e.message, null)
             } finally {
-                deleteProfilePicture(clientUser.profile?.picture)
+                withContext(NonCancellable + Dispatchers.IO) { deleteProfilePicture(sdkPicture) }
             }
         }
     }
@@ -1054,7 +1062,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 Log.e("OctopusSdkFlutter", "Error disconnecting user", e)
                 result.error("DISCONNECT_ERROR", e.message, null)
             } finally {
-                cleanProfilePictures()
+                withContext(NonCancellable + Dispatchers.IO) { cleanProfilePictures() }
             }
         }
     }
@@ -1079,12 +1087,21 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
         @Suppress("UNCHECKED_CAST")
         val args = call.arguments as? Map<String, Any?>
+        // A per-language CTA label the native SDK refuses fails the call before any editor
+        // opens, so the app learns why, as it does from fetchOrCreateClientObjectRelatedPost.
+        val cta = (args?.get("prefilledPost") as? Map<*, *>)?.get("cta") as? Map<*, *>
+        try {
+            decodeLocalizedText(cta?.get("localizedLabel"))
+        } catch (e: OctopusLocalizedText.ValidationError) {
+            return result.error(INVALID_LOCALIZED_TEXT, e.message, encodeLocalizedTextError(e))
+        }
         try {
             val intent = OctopusCreatePostActivity.newIntent(context, args)
             try {
                 context.startActivity(intent)
             } catch (e: Exception) {
                 OctopusCreatePostActivity.cleanupIconFiles(intent)
+                OctopusCreatePostActivity.cleanupPrefilledImageFiles(intent)
                 throw e
             }
             // We don't observe the activity's actual finish here (no
@@ -1116,7 +1133,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                     }
                     Resource.Remote(url = input.value)
                 }
-                is OctopusProfilePictureInput.Base64 -> {
+                is OctopusProfilePictureInput.Base64 -> synchronized(profilePictureLock) {
                     val bytes = Base64.decode(input.payload, Base64.DEFAULT)
                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                         ?: throw IllegalArgumentException("Unsupported profile picture image")
@@ -1126,6 +1143,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                         tempFile.outputStream().use { out ->
                             check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out))
                         }
+                        activeProfilePicturePaths.add(tempFile.absolutePath)
                         Resource.Local(tempFile.absolutePath)
                     } catch (e: Exception) {
                         tempFile.delete()
@@ -1143,9 +1161,12 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
     }
 
     private fun deleteProfilePicture(picture: Resource?) {
-        if (picture is Resource.Local) {
-            val file = File(picture.uri.path ?: return)
-            if (file.parentFile == context.cacheDir && isProfilePictureFile(file)) file.delete()
+        synchronized(profilePictureLock) {
+            if (picture is Resource.Local) {
+                val file = File(picture.uri.path ?: return)
+                activeProfilePicturePaths.remove(file.absolutePath)
+                if (file.parentFile == context.cacheDir && isProfilePictureFile(file)) file.delete()
+            }
         }
     }
 
@@ -1154,7 +1175,11 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
     private fun cleanProfilePictures() {
         if (!::context.isInitialized) return
-        context.cacheDir.listFiles()?.filter(::isProfilePictureFile)?.forEach { it.delete() }
+        synchronized(profilePictureLock) {
+            context.cacheDir.listFiles()?.filter {
+                isProfilePictureFile(it) && it.absolutePath !in activeProfilePicturePaths
+            }?.forEach { it.delete() }
+        }
     }
 
     // region Bridge (client object related post)
@@ -1173,8 +1198,10 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             ?: return result.error("INVALID_ARGS", "requestId is required", null)
         val hasTokenProvider = call.argument<Boolean>("hasTokenProvider") ?: false
 
-        val clientPost = try {
-            decodeClientPost(clientPostMap)
+        val decoded = try {
+            decodeClientPost(clientPostMap, context.cacheDir)
+        } catch (e: OctopusLocalizedText.ValidationError) {
+            return result.error(INVALID_LOCALIZED_TEXT, e.message, encodeLocalizedTextError(e))
         } catch (e: Exception) {
             return result.error("INVALID_ARGS", "Invalid clientPost: ${e.message}", null)
         }
@@ -1185,10 +1212,14 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
 
         scope.launch {
             try {
-                val res = OctopusSDK.fetchOrCreateClientObjectRelatedPost(clientPost, tokenProvider)
+                val res = OctopusSDK.fetchOrCreateClientObjectRelatedPost(decoded.clientPost, tokenProvider)
                 result.success(encodeOctopusPostResult(res))
             } catch (e: Exception) {
                 result.error("FETCH_OR_CREATE_ERROR", e.message, null)
+            } finally {
+                // The native call reads the local images while it runs and keeps no reference to
+                // them afterwards, so a post carrying several leaves none of them behind.
+                decoded.deleteTempFiles()
             }
         }
     }
@@ -1272,27 +1303,56 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
         }
     )
 
+    /// A decoded client post, with the temp files its local images were written to.
+    internal class DecodedClientPost(val clientPost: ClientPost, val tempFiles: List<File>) {
+        fun deleteTempFiles() {
+            tempFiles.forEach { file ->
+                if (!file.delete()) Log.w("OctopusSdkFlutter", "Could not remove a cached bridge image")
+            }
+        }
+    }
+
     /// Decodes the wire `clientPost` map into a native [ClientPost]. Materializes
-    /// a `localImage` attachment's bytes into a temp file ([Resource.Local]);
-    /// `remoteImage` becomes a [Resource.Remote] URL.
-    private fun decodeClientPost(map: Map<String, Any?>): ClientPost {
+    /// each `localImage` attachment's bytes into its own temp file in [cacheDir]
+    /// ([Resource.Local]); `remoteImage` becomes a [Resource.Remote] URL.
+    ///
+    /// The deprecated `attachment` and the `medias` list are handed to the native
+    /// constructor as they are, which refuses both set with an
+    /// [IllegalArgumentException] (the Dart side refuses it first). Any failure
+    /// removes the temp files already written before rethrowing.
+    internal fun decodeClientPost(map: Map<String, Any?>, cacheDir: File): DecodedClientPost {
         val objectId = map["objectId"] as? String
             ?: throw IllegalArgumentException("objectId is required")
         val text = map["text"] as? String
             ?: throw IllegalArgumentException("text is required")
-        @Suppress("UNCHECKED_CAST")
-        val attachment = (map["attachment"] as? Map<String, Any?>)?.let { decodeAttachment(it) }
-        return ClientPost(
-            objectId = objectId,
-            text = text,
-            attachment = attachment,
-            catchPhrase = map["catchPhrase"] as? String,
-            viewObjectButtonText = map["viewObjectButtonText"] as? String,
-            groupId = map["groupId"] as? String
-        )
+        val tempFiles = mutableListOf<File>()
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val attachment = (map["attachment"] as? Map<String, Any?>)
+                ?.let { decodeAttachment(it, cacheDir, tempFiles) }
+            val medias = (map["medias"] as? List<*>).orEmpty().mapNotNull { raw ->
+                @Suppress("UNCHECKED_CAST")
+                (raw as? Map<String, Any?>)?.let { decodeAttachment(it, cacheDir, tempFiles) }
+            }
+            // The constructor taking the button as an OctopusLocalizedText has no attachment: the
+            // deprecated one is set with `copy`, which keeps the button and, like the deprecated
+            // constructors, refuses it next to medias.
+            val clientPost = ClientPost(
+                objectId = objectId,
+                viewObjectButton = decodeLocalizedText(map["viewObjectButton"]),
+                text = text,
+                catchPhrase = map["catchPhrase"] as? String,
+                groupId = map["groupId"] as? String,
+                medias = medias,
+            ).let { post -> if (attachment != null) post.copy(attachment = attachment) else post }
+            return DecodedClientPost(clientPost, tempFiles)
+        } catch (e: Exception) {
+            tempFiles.forEach { it.delete() }
+            throw e
+        }
     }
 
-    private fun decodeAttachment(map: Map<String, Any?>): Resource? {
+    private fun decodeAttachment(map: Map<String, Any?>, cacheDir: File, tempFiles: MutableList<File>): Resource? {
         return when (map["type"] as? String) {
             "remoteImage" -> (map["url"] as? String)?.let { Resource.Remote(url = it) }
             "localImage" -> {
@@ -1302,9 +1362,9 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 // (which passes the raw Data straight through): re-encoding here
                 // would bloat JPEGs to PNG and would silently drop undecodable or
                 // empty bytes instead of surfacing a typed ClientPostError.FileError.
-                val tempFile = File.createTempFile(
-                    "octopus_bridge_image", imageExtensionFor(bytes), context.cacheDir
-                )
+                // createTempFile names each image's file uniquely.
+                val tempFile = File.createTempFile("octopus_bridge_image", imageExtensionFor(bytes), cacheDir)
+                tempFiles += tempFile
                 tempFile.writeBytes(bytes)
                 Resource.Local(tempFile.absolutePath)
             }
@@ -1473,6 +1533,24 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
                 sendEvent(
                     "hasAccessToCommunityChanged",
                     mapOf("hasAccess" to hasAccess)
+                )
+            }
+        }
+    }
+
+    /**
+     * Forwards the native `communityAccessDeniedReason` to Dart. The wire value
+     * is the native enum name (`ACCOUNT_BANNED`, …), or `null` when the access
+     * is granted or not known yet; the Dart side maps a name it does not know
+     * to `unknown`, so a value a newer native SDK adds needs no change here.
+     */
+    private fun startCommunityAccessDeniedReasonCollection() {
+        communityAccessDeniedReasonJob?.cancel()
+        communityAccessDeniedReasonJob = scope.launch {
+            OctopusSDK.communityAccessDeniedReason.collect { reason ->
+                sendEvent(
+                    "communityAccessDeniedReasonChanged",
+                    mapOf("reason" to reason?.name)
                 )
             }
         }
@@ -1841,6 +1919,7 @@ class OctopusSDKFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.S
             is OctopusEvent.ScreenDisplayed.SettingsList -> mapOf("type" to "settingsList")
             is OctopusEvent.ScreenDisplayed.SettingsAccount -> mapOf("type" to "settingsAccount")
             is OctopusEvent.ScreenDisplayed.ReportExplanation -> mapOf("type" to "reportExplanation")
+            is OctopusEvent.ScreenDisplayed.CommunityAccessDenied -> mapOf("type" to "communityAccessDenied")
             is OctopusEvent.ScreenDisplayed.DeleteAccount -> mapOf("type" to "deleteAccount")
         }
     }

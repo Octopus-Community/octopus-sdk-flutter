@@ -84,6 +84,29 @@ flutter run \
 The app still opens on Scenarios without a key. Settings shows that the SDK
 has not started; Configuration remains available to supply a key.
 
+### Demo SSO tokens
+
+Distributed demo builds use `--dart-define=OCTOPUS_DEMO_USER_TOKENS=<json>`:
+a JSON object mapping each bundled user ID to a JWT issued before compilation.
+These tokens take precedence over local signing and `OCTOPUS_USER_TOKEN`.
+The signing secret is never included in a distributed build. Each token uses
+HS256 with `sub`, `exp` and `entitlements`, as in the local demo signer.
+
+Tokens expire after 14 days by default. After expiry, sign-in uses the existing
+connection-error display and Debug console reports "This build's demo tokens
+expired. Install a newer build." Install a newer build to sign in again.
+Pre-signed tokens have fixed entitlements (empty in the distributed demo);
+refreshing reuses those claims. Custom user IDs need separately issued tokens
+in the map, or a local development build.
+
+For **local development only**, the existing
+`--dart-define=OCTOPUS_SSO_CLIENT_USER_TOKEN_SECRET=<your demo signing secret>`
+still signs a fresh one-hour token for the selected user and current
+entitlements when no pre-signed map is injected. It also enables per-call
+bridge signatures. Distributed builds cannot sign bridge fingerprints, so
+scenarios that require them use their existing missing-signature error path.
+Production apps should obtain tokens and bridge signatures from a trusted backend.
+
 ### ⚠️ Server environment
 
 The published `octopus_sdk_flutter` targets the **production** Octopus server
@@ -138,6 +161,20 @@ public API. Their applied-preset state survives a Community round trip,
 disconnect and user-session reset, matching the native overrides. It clears
 when the SDK stops (including a Settings reset) or switches community.
 
+Content Options also mirrors the native iOS sample's post tap presets:
+
+| Preset | Test identifier | Enabled post options |
+|---|---|---|
+| Post: image tap opens the post | `qa-preset-contentOptions-8` | `imageTapOpensPost` |
+| Post: group name opens the group | `qa-preset-contentOptions-9` | `groupNameTapOpensGroup` |
+| Post: image and group name taps | `qa-preset-contentOptions-10` | Both |
+
+Both flags default to `false`. Preset 1 disables both; Clear override restores
+the backend configuration. Images keep fullscreen in post detail and when a
+feed card only expands text. Group taps use the native access-denied flow when
+the member cannot access the group. The scenario's live state shows the local
+override; production uses the community configuration directly.
+
 The **Live community config** card shows masked key presence, Unified Profile,
 terms acceptance, force login and account age. The Flutter config API does not
 expose the Android panel's Post/Comment/Reply options, profile lock, gamification
@@ -161,16 +198,17 @@ standing. The Flutter data model does not expose a member nickname.
 | Open the community as a bottom sheet | `sheet` | `OctopusHomeScreen` in a modal bottom sheet — `navigationMode`, `navBarLeadingAction`, `getOctopusNotification` |
 | Browse the community's groups | `groups` | `fetchGroups`, `followGroup`, `unfollowGroup`, `groups` stream |
 | Follow or unfollow every group at once | `syncFollowGroups` | `syncFollowGroups`, `fetchGroups`, `groups` stream |
-| Grant or deny access to the community | `communityAccess` | `overrideCommunityAccess`, `hasAccessToCommunity` stream |
-| Open the post attached to a product | `bridge` | `fetchOrCreateClientObjectRelatedPost`, `setNavigateToClientObjectCallback`, `setReaction`, `groups` stream |
-| Start a post from the host app | `createPost` | `showOctopusCreatePostScreen` + `CreatePostScreenInfo` / `OctopusPrefilledPost` / `OctopusPostCTA`; reads the `groups` stream; `bridgeShareTokenProvider` for image posts in a picture-restricted community |
+| Grant or deny access to the community | `communityAccess` | `overrideCommunityAccess`, `hasAccessToCommunity` stream, `communityAccessDeniedReason` stream |
+| Open the post attached to a product | `bridge` | `fetchOrCreateClientObjectRelatedPost` + `ClientPost.viewObjectButton` (`OctopusLocalizedText`, per language or auto-translated), `setNavigateToClientObjectCallback`, `setReaction`, `groups` stream |
+| Start a post from the host app | `createPost` | `showOctopusCreatePostScreen` + `CreatePostScreenInfo` / `OctopusPrefilledPost` / `OctopusPostCTA.localized` (`OctopusLocalizedText`); reads the `groups` stream; `bridgeShareTokenProvider` for image posts in a picture-restricted community |
 | React to a post from the host app | `reactions` | `setReaction(reaction, postId)` (react / change reaction / unreact); surfaces the concrete `OctopusConnectionFailure` subtype on failure |
-| Change what members are allowed to post | `contentOptions` | `debugOverrideContentOptions` + `ContentOptions` / `PostOptions.textRequired` / `CommentOptions` / `ReplyOptions` |
+| Change content options and post taps | `contentOptions` | `debugOverrideContentOptions` + `ContentOptions` / `PostOptions` (creation and taps) / `CommentOptions` / `ReplyOptions` |
 | Handle a member reaching a closed group | `groupAccessDenied` | `setGroupAccessDeniedCallback` |
 | Set the unread notification count | `notSeenNotifications` | `notSeenNotificationsCount` stream + `updateNotSeenNotificationsCount` |
 | Open a post from a push notification | `pushNotifications` | `isOctopusNotification` / `getOctopusNotification` / `openNotification` |
 | Switch the community's language | `locale` | `overrideDefaultLocale` |
 | Apply the host's brand to the community | `theme` | custom `OctopusTheme` on the embedded UI |
+| Host lifecycles | `hostLifecycles` | host route push/pop + retained or recreated `OctopusHomeScreen` |
 | Send a custom analytics event | `customEvents` | `trackCustomEvent` |
 | Restart or stop the SDK | `lifecycle` | `reset`, `stop`, `switchCommunity`; restart the retained configuration |
 | Watch what the SDK reports | `events` | `events` stream (`OctopusEvent`) |
@@ -186,6 +224,48 @@ and removes the host profile callback. **Backend flag override** lets QA force
 the flag on or restore the server value independently of the callback.
 Modal/Sheet/Full screen reuse the community routes. Sheet keeps its native
 community toolbar on both platforms and dismisses through its drag handle or Back.
+
+### Host lifecycle release QA
+
+Initialize a **demo** community, then open **Host callbacks & events → Host
+lifecycles** (`scenarios-hostLifecycles-card`). Two modes are available on Android
+and iOS; presets 1, 2, 4 and 5 are not implemented here.
+
+1. Set the demo post fixture in `hostLifecycles-post-edit` if needed.
+2. Choose **Preset 6 · Keep mounted while covered**
+   (`qa-preset-hostLifecycles-6`) or **Preset 3 · Remove and recreate PlatformView**
+   (`qa-preset-hostLifecycles-3`). Run both modes separately.
+3. Wait for the post and comments to render. Tap **Push host screen**
+   (`hostLifecycles-push-button`), wait for the opaque cover, then **Pop host screen**
+   (`hostLifecycles-pop-button`). System Back can also pop the cover.
+4. Repeat at least three times. After **every** return, check that the post and
+   comments render and remain usable, with no crash or native scope error.
+5. **Back to scenario** (`hostLifecycles-back-button`) retains the result. Running
+   the preset again resets the counter and starts a fresh community route.
+
+The single `hostLifecycles-result` node sits above the navigator. It starts with
+`Not run yet`, changes to `Running…` on launch/push and `Returned N time(s)…`
+after the community route's return transition and rebuilt frame. Initial
+appearance is not a return. A counter alone is **not** a PASS: it does not prove
+that the native content loaded.
+
+A default opaque [`MaterialPageRoute`](https://api.flutter.dev/flutter/material/MaterialPageRoute/maintainState.html)
+retains the covered route's widget state (`maintainState: true`). **Keep mounted
+while covered** leaves `OctopusHomeScreen` in that tree and retains the same
+PlatformView across all push/pop cycles. On Android this exercises the plugin's
+`OctopusViewVisibility` → `setVisible(false)` path: the embedded lifecycle moves
+to CREATED while covered and back to RESUMED on return, retaining its
+ViewModelStore and composition. Check that the same post, comments and native
+navigation/scroll state survive the cover. Widget tests verify the native view id
+and Android visibility calls; they do not prove the native lifecycle or rendering
+on a device.
+
+**Remove and recreate** keeps painting the community until the push transition
+finishes, then removes its widget under the opaque cover, disposing its
+PlatformView. A fresh widget and PlatformView are created on return. This exercises
+native view disposal/recreation on both platforms. The new view reopens the
+selected post; native navigation/scroll state is reset. The Flutter community
+route and SDK instance survive each cycle.
 
 ## Structure
 

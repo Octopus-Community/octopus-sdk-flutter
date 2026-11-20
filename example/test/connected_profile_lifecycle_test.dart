@@ -298,7 +298,7 @@ void main() {
       final connectStarted = Completer<void>();
       final releaseConnect = Completer<Map<String, Object>>();
       messenger.setMockMethodCallHandler(sdkChannel, (call) async {
-        if (call.method == 'connectUserWithTokenProvider') {
+        if (call.method == 'connectUser') {
           connectStarted.complete();
           return releaseConnect.future;
         }

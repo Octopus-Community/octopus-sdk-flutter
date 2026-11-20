@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import 'package:octopus_sdk_flutter_example/app_state.dart';
+import 'package:octopus_sdk_flutter_example/app_log.dart';
+import 'package:octopus_sdk_flutter_example/debug/debug_log.dart';
 import 'package:octopus_sdk_flutter_example/octopus_demo_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -38,9 +40,11 @@ void main() {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       late Map connectArguments;
+      var nativeConnectCalled = false;
       late Completer<String> tokenReply;
       messenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method == 'connectUserWithTokenProvider') {
+        if (call.method == 'connectUser') {
+          nativeConnectCalled = true;
           connectArguments = call.arguments as Map;
         } else if (call.method == 'provideClientUserToken') {
           tokenReply.complete((call.arguments as Map)['token'] as String);
@@ -52,7 +56,12 @@ void main() {
         MockStreamHandler.inline(onListen: (_, _) {}),
       );
       final app = AppState();
+      final previousLog = demoLog;
+      final log = RealDebugLog();
+      demoLog = log;
       addTearDown(() async {
+        demoLog = previousLog;
+        log.dispose();
         await app.octopus.stop();
         app.dispose();
         messenger.setMockMethodCallHandler(channel, null);
@@ -63,6 +72,20 @@ void main() {
       });
 
       final result = await app.connectDemoUser(entitlements: {'premium'});
+      const mode = String.fromEnvironment('EXPECT_DEMO_TOKEN_MODE');
+      if (mode == 'expired') {
+        expect(result, isA<OctopusInvalidArguments<ClientUserError>>());
+        expect(nativeConnectCalled, isFalse);
+        expect(
+          app.lastConnectError,
+          contains("This build's demo tokens expired"),
+        );
+        expect(
+          log.entries.single.label,
+          contains("This build's demo tokens expired"),
+        );
+        return;
+      }
       expect(result, isA<OctopusSuccess<void, ClientUserError>>());
       final providerId = connectArguments['providerId'];
       expect(providerId, isNotNull);
@@ -85,6 +108,11 @@ void main() {
         );
         final latestExpiry =
             DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
+        if (mode == 'presigned') {
+          final tokens = jsonDecode(octopusDemoUserTokens) as Map;
+          expect(token, tokens[app.effectiveUserId]);
+          return;
+        }
         if (!hasInjectedSsoSecret) {
           expect(token, octopusUserToken);
           return;

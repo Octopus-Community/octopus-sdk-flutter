@@ -35,8 +35,10 @@ Raw base64 and base64 `data:` URI prefixes work on both platforms.
 Flutter does not download images in the native bridge: fetch remote images in
 your application and pass the resulting bytes. SVG and animation are unsupported.
 
-All 72 slots are optional (69 single images and three on/off pairs). Omission
-keeps the native default. `OctopusIconOnOff(on: ..., off: ...)` requires both
+All icon slots are optional. Omission keeps the native default.
+`content.translation` sets the icon beside the "See original" / "See translation"
+toggle on automatically translated posts, comments and replies.
+`OctopusIconOnOff(on: ..., off: ...)` requires both
 images; if either fails native decoding, the whole pair keeps its default.
 Unreadable images are ignored independently. Start with a fresh `OctopusTheme`
 to reset overrides; `copyWith` preserves fields when passed null.
@@ -76,3 +78,24 @@ both SDKs but are not rendered by their screens at these pins. The iOS-only
 
 In the sample, open **Theme → Preset 6 · Custom icons + activity + reactions**, then the
 Community tab. **SDK default (no theme)** restores the default icon set.
+
+# Navigation bar title (Android)
+
+On Android, `fontFamilyNavBarTitle` and `fontSizeNavBarTitle` set the font and size of the
+top app bar title on every community screen, the main feed included:
+
+```dart
+const theme = OctopusTheme(
+  fontFamilyNavBarTitle: 'my_brand_font', // android/app/src/main/res/font/my_brand_font.ttf
+  fontSizeNavBarTitle: 18,
+);
+```
+
+- The font is a font resource of your Android app under `res/font/`, passed by its resource
+  name, like `fontFamily`. If it is not found, the SDK logs a warning and the title keeps its
+  font, at the size you set.
+- Each key is applied on top of the title's own style (17sp semibold by default, as on iOS): a
+  size alone keeps the font and weight, a font alone keeps the size and weight. They take
+  precedence over `fontFamily` and `fontWeight` for the title.
+- When the main feed shows a logo, the logo stays. The back and close buttons are not affected.
+- On iOS both keys have no effect: the title follows your app's `UINavigationBar` appearance.

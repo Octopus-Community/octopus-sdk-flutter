@@ -136,6 +136,54 @@ internal class OctopusSDKFlutterPluginTest {
   }
 
   @Test
+  fun contentOptions_postTapOptions_forwardAllCombinationsIndependently() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for (image in listOf(false, true)) {
+      for (group in listOf(false, true)) {
+        val options = plugin.parseContentOptions(MethodCall("debugOverrideContentOptions",
+          mapOf("options" to mapOf("post" to mapOf(
+            "enablePictures" to false,
+            "textRequired" to false,
+            "imageTapOpensPost" to image,
+            "groupNameTapOpensGroup" to group,
+          )))))!!
+        assertEquals(image, options.post.imageTapOpensPost)
+        assertEquals(group, options.post.groupNameTapOpensGroup)
+        assertEquals(false, options.post.enablePictures)
+        assertEquals(true, options.post.enablePolls)
+        assertEquals(false, options.post.textRequired)
+        assertEquals(true, options.comment.enablePictures)
+        assertEquals(true, options.reply.enablePictures)
+      }
+    }
+  }
+
+  @Test
+  fun contentOptions_postTapOptions_absentOrMalformedDefaultsToFalse() {
+    val plugin = OctopusSDKFlutterPlugin()
+    for (map in listOf(
+      emptyMap<String, Any?>(),
+      mapOf("post" to null),
+      mapOf("post" to "wrong-type"),
+      mapOf("post" to emptyMap<String, Any?>()),
+      mapOf("post" to mapOf("imageTapOpensPost" to null, "groupNameTapOpensGroup" to null)),
+      mapOf("post" to mapOf("imageTapOpensPost" to "true", "groupNameTapOpensGroup" to 1)),
+      mapOf("post" to mapOf("imageTapOpensPost" to true)),
+      mapOf("post" to mapOf("groupNameTapOpensGroup" to true)),
+    )) {
+      val options = plugin.parseContentOptions(MethodCall("debugOverrideContentOptions", mapOf("options" to map)))!!
+      val post = map["post"] as? Map<*, *>
+      assertEquals(post?.get("imageTapOpensPost") == true, options.post.imageTapOpensPost)
+      assertEquals(post?.get("groupNameTapOpensGroup") == true, options.post.groupNameTapOpensGroup)
+      assertEquals(true, options.post.enablePictures)
+      assertEquals(true, options.post.enablePolls)
+      assertEquals(true, options.post.textRequired)
+    }
+    assertNull(plugin.parseContentOptions(MethodCall("debugOverrideContentOptions", null)))
+    assertNull(plugin.parseContentOptions(MethodCall("debugOverrideContentOptions", mapOf("options" to null))))
+  }
+
+  @Test
   fun consentTexts_roundTripsAllVariantsWithoutNormalizingFields() {
     val plugin = OctopusSDKFlutterPlugin()
     for (wire in listOf(

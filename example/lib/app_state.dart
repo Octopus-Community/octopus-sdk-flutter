@@ -8,8 +8,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_log.dart';
-import 'auth/client_user_token_signer.dart';
 import 'auth/connect_user_result.dart';
+import 'auth/demo_user_token_provider.dart';
 import 'branding.dart';
 import 'community/community_navigation.dart';
 import 'config/api_key_registry.dart';
@@ -623,6 +623,14 @@ class AppState extends ChangeNotifier {
   bool? _hasAccess;
   bool? get hasAccess => _hasAccess;
 
+  /// Latest [OctopusSDK.communityAccessDeniedReason]. `null` is a real value
+  /// (access granted or not known yet), so [hasAccessDeniedReason] tells it
+  /// apart from "not received yet".
+  CommunityAccessDeniedReason? _accessDeniedReason;
+  CommunityAccessDeniedReason? get accessDeniedReason => _accessDeniedReason;
+  bool _hasAccessDeniedReason = false;
+  bool get hasAccessDeniedReason => _hasAccessDeniedReason;
+
   OctopusProfile? _profile;
   OctopusProfile? get profile => _profile;
 
@@ -848,6 +856,7 @@ class AppState extends ChangeNotifier {
 
   StreamSubscription<int>? _countSub;
   StreamSubscription<bool>? _accessSub;
+  StreamSubscription<CommunityAccessDeniedReason?>? _accessDeniedReasonSub;
   StreamSubscription<OctopusProfile?>? _profileSub;
   StreamSubscription<List<OctopusGroup>>? _groupsSub;
   StreamSubscription<OctopusConnectionState>? _connectionStateSub;
@@ -868,6 +877,13 @@ class AppState extends ChangeNotifier {
     });
     _accessSub = OctopusSDK.hasAccessToCommunity.listen((access) {
       _hasAccess = access;
+      notifyListeners();
+    });
+    _accessDeniedReasonSub = OctopusSDK.communityAccessDeniedReason.listen((
+      reason,
+    ) {
+      _accessDeniedReason = reason;
+      _hasAccessDeniedReason = true;
       notifyListeners();
     });
     _profileSub = OctopusSDK.profile.listen((profile) {
@@ -1267,12 +1283,10 @@ class AppState extends ChangeNotifier {
   String get effectiveUserId => _config?.userId ?? octopusUserId;
 
   /// Connects the configured SSO user with a **persistent** token provider
-  /// — the SDK will re-invoke the provider on every refresh (e.g.
-  /// `refreshEntitlements()`) so a change to [_currentEntitlements] takes
-  /// effect without reconnecting. Falls back to a trivial provider returning
-  /// the pre-baked [octopusUserToken] when no SSO secret was injected at build
-  /// time (the signer can't sign anyway, but the pre-baked token is still
-  /// useful for QA).
+  /// — the SDK will re-invoke the provider on every refresh. Distributed
+  /// builds select the bundled user's pre-signed token, with fixed claims.
+  /// Local signing picks up [_currentEntitlements] on every invocation.
+  /// Without either, falls back to the pre-baked [octopusUserToken].
   ///
   /// On the pre-baked-token fallback path, the bundled [octopusUserToken] is
   /// signed against the build-time [octopusUserId] seed — connecting with a
@@ -1310,15 +1324,19 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  /// Signs with the current entitlement set on every provider invocation.
+  /// Selects a pre-signed token, or signs locally with current entitlements.
   @protected
-  Future<String> createClientUserToken(String userId) async =>
-      hasInjectedSsoSecret
-      ? ClientUserTokenSigner.signClientUserToken(
-          userId: userId,
-          entitlements: _currentEntitlements,
-        )
-      : octopusUserToken;
+  Future<String> createClientUserToken(String userId) async {
+    try {
+      return selectDemoUserToken(
+        userId: userId,
+        entitlements: _currentEntitlements,
+      );
+    } on DemoUserTokenException catch (error) {
+      demoLog.note(error.message);
+      rethrow;
+    }
+  }
 
   /// Shared connection path for Account, scenarios and profile edits.
   Future<OctopusResult<void, ClientUserError>> connectWithProfile({
@@ -1327,6 +1345,20 @@ class AppState extends ChangeNotifier {
     String? bio,
     String? picture,
   }) async {
+    // Reject expired/missing build tokens through the same result path on both
+    // platforms, before a native connection can fall back to a guest session.
+    if (octopusDemoUserTokens.isNotEmpty) {
+      try {
+        await createClientUserToken(userId);
+      } on DemoUserTokenException catch (error) {
+        final result = OctopusInvalidArguments<ClientUserError>([
+          ClientUserInvalidTokenError(error.message),
+        ]);
+        _lastConnectError = describeConnectUserFailure(result);
+        notifyListeners();
+        return result;
+      }
+    }
     demoLog.apiCall('connectUser (tokenProvider)', {
       'userId': userId,
       'entitlements': _currentEntitlements.toList()..sort(),
@@ -1973,6 +2005,8 @@ class AppState extends ChangeNotifier {
     _currentEntitlements = const {};
     _notSeenCount = null;
     _hasAccess = null;
+    _accessDeniedReason = null;
+    _hasAccessDeniedReason = false;
     notifyListeners();
   }
 
@@ -1991,6 +2025,8 @@ class AppState extends ChangeNotifier {
     _currentEntitlements = const {};
     _notSeenCount = null;
     _hasAccess = null;
+    _accessDeniedReason = null;
+    _hasAccessDeniedReason = false;
     _communityConfig = null;
     _pendingCommunityNotification = null;
     _communityNotification = null;
@@ -2035,7 +2071,7 @@ class AppState extends ChangeNotifier {
   /// this session held is fully torn down, not just abandoned in memory.
   /// Also nulls the fields mirrored from the SDK's static streams
   /// ([_profile], [_groups], [_connectionState], [_isInitialised],
-  /// [_notSeenCount], [_hasAccess]) rather than waiting on each of them to
+  /// [_notSeenCount], [_hasAccess], [_accessDeniedReason]) rather than waiting on each of them to
   /// emit a final post-stop value — belt and suspenders, since nothing in
   /// their contract guarantees one.
   Future<void> reset() async {
@@ -2065,6 +2101,8 @@ class AppState extends ChangeNotifier {
     _isInitialised = false;
     _notSeenCount = null;
     _hasAccess = null;
+    _accessDeniedReason = null;
+    _hasAccessDeniedReason = false;
     _currentEntitlements = const {};
     _communityConfig = null;
     _communityConfigReadable = true;
@@ -2094,6 +2132,7 @@ class AppState extends ChangeNotifier {
     _disposed = true;
     _countSub?.cancel();
     _accessSub?.cancel();
+    _accessDeniedReasonSub?.cancel();
     _profileSub?.cancel();
     _groupsSub?.cancel();
     _connectionStateSub?.cancel();

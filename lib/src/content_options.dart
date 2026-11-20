@@ -1,10 +1,8 @@
 import 'package:flutter/foundation.dart' show immutable;
 
-/// Per-content-type options governing what members may add when creating a
-/// post.
+/// Options governing post creation and navigation when tapping a post.
 ///
-/// Every flag defaults to `true`: unseeded content options keep today's
-/// behaviour (pictures + polls enabled).
+/// Creation flags default to `true`; optional tap behaviours default to `false`.
 @immutable
 class PostOptions {
   /// Whether members may attach pictures to a post.
@@ -20,11 +18,25 @@ class PostOptions {
   /// validation. The backend must also allow posts without text.
   final bool textRequired;
 
-  /// Creates a [PostOptions]. Every flag defaults to `true`.
+  /// Whether tapping a feed image opens the post when its card opens the detail.
+  ///
+  /// Defaults to `false`. Images still open fullscreen when the card only
+  /// expands its text, and always in the post detail.
+  final bool imageTapOpensPost;
+
+  /// Whether tapping a post's group name opens that group in feeds and detail.
+  ///
+  /// Defaults to `false`. Members without access follow the native groups
+  /// list's access-denied flow.
+  final bool groupNameTapOpensGroup;
+
+  /// Creates options with creation enabled and optional tap behaviours disabled.
   const PostOptions({
     this.enablePictures = true,
     this.enablePolls = true,
     this.textRequired = true,
+    this.imageTapOpensPost = false,
+    this.groupNameTapOpensGroup = false,
   });
 
   /// The platform-channel representation handed to the native bridges.
@@ -32,6 +44,8 @@ class PostOptions {
     'enablePictures': enablePictures,
     'enablePolls': enablePolls,
     'textRequired': textRequired,
+    'imageTapOpensPost': imageTapOpensPost,
+    'groupNameTapOpensGroup': groupNameTapOpensGroup,
   };
 
   @override
@@ -40,14 +54,22 @@ class PostOptions {
       other is PostOptions &&
           other.enablePictures == enablePictures &&
           other.enablePolls == enablePolls &&
-          other.textRequired == textRequired;
+          other.textRequired == textRequired &&
+          other.imageTapOpensPost == imageTapOpensPost &&
+          other.groupNameTapOpensGroup == groupNameTapOpensGroup;
 
   @override
-  int get hashCode => Object.hash(enablePictures, enablePolls, textRequired);
+  int get hashCode => Object.hash(
+    enablePictures,
+    enablePolls,
+    textRequired,
+    imageTapOpensPost,
+    groupNameTapOpensGroup,
+  );
 
   @override
   String toString() =>
-      'PostOptions(enablePictures: $enablePictures, enablePolls: $enablePolls, textRequired: $textRequired)';
+      'PostOptions(enablePictures: $enablePictures, enablePolls: $enablePolls, textRequired: $textRequired, imageTapOpensPost: $imageTapOpensPost, groupNameTapOpensGroup: $groupNameTapOpensGroup)';
 }
 
 /// Per-content-type options governing what members may add when creating a
@@ -110,24 +132,23 @@ class ReplyOptions {
   String toString() => 'ReplyOptions(enablePictures: $enablePictures)';
 }
 
-/// Per-content-type options governing what members may add when creating
-/// content.
+/// Per-content-type options governing content creation and post tap navigation.
 ///
 /// Internal test affordance mirroring the native SDKs' debug-only
 /// `debugOverrideContentOptions` (Android `@InternalOctopusApi`, iOS
 /// `@_spi(OctopusInternalTesting)`): it locally overrides the per-content-type
 /// content options without a backend-driven config, for exercising the
-/// pictures/polls creation gating in development builds and the sample app.
+/// pictures/polls creation gating and post taps in development builds and the
+/// sample app.
 /// **Not part of the supported public API** — it may change or be removed at
 /// any time.
 ///
-/// Every flag defaults to `true`: an unseeded [ContentOptions] keeps today's
-/// behaviour (pictures + polls enabled). A `false` value hides the matching
-/// creation affordance — it governs *creation*, not the display of existing
-/// content.
+/// Creation flags default to `true`; a `false` value hides the matching creation
+/// affordance without hiding existing content. Post tap flags default to `false`,
+/// preserving native navigation. Production uses the community configuration.
 @immutable
 class ContentOptions {
-  /// Options for post creation.
+  /// Options for post creation and tap navigation.
   final PostOptions post;
 
   /// Options for comment creation.
@@ -136,8 +157,7 @@ class ContentOptions {
   /// Options for reply creation.
   final ReplyOptions reply;
 
-  /// Creates a [ContentOptions]. Every field defaults to every flag enabled
-  /// (today's behaviour).
+  /// Creates options with creation enabled and optional post taps disabled.
   const ContentOptions({
     this.post = const PostOptions(),
     this.comment = const CommentOptions(),

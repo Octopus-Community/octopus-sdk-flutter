@@ -59,7 +59,6 @@ import UserNotifications
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
     let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-    NSLog("[Push] APNs device token: \(token)")
     pushChannel?.invokeMethod("apnsToken", arguments: token)
   }
 
@@ -90,7 +89,6 @@ import UserNotifications
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
     let userInfo = response.notification.request.content.userInfo
-    NSLog("[Push] notification tapped: \(userInfo)")
     pushChannel?.invokeMethod("notificationTapped", arguments: AppDelegate.stringKeyed(userInfo))
     completionHandler()
   }

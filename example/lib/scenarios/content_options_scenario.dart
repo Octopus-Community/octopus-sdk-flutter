@@ -13,13 +13,12 @@ const String _noOverrideLabel = 'none (backend default)';
 ///
 /// Debug-only affordance (native `@InternalOctopusApi` /
 /// `@_spi(OctopusInternalTesting)`, **not** supported public API) that
-/// overrides the community's per-content-type creation options locally,
-/// without a backend-driven config. Each preset turns one affordance off; open
-/// the post composer (or a comment / reply input) afterwards to see the
-/// matching picture / poll button disappear.
+/// overrides the community's content creation and post tap options locally,
+/// without a backend-driven config. Open the composer to check creation flags,
+/// or tap post images and group names to check navigation.
 ///
-/// Preset ids and labels are the shared QA scenario catalog's, verbatim,
-/// so the QA pipeline drives Android, iOS and Flutter with the same ids.
+/// Presets retain the shared QA identifier convention. Post tap presets mirror
+/// the native iOS sample.
 class ContentOptionsScenario extends StatefulWidget {
   const ContentOptionsScenario({super.key});
 
@@ -56,8 +55,8 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
         options == null
             ? 'Applied: $_noOverrideLabel. The community config served by the '
                   'backend applies again.'
-            : 'Applied: $label. Open the Community tab and start a post '
-                  '(or a comment / reply) to see the matching affordance gone.',
+            : 'Applied: $label. Open the Community tab to check the composer '
+                  'or tap post images and group names to check navigation.',
       );
     } on PlatformException catch (e) {
       if (!identical(overrides, app.debugScenarioOverrides)) return;
@@ -100,12 +99,15 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
       verifyInCommunity: true,
       description:
           'Debug-only: override the community content options locally, then '
-          'open the post composer (or a comment / reply input) to see the '
-          'matching picture / poll affordance disappear. It governs creation, '
-          'not the display of content that already exists. Preset 7 allows an '
+          'open the composer to check picture / poll affordances, or tap post '
+          'images and group names to check navigation. Preset 7 allows an '
           'image without text; a poll alone still requires text. Publishing '
-          'also requires a matching backend configuration.',
-      youWillSee: 'the composer offering only the allowed content types.',
+          'also requires a matching backend configuration. Presets 8–10 enable '
+          'image taps to open a post, group name taps to open its group, or both. '
+          'Images keep fullscreen in post detail and when a feed card only '
+          'expands text.',
+      youWillSee:
+          'the allowed content types in the composer and the selected post tap behaviour.',
       note:
           'This is an internal test affordance, not supported public API — it '
           'may change or be removed at any time. It is in-memory and not '
@@ -125,6 +127,11 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
           ('post.enablePictures', flag(applied?.post.enablePictures)),
           ('post.enablePolls', flag(applied?.post.enablePolls)),
           ('post.textRequired', flag(applied?.post.textRequired)),
+          ('post.imageTapOpensPost', flag(applied?.post.imageTapOpensPost)),
+          (
+            'post.groupNameTapOpensGroup',
+            flag(applied?.post.groupNameTapOpensGroup),
+          ),
           ('comment.enablePictures', flag(applied?.comment.enablePictures)),
           ('reply.enablePictures', flag(applied?.reply.enablePictures)),
         ],
@@ -174,16 +181,40 @@ class _ContentOptionsScenarioState extends State<ContentOptionsScenario> {
             reply: ReplyOptions(enablePictures: false),
           ),
         ),
-        // qa-preset-contentOptions-clear is a first-class catalog preset, not
-        // sample-added UX sugar: it stays rendered even with nothing to clear,
-        // so a QA teardown — or an up-front resolve of the id from a clean
-        // state — always finds it. Clearing twice is a harmless no-op.
         _preset(
           testId: 'qa-preset-contentOptions-7',
           label: 'Preset 7 · Post: text optional with an image',
           shortLabel: 'Post: text optional with an image',
           options: const ContentOptions(post: PostOptions(textRequired: false)),
         ),
+        _preset(
+          testId: 'qa-preset-contentOptions-8',
+          label: 'Preset 8 · Post: image tap opens the post',
+          shortLabel: 'Post: image tap opens the post',
+          options: const ContentOptions(
+            post: PostOptions(imageTapOpensPost: true),
+          ),
+        ),
+        _preset(
+          testId: 'qa-preset-contentOptions-9',
+          label: 'Preset 9 · Post: group name opens the group',
+          shortLabel: 'Post: group name opens the group',
+          options: const ContentOptions(
+            post: PostOptions(groupNameTapOpensGroup: true),
+          ),
+        ),
+        _preset(
+          testId: 'qa-preset-contentOptions-10',
+          label: 'Preset 10 · Post: image and group name taps',
+          shortLabel: 'Post: image and group name taps',
+          options: const ContentOptions(
+            post: PostOptions(
+              imageTapOpensPost: true,
+              groupNameTapOpensGroup: true,
+            ),
+          ),
+        ),
+        // Keep clear available even without an override for QA teardown.
         _preset(
           testId: 'qa-preset-contentOptions-clear',
           label: 'Clear override (backend default)',

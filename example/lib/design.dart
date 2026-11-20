@@ -219,7 +219,10 @@ class PlatformBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         shape: BoxShape.circle,
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline,
+          width: sampleOutlineWidthFor(Theme.of(context).brightness),
+        ),
       ),
       child: const Icon(Icons.flutter_dash, size: 16, color: sampleAccentBlue),
     ),
@@ -729,35 +732,35 @@ class SampleBand extends StatelessWidget {
         color: tone == SampleTone.neutral
             ? sampleAccentTintFor(theme.brightness)
             : colors.background,
-        border: Border.all(color: colors.foreground.withValues(alpha: .45)),
+        border: Border.all(
+          color: colors.foreground.withValues(alpha: .45),
+          width: sampleOutlineWidthFor(theme.brightness),
+        ),
         borderRadius: BorderRadius.circular(SampleRadius.lg),
       ),
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-      child: Material(
-        type: MaterialType.transparency,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            if (MediaQuery.textScalerOf(context).scale(12) > 18) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  messageRow,
-                  Wrap(
-                    alignment: WrapAlignment.end,
-                    spacing: SampleSpacing.space2,
-                    children: actions,
-                  ),
-                ],
-              );
-            }
-            return Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (MediaQuery.textScalerOf(context).scale(12) > 18) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: messageRow),
-                ...actions,
+                messageRow,
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: SampleSpacing.space2,
+                  children: actions,
+                ),
               ],
             );
-          },
-        ),
+          }
+          return Row(
+            children: [
+              Expanded(child: messageRow),
+              ...actions,
+            ],
+          );
+        },
       ),
     );
     if (identifier == null) return band;
@@ -814,7 +817,7 @@ ButtonStyle sampleDangerButtonStyle(BuildContext context) {
   return OutlinedButton.styleFrom(
     foregroundColor: danger,
     backgroundColor: SampleTone.danger.resolve(brightness).background,
-    side: BorderSide(color: danger),
+    side: BorderSide(color: danger, width: sampleOutlineWidthFor(brightness)),
     minimumSize: const Size(SampleSize.touchMin, SampleSize.touchMin),
     shape: const StadiumBorder(),
   );
@@ -1002,7 +1005,10 @@ class SampleTypePill extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
     decoration: BoxDecoration(
       color: sampleSurface3For(Theme.of(context).brightness),
-      border: Border.all(color: Theme.of(context).colorScheme.outline),
+      border: Border.all(
+        color: Theme.of(context).colorScheme.outline,
+        width: sampleOutlineWidthFor(Theme.of(context).brightness),
+      ),
       borderRadius: BorderRadius.circular(6),
     ),
     child: Text(type, style: SampleTypography.monoSmall),
@@ -1060,6 +1066,7 @@ class SampleGroupHeader extends StatelessWidget {
                 color: sampleSurface3For(Theme.of(context).brightness),
                 border: Border.all(
                   color: Theme.of(context).colorScheme.outline,
+                  width: sampleOutlineWidthFor(Theme.of(context).brightness),
                 ),
                 borderRadius: BorderRadius.circular(999),
               ),

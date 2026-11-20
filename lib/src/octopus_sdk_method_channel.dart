@@ -11,6 +11,7 @@ import 'consent_texts.dart';
 import 'content_options.dart';
 import 'group_follow_unfollow_error.dart';
 import 'octopus_group.dart';
+import 'octopus_localized_text.dart';
 import 'octopus_post.dart';
 import 'octopus_reaction_kind.dart';
 import 'octopus_result.dart';
@@ -75,34 +76,13 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
   @override
   Future<OctopusResult<void, ClientUserError>> connectUser({
     required String userId,
-    required String token,
-    String? nickname,
-    String? bio,
-    String? picture,
-  }) async {
-    final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
-      'connectUser',
-      {
-        'userId': userId,
-        'token': token,
-        'nickname': nickname,
-        'bio': bio,
-        'picture': picture,
-      },
-    );
-    return _decodeConnectUserResult(raw);
-  }
-
-  @override
-  Future<OctopusResult<void, ClientUserError>> connectUserWithTokenProvider({
-    required String userId,
     required String providerId,
     String? nickname,
     String? bio,
     String? picture,
   }) async {
     final raw = await methodChannel
-        .invokeMethod<Map<dynamic, dynamic>>('connectUserWithTokenProvider', {
+        .invokeMethod<Map<dynamic, dynamic>>('connectUser', {
           'userId': userId,
           'providerId': providerId,
           'nickname': nickname,
@@ -147,7 +127,13 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
 
   @override
   Future<void> showCreatePostScreen(Map<String, dynamic> args) async {
-    await methodChannel.invokeMethod('showCreatePostScreen', args);
+    try {
+      await methodChannel.invokeMethod('showCreatePostScreen', args);
+    } on PlatformException catch (e) {
+      final validationError = localizedTextValidationErrorFromPlatform(e);
+      if (validationError != null) throw validationError;
+      rethrow;
+    }
   }
 
   @override
@@ -235,14 +221,21 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
     required String requestId,
     required bool hasTokenProvider,
   }) async {
-    final raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
-      'fetchOrCreateClientObjectRelatedPost',
-      {
-        'clientPost': clientPost.toMap(),
-        'requestId': requestId,
-        'hasTokenProvider': hasTokenProvider,
-      },
-    );
+    final Map<dynamic, dynamic>? raw;
+    try {
+      raw = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'fetchOrCreateClientObjectRelatedPost',
+        {
+          'clientPost': clientPost.toMap(),
+          'requestId': requestId,
+          'hasTokenProvider': hasTokenProvider,
+        },
+      );
+    } on PlatformException catch (e) {
+      final validationError = localizedTextValidationErrorFromPlatform(e);
+      if (validationError != null) throw validationError;
+      rethrow;
+    }
     final wire =
         raw ??
         const <String, dynamic>{
@@ -521,4 +514,33 @@ class OctopusSDKMethodChannel extends OctopusSDKPlatform {
       GroupFollowUnfollowError.fromWire,
     );
   }
+}
+
+/// The platform-channel code both bridges use when the native SDK refuses an
+/// [OctopusLocalizedText.perLanguage] text.
+@visibleForTesting
+const String invalidLocalizedTextErrorCode = 'INVALID_LOCALIZED_TEXT';
+
+/// The typed [OctopusLocalizedTextValidationError] a bridge reported in [e], or
+/// `null` when [e] is another error or names a kind this version does not know
+/// (the [PlatformException] then reaches the caller as it is).
+///
+/// Wire: `code` [invalidLocalizedTextErrorCode], `details`
+/// `{kind: <OctopusLocalizedTextValidationErrorKind name>, languageCode: String?}`.
+@visibleForTesting
+OctopusLocalizedTextValidationError? localizedTextValidationErrorFromPlatform(
+  PlatformException e,
+) {
+  if (e.code != invalidLocalizedTextErrorCode) return null;
+  final details = e.details;
+  if (details is! Map) return null;
+  final kind = OctopusLocalizedTextValidationErrorKind.values
+      .where((k) => k.name == details['kind'])
+      .firstOrNull;
+  if (kind == null) return null;
+  final code = details['languageCode'];
+  return OctopusLocalizedTextValidationError(
+    kind,
+    languageCode: code is String ? code : null,
+  );
 }

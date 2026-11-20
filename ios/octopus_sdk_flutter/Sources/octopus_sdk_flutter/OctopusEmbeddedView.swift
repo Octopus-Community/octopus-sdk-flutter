@@ -53,29 +53,32 @@ struct OctopusHomeScreenWithCallback: View {
   }
 }
 
-/// Wraps `OctopusProfileScreen` — the native view backing the Dart
-/// `OctopusInitialScreen.profile` / `OctopusProfileScreen` entry point — with the
-/// same login-notification observer `OctopusHomeScreenWithCallback` installs, so
-/// a "log in" tap inside the profile screen reaches the Dart host.
+/// Mounts the native `OctopusHomeScreen` on its `.profile` initial screen — the
+/// view backing the Dart `OctopusInitialScreen.profile` / `OctopusProfileScreen`
+/// entry point — with the same login-notification observer
+/// `OctopusHomeScreenWithCallback` installs, so a "log in" tap inside the
+/// profile screen reaches the Dart host.
 ///
-/// It takes no `bottomSafeAreaInset`: the native view has no such parameter (it
-/// pins its own to 0 internally), so there is nothing to normalize or track
-/// here — which is why this wrapper sits outside `NormalizedBottomInsetHost`
-/// rather than inside it.
+/// Going through `OctopusHomeScreen` (rather than the deprecated native
+/// `OctopusProfileScreen`) is what displays the access denied screen when the
+/// user cannot access the community. The parameters are exactly those the
+/// deprecated view forwards: no `bottomSafeAreaInset` (it stays 0, as before),
+/// no main-feed title, no notification — which is why this wrapper sits outside
+/// `NormalizedBottomInsetHost` rather than inside it.
 struct OctopusProfileScreenWithCallback: View {
   let octopus: OctopusSDK
-  /// The host app's own id for the member whose profile to show, or `nil` for the
-  /// connected user's own (editable) profile.
-  let clientUserId: String?
+  /// Whose profile to show: the connected user's own (editable) profile, or
+  /// another member's.
+  let profile: OctopusInitialScreen.ProfileScreenInfo
   /// Same container choice as the home screen — see `OctopusHomeScreenWithCallback`.
   let navigationMode: OctopusNavigationMode
   let navBarLeadingAction: OctopusNavBarLeadingAction?
   let onNavigateToLogin: () -> Void
 
   var body: some View {
-    OctopusProfileScreen(
+    OctopusHomeScreen(
       octopus: octopus,
-      clientUserId: clientUserId,
+      initialScreen: .profile(profile),
       navigationMode: navigationMode,
       navBarLeadingAction: navBarLeadingAction
     )
@@ -120,18 +123,15 @@ private struct NormalizedBottomInsetHost<Content: View>: View {
 
 /// Which native view the bridge mounts for a decoded Dart `initialScreen`.
 ///
-/// Every case but one is an `OctopusInitialScreen` handed to `OctopusHomeScreen`.
-/// The Dart `OctopusInitialScreen.profile` case has **no counterpart in the
-/// native iOS enum** — iOS ships a separate top-level `OctopusProfileScreen`
-/// view for it (Android pushes a `ProfileSummary` destination inside the same
-/// `NavHost` as the other bridge-mode entries). So the decode result has to be
-/// able to say "mount a different view", not just "which start screen".
+/// Both cases mount `OctopusHomeScreen`. The Dart `OctopusInitialScreen.profile`
+/// case keeps a case of its own because it is mounted with fewer parameters than
+/// the other start screens (see `OctopusProfileScreenWithCallback`): the ones the
+/// native profile entry point has always used.
 enum BridgeInitialScreen {
   /// Mount `OctopusHomeScreen` with this start screen.
   case home(OctopusInitialScreen)
-  /// Mount `OctopusProfileScreen` for this member, or — `nil` — for the
-  /// connected user's own profile.
-  case profile(clientUserId: String?)
+  /// Mount `OctopusHomeScreen` on the profile of this member.
+  case profile(OctopusInitialScreen.ProfileScreenInfo)
 }
 
 /// How a member-scoped entry point identifies its member, decoded from the wire.
@@ -209,29 +209,20 @@ private func decodeInitialScreen(_ raw: Any?) -> BridgeInitialScreen {
     case let .profileId(id):    return .home(.activity(.init(profileId: id)))
     }
   case "profile":
-    // An absent (or undecodable) member means the connected user's own profile —
-    // `OctopusProfileScreen(clientUserId: nil)`.
+    // An absent (or undecodable) member means the connected user's own profile.
     switch decodeMemberId(map["member"]) {
     case nil:
-      return .profile(clientUserId: nil)
+      return .profile(.currentUser)
     case let .clientUserId(id):
-      return .profile(clientUserId: id)
+      return .profile(.init(clientUserId: id))
     case let .profileId(id):
       // Not reachable from the current Dart API — `OctopusInitialScreen.profile`
-      // takes only a clientUserId, precisely because iOS's `OctopusProfileScreen`
-      // has no by-Octopus-id form (Android's `ProfileSummary` does, and the
-      // shared member payload carries it for that reason). Handled rather than
-      // ignored so the requested member is never swapped for the connected user:
-      // the activity screen is the one native view that opens an Octopus id
-      // directly, and it is what the Dart docs point hosts to for this case.
-      //
-      // The Android bridge does NOT mirror this fallback — its `ProfileSummary`
-      // takes an Octopus id, so it opens that member's profile proper. Each side
-      // opens the closest thing its native SDK has, which is only tenable while
-      // no Dart API can reach this branch. Whoever adds
-      // `OctopusInitialScreen.profile(profileId:)` has to settle the two on one
-      // behaviour; the same warning sits on `InitialScreenSpec.Profile` in
-      // `InitialScreenSpec.kt`.
+      // takes only a clientUserId. Kept on the behaviour it has always had (the
+      // member's activity screen) rather than switched to the native
+      // `ProfileScreenInfo(profileId:)`: whoever adds
+      // `OctopusInitialScreen.profile(profileId:)` settles this branch and
+      // `InitialScreenSpec.Profile` in `InitialScreenSpec.kt` (which opens the
+      // member's profile proper) on one behaviour.
       NSLog(
         "[OctopusSdkFlutter] initialScreen.profile by Octopus profile id is not supported on iOS — "
         + "opening that member's activity screen instead"
@@ -245,18 +236,11 @@ private func decodeInitialScreen(_ raw: Any?) -> BridgeInitialScreen {
     }
     let text = (prefilled["text"] as? String)?.nilIfEmpty
     let topicId = (prefilled["topicId"] as? String)?.nilIfEmpty
-    let cta: OctopusPrefilledPost.CTA?
-    if let ctaMap = prefilled["cta"] as? [String: Any],
-       let urlString = ctaMap["url"] as? String,
-       let url = URL(string: urlString),
-       let label = ctaMap["label"] as? String {
-      cta = try? OctopusPrefilledPost.CTA(url: url, label: label)
-    } else {
-      cta = nil
-    }
+    let cta = OctopusLocalizedTextWire.decodeCTA(prefilled["cta"])
     let payload: OctopusPrefilledPost?
     do {
-      payload = try OctopusPrefilledPost(text: text, image: nil, topicId: topicId, cta: cta)
+      // No images: bytes are dropped on the embedded create-post entry point.
+      payload = try OctopusPrefilledPost(text: text, topicId: topicId, cta: cta)
     } catch {
       NSLog("[OctopusSdkFlutter] initialScreen.createPost: payload rejected (\(error)) — opening empty editor")
       payload = nil
@@ -579,6 +563,11 @@ private final class SafeHostingContainerView: UIView {
       let fontSizeCaption1 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue
       let fontSizeCaption2 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue
       let fontSizeNavBarItem = (dict["fontSizeNavBarItem"] as? NSNumber)?.intValue
+      // `fontFamilyNavBarTitle` / `fontSizeNavBarTitle` are Android-only and
+      // deliberately NOT read: the native iOS theme has no navigation-bar title
+      // font, the title follows the host's `UINavigationBar` appearance. Keep
+      // them out of the "any theme key set" test below too, so setting only
+      // them leaves the iOS theme untouched.
 
       themeMode = dict["themeMode"] as? String
       interceptUrls = (dict["interceptUrls"] as? Bool) ?? false
@@ -766,12 +755,12 @@ private final class SafeHostingContainerView: UIView {
       OctopusEventEmitter.shared?.emitNavigateToLogin()
     }
 
-    // Which native view to mount. `.profile` is the one Dart initial screen with
-    // no native `OctopusInitialScreen` counterpart — iOS ships a separate
-    // top-level view for it (see `BridgeInitialScreen`). Consequences for that
-    // branch, mirrored in the Dart doc: the main-feed nav-bar title and the
-    // notification deep link do not apply to it, and it has no
-    // `bottomSafeAreaInset` parameter to forward.
+    // Which native view to mount. Both branches mount `OctopusHomeScreen`;
+    // `.profile` does it with the parameters of the native profile entry point
+    // (see `OctopusProfileScreenWithCallback`). Consequences for that branch,
+    // mirrored in the Dart doc: the main-feed nav-bar title and the
+    // notification deep link do not apply to it, and `bottomSafeAreaInset` is
+    // not forwarded.
     let content: AnyView
     switch initialScreen {
     case let .home(homeScreen):
@@ -788,10 +777,10 @@ private final class SafeHostingContainerView: UIView {
           bottomSafeAreaInset: inset
         )
       })
-    case let .profile(clientUserId):
+    case let .profile(profile):
       content = AnyView(OctopusProfileScreenWithCallback(
         octopus: octopus,
-        clientUserId: clientUserId,
+        profile: profile,
         navigationMode: navigationMode,
         navBarLeadingAction: navBarLeadingAction,
         onNavigateToLogin: onNavigateToLogin

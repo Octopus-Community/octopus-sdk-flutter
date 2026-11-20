@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+// The bundled example reads the generated wrapper version without adding a
+// public SDK API just for build metadata.
+// ignore: implementation_imports
+import 'package:octopus_sdk_flutter/src/octopus_sdk_version.dart';
 
 import '../app_state.dart';
 import '../design.dart';
@@ -44,10 +48,7 @@ class AboutScreen extends StatelessWidget {
                       app.sampleVersionLabel ?? '—',
                     ),
                     const SizedBox(height: 6),
-                    const SampleKeyValue(
-                      'SDK version',
-                      'Not exposed by the Flutter plugin',
-                    ),
+                    const SampleKeyValue('SDK version', octopusSdkVersion),
                   ],
                 ),
               ),

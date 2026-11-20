@@ -5,6 +5,7 @@ This guide consolidates the migration notes for every minor release of the
 first (with before/after code), then the additive surface introduced in that
 release. The most recent version is at the top.
 
+- [To 1.16.0 (from 1.15.x)](#to-1160-from-115x)
 - [To 1.15.0 (from 1.14.x) — app-owned authentication only](#to-1150-from-114x--app-owned-authentication-only)
 - [To 1.13.0 (from 1.12.x)](#to-1130-from-112x)
 - [To 1.12.2 (from 1.12.0/1.12.1)](#to-1122-from-11201121)
@@ -12,6 +13,219 @@ release. The most recent version is at the top.
 - [To 1.11.0 (from 1.10.x)](#to-1110-from-110x)
 - [To 1.10.0 (from 1.9.x)](#to-1100-from-19x)
 - [To 1.9.0](#to-190)
+
+---
+
+## To 1.16.0 (from 1.15.x)
+
+### Breaking — a single `connectUser(tokenProvider:)`
+
+`connectUser` now requires `tokenProvider`. Its deprecated
+static `token` parameter and the deprecated `connectUserWithTokenProvider`
+method are removed. The return type and optional `nickname`, `bio` and
+`picture` parameters are unchanged.
+
+SSO JWTs expire. A static token replays the same stale JWT when the native SDK
+refreshes authentication, including during `refreshEntitlements`. Supply a
+provider that obtains a fresh JWT from your backend on each request; wrapping
+a previously minted token in a closure still replays that token.
+
+**Before (static token):**
+
+```dart
+final token = await backend.mintOctopusJwt();
+final result = await octopus.connectUser(
+  userId: currentUser.id,
+  token: token,
+  nickname: currentUser.displayName,
+);
+```
+
+**After:**
+
+```dart
+final result = await octopus.connectUser(
+  userId: currentUser.id,
+  tokenProvider: () => backend.mintOctopusJwt(),
+  nickname: currentUser.displayName,
+);
+```
+
+**Before (deprecated provider method):**
+
+```dart
+final result = await octopus.connectUserWithTokenProvider(
+  userId: currentUser.id,
+  tokenProvider: () => backend.mintOctopusJwt(),
+  nickname: currentUser.displayName,
+);
+```
+
+**After:**
+
+```dart
+final result = await octopus.connectUser(
+  userId: currentUser.id,
+  tokenProvider: () => backend.mintOctopusJwt(),
+  nickname: currentUser.displayName,
+);
+```
+
+Continue handling the returned `OctopusResult` as before. The SDK invokes the
+provider for the initial token and every subsequent token request, and releases
+it when you call `disconnectUser`.
+
+### Build requirements — compileSdk 36
+
+The native Android SDK 1.16 compiles against Android 16 (API 36). Android host
+apps must use `compileSdk` 36 or later and Android Gradle Plugin (AGP) 8.9.1 or
+later, the [minimum AGP for API 36](https://developer.android.com/build/releases/about-agp#api-level-support).
+`minSdk` stays at 23, and no `targetSdk` change is required.
+
+Before (`android/app/build.gradle.kts`):
+
+```kotlin
+android {
+    compileSdk = 35
+}
+```
+
+After:
+
+```kotlin
+android {
+    compileSdk = 36
+}
+```
+
+Apps that keep Flutter's default (`compileSdk = flutter.compileSdkVersion`) already
+compile against API 36 on Flutter 3.44. If needed, raise the AGP version in
+`android/settings.gradle.kts` to at least 8.9.1, with the Gradle version it requires.
+
+### Several photos per post
+
+Not breaking: a post now carries up to 10 photos
+(`OctopusPrefilledPost.maxImageCount`), and the single-image APIs keep working
+with a deprecation warning. Move to the list forms when you touch the code.
+
+`OctopusPrefilledPost` takes `images`, in display order, instead of `image`:
+
+```dart
+// Before
+final prefill = OctopusPrefilledPost(text: text, image: photoBytes);
+
+// After
+final prefill = OctopusPrefilledPost(text: text, images: [photoBytes]);
+```
+
+Pass one or the other: `image` together with a non-empty `images` throws an
+`ArgumentError`. More than 10 non-empty images throw an
+`OctopusPrefilledPostTooManyImagesError`, which is an `ArgumentError` but not an
+`OctopusPrefilledPostValidationError`, so catch it on its own:
+
+```dart
+try {
+  prefill = OctopusPrefilledPost(text: text, images: photos);
+} on OctopusPrefilledPostTooManyImagesError catch (e) {
+  // e.count photos were passed, at most e.max are accepted
+} on OctopusPrefilledPostValidationError catch (e) {
+  // text or CTA problem, as before
+}
+```
+
+`ClientPost` takes `medias` instead of `attachment`:
+
+```dart
+// Before
+final post = ClientPost(
+  objectId: article.id,
+  text: article.title,
+  attachment: OctopusRemoteImageAttachment(article.imageUrl),
+);
+
+// After
+final post = ClientPost(
+  objectId: article.id,
+  text: article.title,
+  medias: [
+    OctopusRemoteImageAttachment(article.imageUrl),
+    OctopusLocalImageAttachment(thumbnailBytes),
+  ],
+);
+```
+
+Do not set both: `fetchOrCreateClientObjectRelatedPost` then fails with a
+`PlatformException` whose code is `INVALID_ARGS`, before reaching the native SDK.
+More than 10 medias are refused with an `OctopusInvalidArguments` failure
+carrying a `ClientPostOtherError`.
+
+### Local bridge-image upload size
+
+On Android, native SDK 1.16 uploads the bytes supplied in
+`OctopusLocalImageAttachment` for a `ClientPost` without resizing or re-encoding
+them. The host app now controls image dimensions, encoding and upload byte
+size. If your app relied on the SDK to reduce a local bridge image, resize
+and encode it in your app before constructing the attachment. This also
+applies to the deprecated `ClientPost.attachment` parameter.
+
+### Why the community access is denied
+
+- **`OctopusSDK.communityAccessDeniedReason`** — a stream of
+  `CommunityAccessDeniedReason?` telling why the user cannot access the
+  community, or `null` when the access is granted or not known yet. A reason a
+  newer native SDK adds is reported as `CommunityAccessDeniedReason.unknown`.
+- **`CommunityAccessDeniedScreen`** — screen-displayed event for the screen the
+  SDK shows in place of the community when the access is denied. Emitted on
+  **both** platforms.
+
+If you `switch` exhaustively over `Screen`, add an arm for
+`CommunityAccessDeniedScreen`. A host that uses a `default`/wildcard arm needs
+no change.
+
+### Button labels per language
+
+Additive, with two deprecations: existing calls compile and behave as before
+(a `String` label is translated automatically), with a deprecation warning.
+
+```dart
+// Before
+ClientPost(objectId: id, text: text, viewObjectButtonText: 'Read');
+OctopusPostCTA(url: url, label: 'Read');
+
+// After — same behaviour
+ClientPost(
+  objectId: id,
+  text: text,
+  viewObjectButton: const OctopusLocalizedText.autoTranslated('Read'),
+);
+OctopusPostCTA.localized(
+  url: url,
+  localizedLabel: const OctopusLocalizedText.autoTranslated('Read'),
+);
+
+// After — one label per language
+OctopusPostCTA.localized(
+  url: url,
+  localizedLabel: OctopusLocalizedText.perLanguage({
+    'en': 'Read',
+    'fr': 'Lire',
+  }, defaultLanguage: 'en'),
+);
+```
+
+Reading `ClientPost.viewObjectButtonText` is deprecated as well: read
+`viewObjectButton` (`viewObjectButton?.defaultText` gives the same text).
+`OctopusPostCTA.label` is unchanged. `OctopusPostCTA.toMap()` now also carries
+a `localizedLabel` entry, and `ClientPost.toMap()` carries `viewObjectButton`
+instead of `viewObjectButtonText`; the maps are the platform-channel
+representation, not a format to persist.
+
+Give BCP-47 tags (`'en'`, `'pt-BR'`, `'zh-Hant-TW'`). `perLanguage` checks
+nothing: the native SDK validates the label when
+`fetchOrCreateClientObjectRelatedPost` sends the post or
+`showOctopusCreatePostScreen` opens the editor, and the call then throws an
+`OctopusLocalizedTextValidationError`. Rules and semantics: the
+[integration guide](doc/integration-guide.md#button-labels-per-language).
 
 ---
 
@@ -496,8 +710,9 @@ threshold separately.
   or `clientUserId` (the latter requires the community to expose client user ids).
   `OctopusProfile.clientUserId` is the connected user's counterpart id, for
   correlating with your own user record. See
-  [CHANGELOG.md](CHANGELOG.md) for the full contract — including that
-  `OctopusGamification.score` is always `null` through this API.
+  [CHANGELOG.md](CHANGELOG.md) for the full contract. Until 1.16,
+  `OctopusGamification.score` was always `null` through this API; from 1.16 it is
+  the member's total points (see the 1.16 changelog).
 - **`onNavigateToProfile` on all six entry points** — the four widgets
   (`OctopusHomeScreen`, `OctopusHomeContent`, `OctopusPostDetailsScreen`,
   `OctopusGroupDetailsScreen`) and the two navigation helpers

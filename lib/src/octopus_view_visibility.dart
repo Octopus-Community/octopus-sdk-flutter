@@ -1,6 +1,20 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+// Internal identity handoff; this file is not exported by the public barrel.
+class OctopusViewEventScope extends InheritedWidget {
+  const OctopusViewEventScope({
+    super.key,
+    required this.onViewChanged,
+    required super.child,
+  });
+
+  final ValueChanged<int?> onViewChanged;
+
+  @override
+  bool updateShouldNotify(OctopusViewEventScope oldWidget) => false;
+}
+
 /// Private Android bridge: a retained view must stop handling system Back while
 /// its tab is hidden by Visibility / IndexedStack, TickerMode is disabled, or
 /// a host route covers it.
@@ -21,6 +35,7 @@ class OctopusViewVisibility extends StatefulWidget {
 class _OctopusViewVisibilityState extends State<OctopusViewVisibility> {
   MethodChannel? _channel;
   bool _visible = false;
+  ValueChanged<int?>? _onViewChanged;
 
   @override
   void didChangeDependencies() {
@@ -50,6 +65,10 @@ class _OctopusViewVisibilityState extends State<OctopusViewVisibility> {
 
   void _onCreated(int id) {
     if (!mounted) return;
+    _onViewChanged = context
+        .getInheritedWidgetOfExactType<OctopusViewEventScope>()
+        ?.onViewChanged;
+    _onViewChanged?.call(id);
     _channel = MethodChannel('octopus_sdk_flutter/native_view/$id');
     _sendVisibility();
   }
@@ -71,6 +90,12 @@ class _OctopusViewVisibilityState extends State<OctopusViewVisibility> {
         ),
       );
     });
+  }
+
+  @override
+  void dispose() {
+    _onViewChanged?.call(null);
+    super.dispose();
   }
 
   @override

@@ -131,17 +131,24 @@ sealed class InitialScreenSpec {
     /**
      * Mount the post editor as the initial route.
      *
-     * Image bytes carried under `createPost.prefilledPost.image` are
+     * Image bytes carried under `createPost.prefilledPost.images` are
      * intentionally dropped on this embedded entry point — hosts that need
      * to share an image use `showOctopusCreatePostScreen`, which
      * materializes bytes via `OctopusCreatePostActivity`. Only the text,
      * topic, and CTA primitives reach the native editor here.
+     *
+     * A per-language CTA label rides as [ctaLabel] (the default language's label),
+     * [ctaLabelLanguage] (its code) and [ctaLabelTranslations] (the other labels,
+     * a compact JSON object of code to label), the primitives the native route
+     * takes; both are `null` for an auto-translated label.
      */
     data class CreatePost(
         val text: String? = null,
         val topicId: String? = null,
         val ctaLabel: String? = null,
         val ctaUrl: Uri? = null,
+        val ctaLabelLanguage: String? = null,
+        val ctaLabelTranslations: String? = null,
     ) : InitialScreenSpec()
 
     companion object {
@@ -149,7 +156,7 @@ sealed class InitialScreenSpec {
          * Decode an `initialScreen` map sent from Dart. Returns [MainFeed]
          * when [raw] is null, has no recognized `type`, or is malformed.
          *
-         * Image bytes carried in `createPost.prefilledPost.image` are
+         * Image bytes carried in `createPost.prefilledPost.images` are
          * **dropped** here — the embedded post editor entry point is not
          * expected to receive raw bytes (those go through
          * `showOctopusCreatePostScreen`, which materializes them via
@@ -198,14 +205,23 @@ sealed class InitialScreenSpec {
                         val topicId = prefilled["topicId"] as? String
                         @Suppress("UNCHECKED_CAST")
                         val cta = prefilled["cta"] as? Map<String, Any?>
-                        val ctaLabel = cta?.get("label") as? String
                         val ctaUrlString = cta?.get("url") as? String
                         val ctaUrl = ctaUrlString?.let { runCatching { it.toUri() }.getOrNull() }
+                        // A per-language label the native SDK refuses drops the CTA, as
+                        // the iOS bridge does on this entry point.
+                        val label = runCatching {
+                            decodeLocalizedText(cta?.get("localizedLabel"))?.toCtaLabelPrimitives()
+                                ?: (cta?.get("label") as? String)?.let { CtaLabelPrimitives(it, null, null) }
+                        }.onFailure {
+                            Log.w(TAG, "createPost: CTA label refused (${it.message}) — opening without the CTA")
+                        }.getOrNull()
                         CreatePost(
                             text = text,
                             topicId = topicId,
-                            ctaLabel = ctaLabel,
+                            ctaLabel = label?.label,
                             ctaUrl = ctaUrl,
+                            ctaLabelLanguage = label?.language,
+                            ctaLabelTranslations = label?.translations,
                         )
                     }
                 }

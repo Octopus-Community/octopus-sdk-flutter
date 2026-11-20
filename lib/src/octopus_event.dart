@@ -190,6 +190,7 @@ sealed class Screen {
       // ignore: deprecated_member_use_from_same_package
       'settingsAccount' => const SettingsAccountScreen(),
       'reportExplanation' => const ReportExplanationScreen(),
+      'communityAccessDenied' => const CommunityAccessDeniedScreen(),
       // ignore: deprecated_member_use_from_same_package
       'deleteAccount' => const DeleteAccountScreen(),
       _ => UnknownScreen(type: type, rawData: map),
@@ -305,6 +306,13 @@ class SettingsAccountScreen extends Screen {
 
 class ReportExplanationScreen extends Screen {
   const ReportExplanationScreen();
+}
+
+/// The screen displayed in place of the community when the user cannot access
+/// it (1.16+). The reason is given by
+/// `OctopusSDK.communityAccessDeniedReason`.
+class CommunityAccessDeniedScreen extends Screen {
+  const CommunityAccessDeniedScreen();
 }
 
 /// Legacy screen event retained for compatibility with earlier SDK versions.

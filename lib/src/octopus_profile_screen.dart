@@ -15,10 +15,11 @@ import 'octopus_theme.dart';
 /// with the `clientUserId` the callback handed you and the member's Octopus
 /// profile opens.
 ///
-/// Mirrors the iOS `OctopusProfileScreen` view — whose own documentation names
-/// "a Flutter / React Native plugin" as its intended consumer — and the Android
-/// `navigateToOctopusProfileByClientUserId` / `CurrentUserProfileGraph`
-/// destinations. Equivalent to [OctopusHomeScreen] with
+/// Mirrors the iOS `OctopusHomeScreen` opened on its `.profile` initial screen
+/// (which replaces the deprecated iOS `OctopusProfileScreen` view) and the
+/// Android `navigateToOctopusProfileByClientUserId` / `CurrentUserProfileGraph`
+/// destinations. When the user cannot access the community, the SDK's access
+/// denied screen is displayed instead of the profile. Equivalent to [OctopusHomeScreen] with
 /// `initialScreen: OctopusInitialScreen.profile(clientUserId: ...)`, and
 /// provided as a dedicated widget for the same reason
 /// [OctopusPostDetailsScreen] is.
@@ -27,7 +28,7 @@ import 'octopus_theme.dart';
 ///
 /// | [clientUserId] | Screen |
 /// |---|---|
-/// | `null` | the connected user's **own** profile, with its edit affordances (iOS `OctopusProfileScreen(clientUserId: nil)`, Android `CurrentUserProfileGraph`) |
+/// | `null` | the connected user's **own** profile, with its edit affordances (iOS `ProfileScreenInfo.currentUser`, Android `CurrentUserProfileGraph`) |
 /// | set | that member's profile, **read-only** (iOS resolves it through the client-user-id lookup, Android via its `ProfileSummary(clientUserId:)` destination) |
 /// | blank or whitespace-only | same as `null` — an id with nothing but whitespace in it names nobody |
 ///
@@ -39,8 +40,21 @@ import 'octopus_theme.dart';
 /// unavailable / error state on both platforms. It never silently falls back to
 /// the connected user's own profile.
 ///
-/// With no connected user and no [clientUserId], iOS shows the same unavailable
-/// state; wire [onNavigateToLogin] to send the user to your sign-in flow.
+/// With no connected user and no [clientUserId], wire [onNavigateToLogin] to
+/// send the user to your sign-in flow.
+///
+/// On Android, a retained view stops handling system Back when hidden by an
+/// [IndexedStack] or [Visibility], when its [TickerMode] is disabled, or when
+/// its nearest Flutter route is no longer current. Its native navigation stack
+/// is retained. For nested Navigators, an overlay on an outer Navigator must
+/// also hide the embedded subtree with [Visibility] or disable its [TickerMode].
+/// A plain [Offstage] or a kept-alive off-screen [PageView] or [TabBarView] page
+/// is not detected automatically: set [isVisible] to `false` or disable the
+/// subtree's [TickerMode] while it is hidden.
+///
+/// Hiding the view caps its Android lifecycle at CREATED. Video playback pauses;
+/// returning resumes the same native screen and re-runs its ON_RESUME work,
+/// including counter refreshes and post view-count updates.
 ///
 /// ## Back navigation
 ///
@@ -66,9 +80,8 @@ import 'octopus_theme.dart';
 ///
 /// ## Not exposed here, and why
 ///
-/// - **No Octopus-profile-id variant.** Android's native SDK accepts a raw
-///   Octopus profile id for this screen, iOS's `OctopusProfileScreen` does not,
-///   so the wrapper exposes only the form that works on both. Holding just an
+/// - **No Octopus-profile-id variant.** The wrapper exposes only the
+///   client-user-id form. Holding just an
 ///   Octopus id, open the member's posts instead:
 ///   `OctopusHomeScreen(initialScreen: OctopusInitialScreen.activity(
 ///   ActivityScreenInfo.profileId(id)))`.
@@ -136,8 +149,8 @@ class OctopusProfileScreen extends StatelessWidget {
   /// Requests a native host-driven leading nav-bar button (close or back) whose
   /// tap fires [onBack]. See [OctopusHomeScreen.navBarLeadingAction].
   ///
-  /// **iOS only on this screen.** The native iOS `OctopusProfileScreen` takes
-  /// this action directly. On Android the profile destination paints the SDK's
+  /// **iOS only on this screen.** The iOS bridge hands it to the native
+  /// profile screen directly. On Android the profile destination paints the SDK's
   /// own back chevron, which already routes to [onBack]; the Android bridge
   /// applies `leadingNavigationIcon` to the community feed only.
   final OctopusNavBarLeadingAction? navBarLeadingAction;
@@ -146,8 +159,8 @@ class OctopusProfileScreen extends StatelessWidget {
   /// bottom. Defaults to `0`. See [OctopusHomeScreen.bottomSafeAreaInset] for
   /// the full contract.
   ///
-  /// **Android only on this screen** — the native iOS `OctopusProfileScreen`
-  /// has no bottom-inset parameter, so the iOS bridge does not forward it.
+  /// **Android only on this screen** — the iOS bridge does not forward it, as
+  /// the native iOS profile entry point never did.
   final double bottomSafeAreaInset;
 
   const OctopusProfileScreen({

@@ -84,6 +84,8 @@ void main() {
               'enablePictures': false,
               'enablePolls': true,
               'textRequired': true,
+              'imageTapOpensPost': false,
+              'groupNameTapOpensGroup': false,
             },
             'comment': {'enablePictures': true},
             'reply': {'enablePictures': true},
@@ -93,6 +95,8 @@ void main() {
             ('post.enablePictures', 'false'),
             ('post.enablePolls', 'true'),
             ('post.textRequired', 'true'),
+            ('post.imageTapOpensPost', 'false'),
+            ('post.groupNameTapOpensGroup', 'false'),
             ('comment.enablePictures', 'true'),
             ('reply.enablePictures', 'true'),
           ],
@@ -104,6 +108,9 @@ void main() {
             'qa-preset-contentOptions-5',
             'qa-preset-contentOptions-6',
             'qa-preset-contentOptions-7',
+            'qa-preset-contentOptions-8',
+            'qa-preset-contentOptions-9',
+            'qa-preset-contentOptions-10',
             'qa-preset-contentOptions-clear',
           ],
         ),
@@ -172,6 +179,57 @@ void main() {
           run: (app) => app.resetSessionForScenario(),
         ),
       };
+
+  testWidgets('post tap presets apply independently and default resets both', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    final app = AppState();
+    addTearDown(app.dispose);
+    await mount(tester, app, const ContentOptionsScenario());
+    for (final (id, image, group, label) in [
+      ('8', true, false, 'Post: image tap opens the post'),
+      ('9', false, true, 'Post: group name opens the group'),
+      ('10', true, true, 'Post: image and group name taps'),
+      ('1', false, false, 'All enabled (default / no-op)'),
+    ]) {
+      final preset = find.bySemanticsIdentifier('qa-preset-contentOptions-$id');
+      await tester.ensureVisible(preset);
+      await tester.tap(preset);
+      await tester.pumpAndSettle();
+      expect(calls.last.method, 'debugOverrideContentOptions');
+      expect(calls.last.arguments, {
+        'options': {
+          'post': {
+            'enablePictures': true,
+            'enablePolls': true,
+            'textRequired': true,
+            'imageTapOpensPost': image,
+            'groupNameTapOpensGroup': group,
+          },
+          'comment': {'enablePictures': true},
+          'reply': {'enablePictures': true},
+        },
+      });
+      expect(liveRows(tester), [
+        ('Applied override', label),
+        ('post.enablePictures', 'true'),
+        ('post.enablePolls', 'true'),
+        ('post.textRequired', 'true'),
+        ('post.imageTapOpensPost', '$image'),
+        ('post.groupNameTapOpensGroup', '$group'),
+        ('comment.enablePictures', 'true'),
+        ('reply.enablePictures', 'true'),
+      ]);
+      expect(result('contentOptions', 'Applied: $label.'), findsOneWidget);
+    }
+    final clear = find.bySemanticsIdentifier('qa-preset-contentOptions-clear');
+    await tester.ensureVisible(clear);
+    await tester.tap(clear);
+    await tester.pumpAndSettle();
+    expect(calls.last.arguments, {'options': null});
+    expect(app.debugScenarioOverrides.contentOptions, isNull);
+  });
 
   cases.forEach((id, spec) {
     void expectBackend(WidgetTester tester) {

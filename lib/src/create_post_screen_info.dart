@@ -23,10 +23,15 @@ class CreatePostScreenInfo {
   /// share carrying an image, the SDK computes a SHA-256 `fingerprint` of the
   /// final content (text + CTA + image) and invokes this provider. Your backend
   /// must return a JWT (HS256, the same shared secret as your SSO tokens)
-  /// carrying that value in its `bridge_fingerprint` claim. Return `null` when
-  /// you cannot sign. Communities that allow member pictures don't need this —
-  /// leave it unset; only register it for communities that actually require a
-  /// signature.
+  /// carrying that value in its `bridge_fingerprint` claim. Communities that
+  /// allow member pictures don't need this — leave it unset; only register it
+  /// for communities that actually require a signature.
+  ///
+  /// Return `null` when you cannot sign: the post is then sent unsigned, on
+  /// both platforms, exactly as if no provider were registered, and the server
+  /// decides. A community that allows member pictures publishes it with its
+  /// images; one that forbids them refuses it and the editor shows an error. A
+  /// provider that throws is treated as a `null` reply.
   ///
   /// The provider must **complete** — return a token or `null`. A provider that
   /// never completes parks the publish until the editor is dismissed.
@@ -38,13 +43,7 @@ class CreatePostScreenInfo {
   ///
   /// **Supported on both platforms** (Android → native
   /// `CreatePostScreenInfo.bridgeShareTokenProvider`; iOS → native
-  /// `OctopusPrefilledPost.sign`, plugin pods `1.12.4`+). The `null`-reply
-  /// behaviour differs slightly because of the native shapes: on Android a
-  /// `null` sends the attempt unsigned and the server rejects the image, while
-  /// the iOS native signer returns a non-optional token, so a `null` reply
-  /// makes the iOS editor show a signing error and stay open. The outcome is
-  /// the same for the intended use case (return a real JWT) — in both cases an
-  /// unsigned image is not published to a pictures-off community.
+  /// `OctopusPrefilledPost.bridgeShareTokenProvider`).
   ///
   /// Excluded from [==] / [hashCode] (a function has no value identity),
   /// matching how the SDK treats its other callbacks.

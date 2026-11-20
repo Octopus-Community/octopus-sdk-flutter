@@ -88,9 +88,9 @@ const scenarioCopy = <String, ScenarioCopy>{
     "the locked fields greyed out in the profile editor.",
   ),
   "contentOptions": ScenarioCopy(
-    "Change what members are allowed to post",
-    "The composer offers only the kinds of content the community allows.",
-    "the composer offering only the allowed content types.",
+    "Change content options and post taps",
+    "Try content creation options and post image or group name navigation.",
+    "the allowed content types in the composer and the selected post tap behaviour.",
   ),
   "forceNicknameChoice": ScenarioCopy(
     "Force Nickname Choice",

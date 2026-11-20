@@ -344,8 +344,7 @@ class _ClientProfilePageState extends State<ClientProfilePage> {
           _row(
             theme,
             'gamification score',
-            data.gamification?.score?.toString() ??
-                '— (never exposed to consumers)',
+            data.gamification?.score?.toString() ?? 'null',
           ),
         ],
       ),

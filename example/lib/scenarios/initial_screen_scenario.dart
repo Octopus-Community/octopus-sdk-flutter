@@ -12,6 +12,7 @@ import '../auth/login_page.dart';
 import '../auth/profile_edit_page.dart';
 import '../design.dart';
 import '../octopus_demo_config.dart';
+import '../widgets/localized_label_editor.dart';
 import '../widgets/scenario_scaffold.dart';
 import '../sample_fixtures.dart';
 
@@ -35,9 +36,11 @@ import '../sample_fixtures.dart';
 ///   [OctopusPrefilledPostValidationError] subtype as the result panel text.
 /// - Preset 5 (standalone post details) reuses the same post id field.
 /// - Preset 6 opens the standalone native editor via
-///   [OctopusSDK.showOctopusCreatePostScreen] with a prefilled image share and
-///   a `bridgeShareTokenProvider` (signs the share in a pictures-off community;
-///   wired on both platforms). Mirrors the native sample bridge-share section.
+///   [OctopusSDK.showOctopusCreatePostScreen] with a prefilled share of three
+///   photos (the bundled logo, repeated) and, when the build carries an SSO
+///   secret, a `bridgeShareTokenProvider` (signs the share in a pictures-off
+///   community; wired on both platforms). Mirrors the native sample
+///   bridge-share section.
 /// - Preset 7 opens the community via the top-level
 ///   [OctopusSDK.showOctopusHomeScreen] helper with no `bottomSafeAreaInset`
 ///   (auto inset) — the only preset exercising the client-facing helper whose
@@ -86,9 +89,9 @@ class InitialScreenScenario extends StatefulWidget {
 }
 
 class _InitialScreenScenarioState extends State<InitialScreenScenario> {
-  // Default prefill text — long enough to clear the SDK's minimum-length
-  // check (10 chars) so QA gets a valid payload on first tap and can shorten
-  // it in the field to surface the typed `TextTooShort` validation error.
+  // Default prefill text — a valid payload on first tap (1 to 5000 chars); QA
+  // can lengthen it past 5000 in the field to surface the typed `TextTooLong`
+  // validation error.
   static const String _defaultPrefillText =
       'A long enough prefill text from the host app demonstration scenario.';
 
@@ -96,6 +99,9 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
   late final TextEditingController _prefillTextCtrl;
   late final TextEditingController _ctaLabelCtrl;
   late final TextEditingController _ctaUrlCtrl;
+  final LocalizedLabelController _ctaLocalizedLabel = LocalizedLabelController(
+    initialRows: const [('en', 'Open'), ('fr', 'Ouvrir')],
+  );
   late final TextEditingController _memberClientUserIdCtrl;
   late final TextEditingController _memberProfileIdCtrl;
 
@@ -131,6 +137,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
     _prefillTextCtrl.dispose();
     _ctaLabelCtrl.dispose();
     _ctaUrlCtrl.dispose();
+    _ctaLocalizedLabel.dispose();
     _memberClientUserIdCtrl.dispose();
     _memberProfileIdCtrl.dispose();
     super.dispose();
@@ -310,8 +317,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
               decoration: const InputDecoration(
                 labelText: 'Prefill text',
                 helperText:
-                    'Min 10 / max 5000 chars. Shorten below 10 to observe '
-                    'the typed TextTooShort validation error.',
+                    'Min 1 / max 5000 chars. Go past 5000 to observe '
+                    'the typed TextTooLong validation error.',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -340,6 +347,11 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: SampleSpacing.space2),
+            LocalizedLabelEditor(
+              controller: _ctaLocalizedLabel,
+              testIdPrefix: 'initialScreen-cta-label',
             ),
             const SizedBox(height: SampleSpacing.space2),
             Text(
@@ -573,7 +585,10 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 );
                 return;
               }
-              cta = OctopusPostCTA(url: parsedUrl, label: ctaLabel);
+              cta = OctopusPostCTA.localized(
+                url: parsedUrl,
+                localizedLabel: _ctaLocalizedLabel.build(ctaLabel),
+              );
             }
 
             OctopusPrefilledPost prefill;
@@ -606,7 +621,8 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 'topicId': topicId ?? '(none)',
                 'cta': cta == null
                     ? '(none)'
-                    : 'label="${cta.label}", url=${cta.url}',
+                    : 'label=${LocalizedLabelController.describe(cta.localizedLabel)}, '
+                          'url=${cta.url}',
               });
               setResult(
                 'Opening OctopusHomeScreen with '
@@ -616,7 +632,9 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 '(tracked internally). Image bytes are '
                 'intentionally not provided (embedded createPost drops image '
                 'bytes by design — use OctopusSDK.showOctopusCreatePostScreen '
-                'for the image-share flow).',
+                'for the image-share flow). A per-language CTA label the '
+                'native SDK refuses is dropped on this embedded route (see the '
+                'native log); preset 6 reports the refusal instead.',
               );
 
               // Measure the device bottom gesture-area inset off the raw View
@@ -765,7 +783,10 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
                 );
                 return;
               }
-              cta = OctopusPostCTA(url: parsedUrl, label: ctaLabel);
+              cta = OctopusPostCTA.localized(
+                url: parsedUrl,
+                localizedLabel: _ctaLocalizedLabel.build(ctaLabel),
+              );
             }
 
             // Carry a real image so this exercises the bridge-share image path:
@@ -784,7 +805,7 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
             try {
               prefill = OctopusPrefilledPost(
                 text: text,
-                image: imageBytes,
+                images: List.filled(3, imageBytes),
                 topicId: topicId,
                 cta: cta,
               );
@@ -800,37 +821,50 @@ class _InitialScreenScenarioState extends State<InitialScreenScenario> {
             try {
               demoLog.apiCall('showOctopusCreatePostScreen', {
                 'prefilledText': text,
-                'image': 'assets/logo.png (${imageBytes.length} bytes)',
+                'images':
+                    '3 × assets/logo.png (${imageBytes.length} bytes each)',
                 'topicId': topicId ?? '(none)',
                 'cta': cta == null
                     ? '(none)'
-                    : 'label="${cta.label}", url=${cta.url}',
+                    : 'label=${LocalizedLabelController.describe(cta.localizedLabel)}, '
+                          'url=${cta.url}',
                 'bridgeShareTokenProvider': hasInjectedSsoSecret
                     ? 'set (signs via demo SSO secret)'
-                    : 'set (returns null — no SSO secret injected)',
+                    : '(none — no SSO secret injected)',
               });
               setResult(
                 'Opening the standalone native editor via '
                 'OctopusSDK.showOctopusCreatePostScreen(...) with a prefilled '
-                'image share and a bridgeShareTokenProvider. In a community '
-                'that forbids member pictures the SDK invokes the provider at '
-                'publish time with the content fingerprint; the demo signer '
-                'returns an HS256 JWT (or null when no SSO secret is injected). '
-                'Wired on both platforms. When the signer returns null, iOS '
-                'shows a signing error and keeps the editor open, while Android '
-                'lets the server reject the unsigned image. Mirrors the native '
-                'sample bridge-share section.',
+                'image share. When the build carries an SSO secret, a '
+                'bridgeShareTokenProvider signs the share with the content '
+                'fingerprint at publish time, which a community that forbids '
+                'member pictures requires. Without a secret no provider is '
+                'registered: the photos publish in a community that allows '
+                'them, and are refused in one that forbids them. Mirrors the '
+                'native sample bridge-share section.',
               );
               await OctopusSDK().showOctopusCreatePostScreen(
                 info: CreatePostScreenInfo(
                   prefilledPost: prefill,
+                  // Only registered when the build can sign: a provider that
+                  // cannot sign would reply `null`, which sends the post
+                  // unsigned on both platforms, the same as registering none.
                   // signBridgeFingerprint is synchronous (String?); wrap it to
                   // match the Future<String?> provider contract, mirroring the
                   // bridge scenario's _hostBridgeTokenProvider.
-                  bridgeShareTokenProvider: (fingerprint) async =>
-                      BridgeTokenSigner.signBridgeFingerprint(fingerprint),
+                  bridgeShareTokenProvider: hasInjectedSsoSecret
+                      ? (fingerprint) async =>
+                            BridgeTokenSigner.signBridgeFingerprint(fingerprint)
+                      : null,
                 ),
                 theme: app.effectiveOctopusTheme(),
+              );
+            } on OctopusLocalizedTextValidationError catch (e) {
+              setResult(
+                'The native SDK rejected the CTA label: ${e.kind.name}'
+                '${e.languageCode == null ? '' : ' (${e.languageCode})'}. '
+                'The editor was not opened.',
+                isError: true,
               );
             } catch (e) {
               setResult(

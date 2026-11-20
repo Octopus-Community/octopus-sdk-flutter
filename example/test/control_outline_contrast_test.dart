@@ -79,6 +79,7 @@ void main() {
     test('light borders retain their original color and one-pixel width', () {
       final theme = buildAppTheme(Brightness.light);
       expect(sampleOutlineWidthFor(Brightness.light), 1);
+      expect(theme.inputDecorationTheme.enabledBorder!.borderSide.width, 1);
       expect(
         sampleScenarioBorderFor(Brightness.light),
         sampleAccent(Brightness.light).withValues(alpha: .35),
@@ -120,6 +121,10 @@ void main() {
       'elevated surface': sampleDarkElevated,
       'hover surface': sampleDarkHover,
     };
+
+    test('unfocused text fields keep a visible two-pixel dark outline', () {
+      expect(theme.inputDecorationTheme.enabledBorder!.borderSide.width, 2);
+    });
 
     test('preset and segmented outlines clear 3:1 on adjacent fills', () {
       for (final side in [

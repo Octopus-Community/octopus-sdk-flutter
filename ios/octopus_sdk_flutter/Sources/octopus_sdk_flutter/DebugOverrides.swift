@@ -14,7 +14,7 @@ import Foundation
 // and `OctopusUI`; `OctopusCore` is an internal target that `Octopus` imports
 // without re-exporting. No declared product carries these types, so the
 // import below is the only way to build the real implementation, and making
-// it reachable through a product is an upstream change (#470).
+// it reachable through a product is an upstream change.
 //
 // - CocoaPods: `OctopusCore` is a first-class published pod
 //   (`OctopusCommunityCore`, module name `OctopusCore`) declared in
@@ -22,10 +22,10 @@ import Foundation
 // - SPM (this plugin's own `Package.swift`): the import is not backed by a
 //   declared product. It still resolves through the module search path the
 //   `Octopus` product brings along: the Integration `spm` leg on Flutter
-//   3.44.5 compiles the real implementation (checked for #470 with a
-//   temporary `#error` probe behind `#if SWIFT_PACKAGE && canImport(OctopusCore)`;
-//   PR #471 has the probe and the CI run that printed it). If a
-//   toolchain stops exposing it, `canImport` turns false and the stub compiles.
+//   3.44.5 printed a temporary `#error` probe behind
+//   `#if SWIFT_PACKAGE && canImport(OctopusCore)`, confirming that the real
+//   implementation is selected. If a toolchain stops exposing it, `canImport`
+//   turns false and the stub compiles.
 //
 // `#if canImport(OctopusCore)` keeps both outcomes compiling: the real
 // implementation where the module is reachable, otherwise a stub that
@@ -158,7 +158,7 @@ enum OctopusDebugOverridesBridge {
 
   /// Parses the `options` wire map into a native `ContentOptions`. `nil` clears the override.
   /// Mirrors the Android Kotlin bridge's `parseContentOptions`: a missing sub-map or a wrong-typed
-  /// flag falls back to `true`, matching both the native default and the Dart default.
+  /// creation flag falls back to `true`; optional tap flags fall back to `false`.
   static func parseContentOptions(_ map: [String: Any]?) -> ContentOptions? {
     guard let map else { return nil }
     let post = map["post"] as? [String: Any]
@@ -168,7 +168,9 @@ enum OctopusDebugOverridesBridge {
       post: ContentOptions.PostOptions(
         enablePictures: post?["enablePictures"] as? Bool ?? true,
         enablePolls: post?["enablePolls"] as? Bool ?? true,
-        textRequired: post?["textRequired"] as? Bool ?? true
+        textRequired: post?["textRequired"] as? Bool ?? true,
+        imageTapOpensPost: post?["imageTapOpensPost"] as? Bool ?? false,
+        groupNameTapOpensGroup: post?["groupNameTapOpensGroup"] as? Bool ?? false
       ),
       comment: ContentOptions.CommentOptions(
         enablePictures: comment?["enablePictures"] as? Bool ?? true

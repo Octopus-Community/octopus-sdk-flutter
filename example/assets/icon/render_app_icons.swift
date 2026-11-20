@@ -12,7 +12,7 @@
 // Writes:
 // - ios/Runner/Assets.xcassets/AppIcon.appiconset/AppIcon.png — 1024, opaque (App Store Connect rejects alpha),
 //   from ios-light.svg;
-// - android/app/src/main/res/mipmap-*dpi/ic_launcher{,_round}.png — the legacy icons for API 23–25, the central
+// - android/app/src/main/res/mipmap-*dpi/ic_launcher{,_round}.png — the legacy icons for API 24–25, the central
 //   72 dp of the adaptive layers pre-masked to a rounded square and a circle;
 // - android/app/src/main/ic_launcher-playstore.png — 512, opaque, the same 72 dp, for the Play listing.
 //

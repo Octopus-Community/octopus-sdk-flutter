@@ -45,7 +45,9 @@ enum OctopusThemeMode {
 ///   fontSizeBody2: 14,
 ///   fontSizeCaption1: 13,
 ///   fontSizeCaption2: 11,
-///   fontSizeNavBarItem: 16,
+///   fontSizeNavBarItem: 16, // iOS only
+///   fontFamilyNavBarTitle: 'my_brand_font', // Android only
+///   fontSizeNavBarTitle: 18, // Android only
 ///
 ///   // Custom logo (base64)
 ///   logoBase64: '...',
@@ -182,6 +184,39 @@ class OctopusTheme {
   /// `body1` default).
   final int? fontSizeNavBarItem;
 
+  /// Font of the top app bar title on every community screen, main feed
+  /// included.
+  ///
+  /// **Android only.** On iOS this key has no effect: the native iOS theme has
+  /// no navigation-bar title font, and the title follows your app's
+  /// `UINavigationBar` appearance.
+  ///
+  /// Like [fontFamily], this is the resource name of a font shipped by the host
+  /// Android app under `android/app/src/main/res/font/` (e.g.
+  /// `res/font/my_brand_font.ttf` is passed as `'my_brand_font'`), not a
+  /// Flutter asset. If no matching resource is found, the SDK logs a warning
+  /// and the title keeps its font; [fontSizeNavBarTitle] still applies.
+  ///
+  /// It is applied on top of the title's own style, so setting it alone keeps
+  /// the title size. It takes precedence over [fontFamily] for the title.
+  ///
+  /// Default: `null`, which leaves the title as it is.
+  final String? fontFamilyNavBarTitle;
+
+  /// Size of the top app bar title on every community screen, main feed
+  /// included, in points (`sp` on Android).
+  ///
+  /// **Android only.** On iOS this key has no effect: the title follows your
+  /// app's `UINavigationBar` appearance.
+  ///
+  /// It is applied on top of the title's own style, so setting it alone keeps
+  /// the title font. It takes precedence over the [fontSizeBody1] size that
+  /// [fontFamily] and [fontWeight] give the Android title. Must be positive
+  /// when set; the constructor asserts this.
+  ///
+  /// Default: `null`, which leaves the title as it is.
+  final int? fontSizeNavBarTitle;
+
   /// Custom logo encoded in base64
   /// Format: 'iVBORw0KGgoAAAANSUhEUgAA...'
   final String? logoBase64;
@@ -210,6 +245,8 @@ class OctopusTheme {
     this.fontSizeCaption1,
     this.fontSizeCaption2,
     this.fontSizeNavBarItem,
+    this.fontFamilyNavBarTitle,
+    this.fontSizeNavBarTitle,
     this.logoBase64,
     this.icons,
     this.themeMode,
@@ -218,6 +255,10 @@ class OctopusTheme {
          'fontWeight must be within 100-900, got $fontWeight. '
          'Pass a FontWeight.value (w100 == 100), not a FontWeight.index '
          '(w100.index == 0).',
+       ),
+       assert(
+         fontSizeNavBarTitle == null || fontSizeNavBarTitle > 0,
+         'fontSizeNavBarTitle must be positive, got $fontSizeNavBarTitle.',
        );
 
   /// Creates a copy of the theme with modified parameters
@@ -237,6 +278,8 @@ class OctopusTheme {
     int? fontSizeCaption1,
     int? fontSizeCaption2,
     int? fontSizeNavBarItem,
+    String? fontFamilyNavBarTitle,
+    int? fontSizeNavBarTitle,
     String? logoBase64,
     OctopusIcons? icons,
     OctopusThemeMode? themeMode,
@@ -257,6 +300,9 @@ class OctopusTheme {
       fontSizeCaption1: fontSizeCaption1 ?? this.fontSizeCaption1,
       fontSizeCaption2: fontSizeCaption2 ?? this.fontSizeCaption2,
       fontSizeNavBarItem: fontSizeNavBarItem ?? this.fontSizeNavBarItem,
+      fontFamilyNavBarTitle:
+          fontFamilyNavBarTitle ?? this.fontFamilyNavBarTitle,
+      fontSizeNavBarTitle: fontSizeNavBarTitle ?? this.fontSizeNavBarTitle,
       logoBase64: logoBase64 ?? this.logoBase64,
       icons: icons ?? this.icons,
       themeMode: themeMode ?? this.themeMode,
@@ -283,6 +329,10 @@ class OctopusTheme {
       if (fontSizeCaption1 != null) 'fontSizeCaption1': fontSizeCaption1,
       if (fontSizeCaption2 != null) 'fontSizeCaption2': fontSizeCaption2,
       if (fontSizeNavBarItem != null) 'fontSizeNavBarItem': fontSizeNavBarItem,
+      if (fontFamilyNavBarTitle != null)
+        'fontFamilyNavBarTitle': fontFamilyNavBarTitle,
+      if (fontSizeNavBarTitle != null)
+        'fontSizeNavBarTitle': fontSizeNavBarTitle,
       if (logoBase64 != null) 'logoBase64': logoBase64,
       if (icons != null && icons!.toMap().isNotEmpty) 'icons': icons!.toMap(),
       if (themeMode != null) 'themeMode': themeMode!.name,

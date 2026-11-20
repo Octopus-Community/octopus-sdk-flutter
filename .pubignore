@@ -85,3 +85,8 @@ melos.yaml
 example/ios/fastlane/
 example/ios/Gemfile
 example/ios/Gemfile.lock
+
+# Native dev-source manifest (internal native-dev tooling): lives on PR branches
+# only and never merges into main, so it never reaches a release — belt and
+# braces should one ever reach a published tree.
+native-dev-sources.json

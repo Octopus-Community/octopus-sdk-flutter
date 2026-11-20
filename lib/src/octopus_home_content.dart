@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'octopus_initial_screen.dart';
 import 'octopus_sdk.dart';
 import 'octopus_theme.dart';
+import 'octopus_view_visibility.dart';
 
 /// Embedded variant of [OctopusHomeScreen] that **omits the native SDK
 /// navigation chrome** (top app bar) so the host app can render its own.
@@ -41,6 +43,19 @@ import 'octopus_theme.dart';
 /// inside the native bar's edges rather than adding a second Flutter bar.
 /// `OctopusHomeContent` remains useful when the host specifically wants the
 /// SDK chrome gone on Android and accepts that iOS keeps the native bar.
+///
+/// On Android, a retained view stops handling system Back when hidden by an
+/// [IndexedStack] or [Visibility], when its [TickerMode] is disabled, or when
+/// its nearest Flutter route is no longer current. Its native navigation stack
+/// is retained. For nested Navigators, an overlay on an outer Navigator must
+/// also hide the embedded subtree with [Visibility] or disable its [TickerMode].
+/// A plain [Offstage] or a kept-alive off-screen [PageView] or [TabBarView] page
+/// is not detected automatically: set [isVisible] to `false` or disable the
+/// subtree's [TickerMode] while it is hidden.
+///
+/// Hiding the view caps its Android lifecycle at CREATED. Video playback pauses;
+/// returning resumes the same native screen and re-runs its ON_RESUME work,
+/// including counter refreshes and post view-count updates.
 ///
 /// Example usage:
 /// ```dart
@@ -142,6 +157,7 @@ class OctopusHomeContent extends StatefulWidget {
 
 class _OctopusHomeContentState extends State<OctopusHomeContent> {
   StreamSubscription<Map<String, dynamic>>? _eventSubscription;
+  int? _viewId;
 
   @override
   void initState() {
@@ -149,6 +165,12 @@ class _OctopusHomeContentState extends State<OctopusHomeContent> {
 
     _eventSubscription = OctopusSDK.eventStream.listen(
       (event) {
+        // Untagged native editor intents retain their global host routing.
+        if (defaultTargetPlatform == TargetPlatform.android &&
+            event.containsKey('viewId') &&
+            (_viewId == null || event['viewId'] != _viewId)) {
+          return;
+        }
         if (event['event'] == 'loginRequired') {
           widget.onNavigateToLogin?.call();
         } else if (event['event'] == 'editUser') {
@@ -184,17 +206,20 @@ class _OctopusHomeContentState extends State<OctopusHomeContent> {
       return const SizedBox.shrink();
     }
 
-    return OctopusSDK.embeddedView(
-      theme: widget.theme,
-      isVisible: widget.isVisible,
-      navBarPrimaryColor: widget.navBarPrimaryColor,
-      interceptUrls: widget.onNavigateToUrl != null,
-      interceptProfileTaps: widget.onNavigateToProfile != null,
-      hasModifyUserHandler: widget.onModifyUser != null,
-      notification: widget.notification,
-      bottomSafeAreaInset: widget.bottomSafeAreaInset,
-      showNavBar: false,
-      initialScreen: widget.initialScreen,
+    return OctopusViewEventScope(
+      onViewChanged: (id) => _viewId = id,
+      child: OctopusSDK.embeddedView(
+        theme: widget.theme,
+        isVisible: widget.isVisible,
+        navBarPrimaryColor: widget.navBarPrimaryColor,
+        interceptUrls: widget.onNavigateToUrl != null,
+        interceptProfileTaps: widget.onNavigateToProfile != null,
+        hasModifyUserHandler: widget.onModifyUser != null,
+        notification: widget.notification,
+        bottomSafeAreaInset: widget.bottomSafeAreaInset,
+        showNavBar: false,
+        initialScreen: widget.initialScreen,
+      ),
     );
   }
 }

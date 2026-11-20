@@ -37,3 +37,6 @@ example/lib/secrets.dart
 # Claude Code — session-local files (project-shared files in .claude/commands/ stay tracked)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# native-dev tool fetched by .github/actions/native-dev
+.native-dev-tool/

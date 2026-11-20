@@ -1,5 +1,5 @@
 group = "com.octopuscommunity.octopus_sdk_flutter"
-version = "1.15.0"
+version = "1.16.0"
 
 buildscript {
     ext.kotlin_version = "2.1.10"
@@ -18,6 +18,18 @@ buildscript {
 
 allprojects {
     repositories {
+        // Internal tooling (native-dev): inert unless OCTOPUS_ANDROID_DEV_REPO is set.
+        // Built standalone (CI's Kotlin tests), this is the only block; inside an app
+        // build the app's root block has already registered the repository, so this
+        // one finds it and does nothing — two exclusive declarations for the same
+        // group would make it unresolvable.
+        def octopusDevRepo = System.getenv("OCTOPUS_ANDROID_DEV_REPO")
+        if (octopusDevRepo && findByName("octopusNativeDev") == null) {
+            exclusiveContent {
+                forRepository { maven { name = "octopusNativeDev"; url = uri(octopusDevRepo) } }
+                filter { includeGroup("com.octopuscommunity") }
+            }
+        }
         google()
         mavenCentral()
     }
@@ -31,7 +43,7 @@ apply plugin: "org.jetbrains.kotlin.plugin.compose"
 android {
     namespace = "com.octopuscommunity.octopus_sdk_flutter"
 
-    compileSdk = 35
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -57,8 +69,8 @@ android {
 
     dependencies {
         // Octopus SDK
-        implementation("com.octopuscommunity:octopus-sdk:1.15.0")
-        implementation("com.octopuscommunity:octopus-sdk-ui:1.15.0")
+        implementation("com.octopuscommunity:octopus-sdk:1.16.0")
+        implementation("com.octopuscommunity:octopus-sdk-ui:1.16.0")
 
         // AndroidX Core
         implementation("androidx.core:core-ktx:1.16.0")

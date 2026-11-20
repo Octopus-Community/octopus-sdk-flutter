@@ -5,8 +5,8 @@ profiles — in your Flutter app with one Dart API over the native Android and i
 
 [![pub package](https://img.shields.io/pub/v/octopus_sdk_flutter.svg)](https://pub.dev/packages/octopus_sdk_flutter)
 [![Platforms](https://img.shields.io/badge/platforms-Android%2023%2B%20%7C%20iOS%2014%2B-blue.svg)](#requirements)
-[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.15.0-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
-[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.15.0-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
+[![Android SDK](https://img.shields.io/badge/Android%20SDK-1.16.0-3DDC84.svg)](https://github.com/Octopus-Community/octopus-sdk-android)
+[![iOS SDK](https://img.shields.io/badge/iOS%20SDK-1.16.0-147EFB.svg)](https://github.com/Octopus-Community/octopus-sdk-swift)
 [![License](https://img.shields.io/badge/license-Octopus%20Mobile%20SDK-lightgrey.svg)](LICENSE)
 
 <img src="https://raw.githubusercontent.com/Octopus-Community/octopus-sdk-android/main/docs/images/fullscreen.png" width="280" alt="The Octopus community feed, as rendered by the native Android SDK this package embeds">
@@ -27,10 +27,10 @@ profiles — in your Flutter app with one Dart API over the native Android and i
 
 | Package | Flutter | Dart | Android | iOS | Native SDKs (Android · iOS) |
 |---|---|---|---|---|---|
-| 1.15.x | 3.44+ (tested 3.44.5) | 3.12+ | `minSdk` 23, `compileSdk` 35, Kotlin 2.1+, Android Gradle Plugin 8.6+ | 14.0+ | 1.15.0 · 1.15.0 |
+| 1.16.x | 3.44+ (tested 3.44.5) | 3.12+ | `minSdk` 23, `compileSdk` 36, Kotlin 2.1+, Android Gradle Plugin 8.9.1+ | 14.0+ | 1.16.0 · 1.16.0 |
 
 On Android the plugin compiles with Kotlin 2.1.10 and a JVM target of 11; use Kotlin 2.1 or
-later and Android Gradle Plugin 8.6 or later in your app. This repository's CI builds
+later and Android Gradle Plugin 8.9.1 or later in your app. This repository's CI builds
 and tests with Flutter 3.44.5 and its bundled Dart 3.12.2.
 
 On iOS, enable Swift Package Manager with
@@ -50,7 +50,7 @@ or in `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  octopus_sdk_flutter: ^1.15.0
+  octopus_sdk_flutter: ^1.16.0
 ```
 
 Two one-time native steps: on Android, `MainActivity` must extend `FlutterFragmentActivity`
@@ -82,6 +82,16 @@ class CommunityPage extends StatelessWidget {
 
 Users can browse anonymously from there. To connect your signed-in users (SSO), theme the UI or
 wire push, follow the [integration guide](doc/integration-guide.md).
+`connectUser` requires a token provider that fetches a fresh JWT from your backend
+for every token request, including refreshes:
+
+```dart
+final result = await OctopusSDK().connectUser(
+  userId: currentUser.id,
+  tokenProvider: () => backend.mintOctopusJwt(),
+);
+// Handle the returned OctopusResult before updating your sign-in UI.
+```
 
 ## Sample app
 

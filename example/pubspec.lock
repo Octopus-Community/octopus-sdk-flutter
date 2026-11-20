@@ -301,7 +301,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "1.15.0"
+    version: "1.16.0"
   package_info_plus:
     dependency: "direct main"
     description:
@@ -524,13 +524,13 @@ packages:
     source: hosted
     version: "6.3.2"
   url_launcher_android:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: url_launcher_android
-      sha256: c0fb544b9ac7efa10254efaf00a951615c362d1ea1877472f8f6c0fa00fcf15b
+      sha256: "611e87fb320b70d1dd721dc46af89c98aceccea9b31fde49e084591414e0c610"
       url: "https://pub.dev"
     source: hosted
-    version: "6.3.23"
+    version: "6.3.33"
   url_launcher_ios:
     dependency: transitive
     description:

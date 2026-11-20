@@ -12,6 +12,7 @@ import 'client_post.dart';
 import 'client_post_error.dart';
 import 'client_user_error.dart';
 import 'client_user_token_provider_state.dart' as token_provider_state;
+import 'community_access_denied_reason.dart';
 import 'consent_texts.dart';
 import 'content_options.dart';
 import 'create_post_screen_info.dart';
@@ -53,6 +54,7 @@ export 'group_follow_unfollow_error.dart';
 export 'octopus_connection_state.dart';
 export 'octopus_debug_community_config.dart';
 export 'octopus_group.dart';
+export 'octopus_localized_text.dart';
 export 'octopus_notification.dart';
 export 'octopus_post.dart';
 export 'octopus_post_cta.dart';
@@ -60,6 +62,7 @@ export 'octopus_prefilled_post.dart';
 export 'octopus_profile.dart';
 export 'octopus_reaction_kind.dart';
 export 'octopus_result.dart';
+export 'community_access_denied_reason.dart';
 export 'override_community_access_error.dart';
 export 'refresh_entitlements_error.dart';
 export 'set_reaction_error.dart';
@@ -83,6 +86,12 @@ bool _isEventChannelInitialized = false;
 // may not be listening yet.
 int? _lastNotSeenNotificationsCount;
 bool? _lastHasAccessToCommunity;
+
+// Access-denied-reason cache. The value itself is nullable (null = access
+// granted or not known yet), so a separate flag tracks whether the native side
+// has emitted at all yet — only then is the cached value replayed.
+bool _hasReceivedCommunityAccessDeniedReason = false;
+CommunityAccessDeniedReason? _lastCommunityAccessDeniedReason;
 
 // Profile cache. The value itself is nullable (null = not connected), so a
 // separate flag tracks whether the native side has emitted at all yet — only
@@ -192,6 +201,13 @@ int _clientObjectObservationCounter = 0;
 int _communityDataObservationCounter = 0;
 
 class OctopusSDK {
+  // Clear before initialize so its initial native events
+  // populate the cache, and after stop so its final events cannot repopulate it.
+  static void _clearSessionReplayCaches() {
+    _hasReceivedCommunityAccessDeniedReason = false;
+    _lastCommunityAccessDeniedReason = null;
+  }
+
   static void _initializeEventChannel() {
     if (_isEventChannelInitialized) return;
     _isEventChannelInitialized = true;
@@ -218,6 +234,10 @@ class OctopusSDK {
         _lastNotSeenNotificationsCount = map['count'] as int?;
       case 'hasAccessToCommunityChanged':
         _lastHasAccessToCommunity = map['hasAccess'] as bool?;
+      case 'communityAccessDeniedReasonChanged':
+        _hasReceivedCommunityAccessDeniedReason = true;
+        _lastCommunityAccessDeniedReason =
+            CommunityAccessDeniedReason.fromNativeValue(map['reason']);
       case 'profileChanged':
         _hasReceivedProfile = true;
         final raw = map['profile'];
@@ -462,6 +482,7 @@ class OctopusSDK {
     List<ProfileField>? appManagedFields,
     ApiServer? apiServer,
   }) async {
+    _clearSessionReplayCaches();
     _initializeEventChannel();
     await OctopusSDKPlatform.instance.initialize(
       apiKey: apiKey,
@@ -495,6 +516,8 @@ class OctopusSDK {
     List<ProfileField>? appManagedFields,
     ApiServer? apiServer,
   }) async {
+    // iOS retains its observer and only emits a reason when it changes.
+    // Preserve the current snapshot until a native update replaces it.
     _initializeEventChannel();
     await OctopusSDKPlatform.instance.switchCommunity(
       apiKey: apiKey,
@@ -515,6 +538,8 @@ class OctopusSDK {
   /// device (community content, cached images). iOS has no public cache-clearing
   /// API, so there it disconnects the user only.
   Future<void> reset() {
+    // A native reset may be a no-op with no state emission. Preserve replay
+    // until the native side publishes a changed value.
     return OctopusSDKPlatform.instance.reset();
   }
 
@@ -527,6 +552,7 @@ class OctopusSDK {
   /// [isInitialisedFlow] emits `false`.
   Future<void> stop() async {
     await OctopusSDKPlatform.instance.stop();
+    _clearSessionReplayCaches();
     _lastIsInitialised = false;
   }
 
@@ -554,6 +580,21 @@ class OctopusSDK {
     _initializeEventChannel();
     return buildIsInitialisedFlow(eventStream, _lastIsInitialised);
   }
+
+  // Build on subscription so a stored stream replays the current cache rather
+  // than the value that happened to exist when its getter was called.
+  static Stream<T> _deferStream<T>(Stream<T> Function() create) =>
+      Stream<T>.multi((controller) {
+        final sub = create().listen(
+          controller.addSync,
+          onError: controller.addErrorSync,
+          onDone: controller.closeSync,
+        );
+        controller
+          ..onPause = sub.pause
+          ..onResume = sub.resume
+          ..onCancel = sub.cancel;
+      });
 
   /// Returns a single-subscription stream that, on listen, subscribes to
   /// [values] **before** replaying the optional [seed] — closing the
@@ -974,7 +1015,8 @@ class OctopusSDK {
   /// request a signature back over the event channel at publish time (same
   /// round-trip as [fetchOrCreateClientObjectRelatedPost]). Both keys are
   /// honoured on Android and iOS — the native iOS editor wires them to
-  /// `OctopusPrefilledPost.sign`.
+  /// `OctopusPrefilledPost.bridgeShareTokenProvider` (its `sign:` initializer
+  /// argument).
   @visibleForTesting
   static Map<String, dynamic> createPostScreenArgs({
     CreatePostScreenInfo? info,
@@ -1021,12 +1063,6 @@ class OctopusSDK {
   ///   picture. On both platforms, base64 that does not decode to an image the
   ///   platform can read connects without a picture. Plain `http` needs an App
   ///   Transport Security exception in your app.
-  /// [token] - **Deprecated.** A pre-minted static JWT. Prefer [tokenProvider]:
-  ///   a static token cannot be re-minted when the SDK re-authenticates the
-  ///   user (e.g. [refreshEntitlements]), so it fails once the JWT expires. To
-  ///   migrate, wrap your token in a provider: `tokenProvider: () async => t`.
-  ///
-  /// Exactly one of [tokenProvider] or [token] must be provided.
   ///
   /// ## Result
   ///
@@ -1080,87 +1116,6 @@ class OctopusSDK {
   @useResult
   Future<OctopusResult<void, ClientUserError>> connectUser({
     required String userId,
-    Future<String> Function()? tokenProvider,
-    String? nickname,
-    String? bio,
-    String? picture,
-    @Deprecated(
-      'Use tokenProvider instead. A static token cannot be re-minted when the '
-      'SDK re-authenticates the user (e.g. refreshEntitlements), so it fails '
-      'once the JWT expires. Will be removed in a future major version.',
-    )
-    String? token,
-  }) {
-    if (tokenProvider != null && token != null) {
-      throw ArgumentError(
-        'connectUser requires exactly one of `tokenProvider` or `token`, '
-        'not both.',
-      );
-    }
-    if (tokenProvider != null) {
-      return _connectUserWithTokenProvider(
-        userId: userId,
-        tokenProvider: tokenProvider,
-        nickname: nickname,
-        bio: bio,
-        picture: picture,
-      );
-    }
-    if (token == null) {
-      throw ArgumentError(
-        'connectUser requires either `tokenProvider` or `token`.',
-      );
-    }
-    return OctopusSDKPlatform.instance.connectUser(
-      userId: userId,
-      token: token,
-      nickname: nickname,
-      bio: bio,
-      picture: picture,
-    );
-  }
-
-  /// Connect a user with a **persistent** token provider.
-  ///
-  /// Deprecated: call [connectUser] with its `tokenProvider` parameter instead
-  /// — same behavior, one canonical entry point that matches the native
-  /// `OctopusSDK.connectUser(user, tokenProvider:)` shape.
-  ///
-  /// Returns the same [OctopusResult] as [connectUser]; see that method for
-  /// how to handle a refusal.
-  @Deprecated(
-    'Use connectUser(tokenProvider:) instead. '
-    'Will be removed in a future major version.',
-  )
-  @useResult
-  Future<OctopusResult<void, ClientUserError>> connectUserWithTokenProvider({
-    required String userId,
-    required Future<String> Function() tokenProvider,
-    String? nickname,
-    String? bio,
-    String? picture,
-  }) {
-    return _connectUserWithTokenProvider(
-      userId: userId,
-      tokenProvider: tokenProvider,
-      nickname: nickname,
-      bio: bio,
-      picture: picture,
-    );
-  }
-
-  /// Shared implementation behind [connectUser] (with a `tokenProvider`) and
-  /// the deprecated `connectUserWithTokenProvider`. Registers the persistent
-  /// provider under a unique `providerId` (so the native side can round-trip
-  /// back to Dart on every refresh) and connects via the platform. Rolls the
-  /// registration back if the platform call throws.
-  /// Earlier registrations are released rather than accumulating for the
-  /// lifetime of the process (#237), but only once this call has resolved and
-  /// only once nothing is still running against them — see
-  /// [_retireSupersededClientUserTokenProviders] for why the release cannot be
-  /// done up front or by generation count (#375).
-  Future<OctopusResult<void, ClientUserError>> _connectUserWithTokenProvider({
-    required String userId,
     required Future<String> Function() tokenProvider,
     String? nickname,
     String? bio,
@@ -1182,7 +1137,7 @@ class OctopusSDK {
     try {
       final OctopusResult<void, ClientUserError> result;
       try {
-        result = await OctopusSDKPlatform.instance.connectUserWithTokenProvider(
+        result = await OctopusSDKPlatform.instance.connectUser(
           userId: userId,
           providerId: providerId,
           nickname: nickname,
@@ -1299,6 +1254,54 @@ class OctopusSDK {
         .where((event) => event['event'] == 'hasAccessToCommunityChanged')
         .map((event) => event['hasAccess'] as bool),
     seed: hasSeed ? [seed] : const <bool>[],
+  );
+
+  /// Reactive stream telling why the current user cannot access the community.
+  ///
+  /// Emits `null` when the user can access the community, and as long as the
+  /// access is not known yet. Otherwise it emits the reason of the refusal, the
+  /// one the SDK's own access-denied screen is displayed for. While the
+  /// community is closed or temporarily disabled, the reason is that closure.
+  /// It is updated separately from [hasAccessToCommunity], so the two streams
+  /// can briefly disagree. A reason a newer native SDK adds is reported as
+  /// [CommunityAccessDeniedReason.unknown].
+  ///
+  /// Consecutive duplicate values are collapsed, and the last value is
+  /// replayed to late subscribers. Mirrors the native
+  /// `OctopusSDK.communityAccessDeniedReason`.
+  static Stream<CommunityAccessDeniedReason?> get communityAccessDeniedReason {
+    _initializeEventChannel();
+    return _deferStream(
+      () => buildCommunityAccessDeniedReasonStream(
+        eventStream,
+        _hasReceivedCommunityAccessDeniedReason,
+        _lastCommunityAccessDeniedReason,
+      ),
+    );
+  }
+
+  /// Builds the [communityAccessDeniedReason] stream: replays [seed] (only if
+  /// [hasReceived], since `null` is a valid value) to the subscriber, then
+  /// forwards the reasons carried by `communityAccessDeniedReasonChanged`
+  /// events from [source], collapsing consecutive duplicates. Exposed for
+  /// testing; production code should use [communityAccessDeniedReason].
+  @visibleForTesting
+  static Stream<CommunityAccessDeniedReason?>
+  buildCommunityAccessDeniedReasonStream(
+    Stream<Map<String, dynamic>> source,
+    bool hasReceived,
+    CommunityAccessDeniedReason? seed,
+  ) => _seedThenListen<CommunityAccessDeniedReason?>(
+    source
+        .where(
+          (event) => event['event'] == 'communityAccessDeniedReasonChanged',
+        )
+        .map(
+          (event) =>
+              CommunityAccessDeniedReason.fromNativeValue(event['reason']),
+        ),
+    seed: hasReceived ? [seed] : const <CommunityAccessDeniedReason?>[],
+    equals: (a, b) => a == b,
   );
 
   /// Reactive stream of the connected user's public [OctopusProfile], or `null`
@@ -1602,11 +1605,36 @@ class OctopusSDK {
   /// validation error kinds publicly, so content errors there surface as
   /// [ClientPostOtherError]; on Android the specific [ClientPostError] subtypes
   /// are produced.
+  ///
+  /// **Images.** A post carries up to 10 images in [ClientPost.medias]. More
+  /// are refused before any network call with an [OctopusInvalidArguments]
+  /// carrying a [ClientPostOtherError], on both platforms.
+  ///
+  /// **Button label.** [ClientPost.viewObjectButton] is taken only when the post
+  /// is created. An [OctopusLocalizedText.perLanguage] label is validated by
+  /// the native SDK: when it refuses the label, the returned [Future] fails
+  /// with an [OctopusLocalizedTextValidationError], without reaching the
+  /// network.
+  ///
+  /// A [clientPost] that sets both the deprecated [ClientPost.attachment] and a
+  /// non-empty [ClientPost.medias] fails the returned [Future] with a
+  /// [PlatformException] whose `code` is `INVALID_ARGS`, without reaching the
+  /// native SDK: pass the images in [ClientPost.medias] only.
   Future<OctopusResult<OctopusPost, ClientPostError>>
   fetchOrCreateClientObjectRelatedPost(
     ClientPost clientPost, {
     Future<String?> Function(String fingerprint)? tokenProvider,
   }) async {
+    // The bridges refuse it too (Android's native constructor does): checking
+    // here gives both platforms the same error before any native call.
+    // ignore: deprecated_member_use_from_same_package
+    if (clientPost.attachment != null && clientPost.medias.isNotEmpty) {
+      throw PlatformException(
+        code: 'INVALID_ARGS',
+        message:
+            'Invalid clientPost: Set medias only: attachment is deprecated.',
+      );
+    }
     _initializeEventChannel();
     final requestId = 'bridgeToken_${_bridgeTokenRequestCounter++}';
     if (tokenProvider != null) {
@@ -1910,7 +1938,7 @@ class OctopusSDK {
 
   /// Registers a callback invoked when the user taps the "view object" button on
   /// a bridge post (a post created via [fetchOrCreateClientObjectRelatedPost]
-  /// with a `viewObjectButtonText`). The SDK never navigates on the user's
+  /// with a `viewObjectButton`). The SDK never navigates on the user's
   /// behalf — your app decides what to open for the given `objectId` (the
   /// `ClientPost.objectId` you supplied).
   ///
@@ -1996,8 +2024,9 @@ class OctopusSDK {
   ///
   /// Mirrors the native SDKs' debug-only `debugOverrideContentOptions`
   /// (Android `@InternalOctopusApi`, iOS `@_spi(OctopusInternalTesting)`),
-  /// used by their sample apps to exercise the pictures/polls creation
-  /// gating before a backend serves it. **Not part of the supported public
+  /// used by their sample apps to exercise pictures/polls creation gating and
+  /// optional post image/group name taps. Production reads these options from
+  /// the community configuration. **Not part of the supported public
   /// API** — it may change or be removed at any time.
   ///
   /// Supported on Android, and on iOS via **CocoaPods**. On iOS via **Swift
@@ -2536,8 +2565,8 @@ class OctopusSDK {
   /// buttons, group picker, CGU links, publish flow) so the host doesn't have
   /// to wrap it in any Flutter scaffold.
   ///
-  /// Supply [info] to prefill the editor (text / image bytes / target group /
-  /// invisible CTA); omit it to open an empty editor.
+  /// Supply [info] to prefill the editor (text / up to 10 images as bytes /
+  /// target group / invisible CTA); omit it to open an empty editor.
   ///
   /// **Requires an initialized SDK.** Called before [initialize] has completed,
   /// the returned [Future] fails on both platforms with a [PlatformException]
@@ -2570,9 +2599,14 @@ class OctopusSDK {
   /// JWT (it reuses the same native→Dart round-trip as
   /// [fetchOrCreateClientObjectRelatedPost]). The provider is scoped to this
   /// editor session — opening another editor supersedes it. Supported on both
-  /// platforms (iOS via plugin pods `1.12.4`+); see
-  /// [CreatePostScreenInfo.bridgeShareTokenProvider] for the small
-  /// platform difference when the provider replies `null`.
+  /// platforms; a `null` reply sends the post unsigned on both, see
+  /// [CreatePostScreenInfo.bridgeShareTokenProvider].
+  ///
+  /// **Per-language CTA label.** A prefilled post whose CTA label is an
+  /// [OctopusLocalizedText.perLanguage] text is checked by the native SDK
+  /// before the editor opens: when it refuses the label, the returned [Future]
+  /// fails with an [OctopusLocalizedTextValidationError] and no editor is
+  /// presented.
   Future<void> showOctopusCreatePostScreen({
     CreatePostScreenInfo? info,
     OctopusTheme? theme,

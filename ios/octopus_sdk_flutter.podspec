@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'octopus_sdk_flutter'
-  s.version          = '1.15.0'
+  s.version          = '1.16.0'
   s.summary          = 'Flutter plugin to integrate Octopus Community SDK on iOS.'
   s.description      = <<-DESC
 This Flutter plugin bridges to the native Octopus Community iOS SDK, enabling
@@ -29,8 +29,8 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   # across the new threshold rebuilds the embedded screen and discards its state
   # (a half-typed post included). Re-check the condition in
   # `OctopusUI/Utils/View+InsetableMainNavigationView.swift` when changing these.
-  s.dependency 'OctopusCommunity', '1.15.0'
-  s.dependency 'OctopusCommunityUI', '1.15.0'
+  s.dependency 'OctopusCommunity', '1.16.0'
+  s.dependency 'OctopusCommunityUI', '1.16.0'
   # `OctopusCore` is where `ProfileFieldsLock` / `ContentOptions` /
   # `TermsAcceptanceMode` are declared (the `debugOverride*` QA affordances
   # need to construct these). It is not a Swift Package "product" of
@@ -38,7 +38,7 @@ social features (feeds, posts, notifications, etc.) inside your Flutter apps.
   # `OctopusCommunity` already pulls in transitively — CocoaPods has no
   # concept of "products", so declaring it here is enough to `import
   # OctopusCore` directly. Keep in lockstep with the two pins above.
-  s.dependency 'OctopusCommunityCore', '1.15.0'
+  s.dependency 'OctopusCommunityCore', '1.16.0'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

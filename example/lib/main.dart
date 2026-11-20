@@ -565,13 +565,17 @@ class _MainScreenState extends State<MainScreen> {
 
   void _onAppChanged() {
     final app = widget.app;
+    final sessionChanged = app.communitySession != _seenCommunitySession;
     final invalidated =
-        app.communitySession != _seenCommunitySession ||
-        app.communityNavigation != _seenCommunityMode;
+        sessionChanged || app.communityNavigation != _seenCommunityMode;
     if (invalidated) {
       _seenCommunitySession = app.communitySession;
       _seenCommunityMode = app.communityNavigation;
-      _dismissExistingPresentations();
+      // Keep Host integration open when its live navigation choice changes.
+      // A session replacement still closes routes tied to the previous SDK.
+      if (sessionChanged || _index == _communityIndex) {
+        _dismissExistingPresentations();
+      }
       _openFullScreenRequested =
           _index == _communityIndex &&
           app.communityNavigation == CommunityNavigation.fullScreen;

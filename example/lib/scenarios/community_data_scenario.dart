@@ -104,8 +104,10 @@ class _CommunityDataScenarioState extends State<CommunityDataScenario> {
       description:
           'Reads a member\'s public Octopus stats with fetchCommunityData '
           '(one shot) and communityDataFlow (reactive), by Octopus '
-          'profileId or by your own clientUserId. Note that '
-          'gamification.score is always null through this API — use level.',
+          'profileId or by your own clientUserId. With native SDK 1.16.0 on '
+          'Android and iOS, gamification.score is the member\'s total points '
+          '(including 0), or null if omitted. Gamification is null for '
+          'admin-tagged profiles or when disabled.',
       resultTestId: 'communityData-result',
       catalogParams: const {
         'userId': 'String — a community profile ID or an app user ID',

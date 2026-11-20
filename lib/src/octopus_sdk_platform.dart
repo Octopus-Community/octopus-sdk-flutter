@@ -67,30 +67,18 @@ abstract class OctopusSDKPlatform extends PlatformInterface {
     throw UnimplementedError('stop() has not been implemented.');
   }
 
-  Future<OctopusResult<void, ClientUserError>> connectUser({
-    required String userId,
-    required String token,
-    String? nickname,
-    String? bio,
-    String? picture,
-  }) {
-    throw UnimplementedError('connectUser() has not been implemented.');
-  }
-
   /// Connect with a persistent tokenProvider: the native SDK invokes Dart back
   /// over the event channel ([providerId] keys the closure on Dart) every time
   /// it needs a fresh user JWT (initial connect, [refreshEntitlements], …). The
   /// reply path is [provideClientUserToken].
-  Future<OctopusResult<void, ClientUserError>> connectUserWithTokenProvider({
+  Future<OctopusResult<void, ClientUserError>> connectUser({
     required String userId,
     required String providerId,
     String? nickname,
     String? bio,
     String? picture,
   }) {
-    throw UnimplementedError(
-      'connectUserWithTokenProvider() has not been implemented.',
-    );
+    throw UnimplementedError('connectUser() has not been implemented.');
   }
 
   /// Replies to a native `clientUserTokenRequest` with the freshly-signed JWT.

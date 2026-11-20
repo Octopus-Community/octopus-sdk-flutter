@@ -154,6 +154,25 @@ class ThemeScenario extends StatelessWidget {
             );
           },
         ),
+        ScenarioPreset(
+          testId: 'sample-preset-theme-nav-bar-title',
+          label: 'Preset 7 · Nav bar title size (Android only)',
+          onRun: (setResult) async {
+            app.setActiveOctopusTheme(
+              // Nothing else set: no logo, so the main feed shows its text
+              // title and the size is visible there too. A font would need a
+              // `res/font/` resource in the host app (fontFamilyNavBarTitle).
+              (_) => const OctopusTheme(fontSizeNavBarTitle: 28),
+              'Nav bar title 28',
+            );
+            setResult(
+              'Android: open Community — the bar title is larger (28) on the '
+              'main feed and on a post, group or profile, in the bar\'s own '
+              'font. iOS: no change, the title follows the app navigation '
+              'bar. Use SDK default to reset.',
+            );
+          },
+        ),
       ],
     );
   }

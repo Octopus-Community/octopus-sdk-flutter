@@ -60,8 +60,8 @@ void main() {
       expect(node.label, contains(message));
       expect(node.label, contains('Change'));
       expect(
-        find.descendant(of: band, matching: find.byType(InkWell)),
-        findsOneWidget,
+        find.ancestor(of: find.text(message), matching: find.byType(InkWell)),
+        findsNothing,
       );
       await tester.tap(find.text(message));
       await tester.pumpAndSettle();

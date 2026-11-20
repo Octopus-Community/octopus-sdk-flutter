@@ -51,6 +51,7 @@ String _eventName(OctopusEvent event) => switch (event) {
     SettingsListScreen() => 'Settings List Screen Displayed',
     SettingsAccountScreen() => 'Account Settings Screen Displayed',
     ReportExplanationScreen() => 'Report Explanation Screen Displayed',
+    CommunityAccessDeniedScreen() => 'Community Access Denied Screen Displayed',
     DeleteAccountScreen() => 'Delete Account Screen Displayed',
     PostsFeedScreen() => 'Posts Feed Screen Displayed',
     UnknownScreen() => 'Unknown Screen Displayed',
@@ -156,6 +157,7 @@ List<(String, String)> _eventParams(OctopusEvent event) => switch (event) {
     SettingsListScreen() => const [],
     SettingsAccountScreen() => const [],
     ReportExplanationScreen() => const [],
+    CommunityAccessDeniedScreen() => const [],
     DeleteAccountScreen() => const [],
     PostsFeedScreen(:final feedId, :final relatedTopicId) => [
       ('Feed Id', feedId ?? '-'),

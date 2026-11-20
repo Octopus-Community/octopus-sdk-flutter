@@ -31,13 +31,27 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Octopus Community SDK pods from GitHub (v1.5.1)
-  #pod 'OctopusCommunity',
-  #    :git => 'https://github.com/Octopus-Community/octopus-sdk-swift.git',
-  #    :tag => 'v1.5.1'
-  #pod 'OctopusCommunityUI',
-  #    :git => 'https://github.com/Octopus-Community/octopus-sdk-swift.git',
-  #    :tag => 'v1.5.1'
+  # Internal tooling (native-dev): inert unless both variables are set. During a
+  # native dev-source window the six native pods resolve from one commit instead
+  # of trunk; they share one version, so they move together.
+  octopus_dev_url = ENV['OCTOPUS_IOS_DEV_PACKAGE_URL'].to_s
+  octopus_dev_revision = ENV['OCTOPUS_IOS_DEV_REVISION'].to_s
+  unless octopus_dev_url.empty? || octopus_dev_revision.empty?
+    # Under Swift Package Manager the plugin, and the native SDK with it, comes from
+    # Package.swift: Flutter's podhelper skips its pod, so declaring these here would
+    # link the SDK twice. Same switch podhelper reads.
+    require 'json'
+    plugins_file = File.expand_path(File.join('..', '.flutter-plugins-dependencies'), __dir__)
+    octopus_via_spm =
+      File.exist?(plugins_file) &&
+      JSON.parse(File.read(plugins_file)).dig('swift_package_manager_enabled', 'ios') == true
+    unless octopus_via_spm
+      %w[
+        OctopusCommunity OctopusCommunityUI OctopusCommunityCore
+        OctopusCommunityRemoteClient OctopusCommunityGrpcModels OctopusCommunityDependencyInjection
+      ].each { |name| pod name, :git => octopus_dev_url, :commit => octopus_dev_revision }
+    end
+  end
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do

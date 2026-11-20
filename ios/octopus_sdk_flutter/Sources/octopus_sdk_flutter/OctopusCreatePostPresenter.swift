@@ -20,15 +20,6 @@ final class DismissReportingHostingController<Content: View>: UIHostingControlle
   }
 }
 
-/// Error thrown by the bridge-share `sign` closure when the Dart
-/// `bridgeShareTokenProvider` declines to sign (replies `null`). iOS
-/// `OctopusPrefilledPost.sign` returns a non-optional `String`, so it has no
-/// "proceed unsigned" channel — a `null` reply must surface as a throw, which
-/// the native SDK maps to a server-call error and shows in the editor.
-enum BridgeShareSignError: Error {
-  case notSigned
-}
-
 /// Presents the native Octopus create-post editor MODALLY (full-screen), so the
 /// editor runs in a real presentation context — `presentationMode.isPresented`
 /// is true, which makes its close button appear and work and hides the inert
@@ -40,6 +31,19 @@ enum OctopusCreatePostPresenter {
       result(FlutterError(code: "NOT_INITIALIZED",
                           message: "Call initialize() first", details: nil))
       return
+    }
+
+    // A per-language CTA label the native SDK refuses fails the call before any editor opens, so
+    // the app learns why, as it does from fetchOrCreateClientObjectRelatedPost.
+    if let ctaMap = (args?["prefilledPost"] as? [String: Any])?["cta"] as? [String: Any] {
+      do {
+        _ = try OctopusLocalizedTextWire.decode(ctaMap["localizedLabel"])
+      } catch let error as OctopusLocalizedText.ValidationError {
+        result(OctopusLocalizedTextWire.flutterError(error))
+        return
+      } catch {
+        // Not a localized-text refusal: `decodeCTA` logs it and opens without the CTA.
+      }
     }
 
     let info = buildCreatePostInfo(from: args)
@@ -81,12 +85,13 @@ enum OctopusCreatePostPresenter {
   /// `showOctopusCreatePostScreen` adds when the host registered a
   /// `CreatePostScreenInfo.bridgeShareTokenProvider`.
   ///
-  /// iOS validates the prefilled image eagerly (decode/size/ratio) — unlike
-  /// Android/Flutter, which defer image checks to the editor — so if the full
-  /// payload is rejected we retry without the image, then fall back to an empty
-  /// editor, rather than dropping the whole prefill.
+  /// iOS validates the prefilled images eagerly (decode/size/ratio) — unlike
+  /// Android/Flutter, which defer image checks to the editor — so a rejected
+  /// payload is retried with only the images that pass on their own (none when
+  /// the text is what failed), then falls back to an empty editor, rather than
+  /// dropping the whole prefill for one bad image. See `makePrefilledPost`.
   ///
-  /// The bridge-share signer lives on `OctopusPrefilledPost.sign` (iOS puts it
+  /// The bridge-share signer lives on `OctopusPrefilledPost` (iOS puts it
   /// on the prefilled post; Android/Flutter put it on `CreatePostScreenInfo`),
   /// so it is attached only when there is a prefilled post to carry it. That is
   /// also the only case that can carry a prefilled image — the sole content a
@@ -99,45 +104,68 @@ enum OctopusCreatePostPresenter {
     }
     let text = map["text"] as? String
     let topicId = map["topicId"] as? String
-    let imageData = (map["image"] as? FlutterStandardTypedData)?.data
+    let images = (map["images"] as? [Any] ?? []).compactMap { ($0 as? FlutterStandardTypedData)?.data }
 
-    var cta: OctopusPrefilledPost.CTA? = nil
-    if let ctaMap = map["cta"] as? [String: Any],
-       let urlStr = ctaMap["url"] as? String, let url = URL(string: urlStr),
-       let label = ctaMap["label"] as? String {
-      cta = try? OctopusPrefilledPost.CTA(url: url, label: label)
-    }
+    let cta = OctopusLocalizedTextWire.decodeCTA(map["cta"])
 
-    if let prefill = try? OctopusPrefilledPost(text: text, image: imageData, topicId: topicId, cta: cta, sign: sign) {
-      return .init(prefilledPost: prefill)
-    }
-    if let prefill = try? OctopusPrefilledPost(text: text, image: nil, topicId: topicId, cta: cta, sign: sign) {
-      return .init(prefilledPost: prefill)
-    }
-    return .init(prefilledPost: nil)
+    return .init(prefilledPost: makePrefilledPost(text: text, images: images, topicId: topicId, cta: cta, sign: sign))
   }
 
-  /// Builds the `OctopusPrefilledPost.sign` closure wired to the Dart side, or
-  /// `nil` when the host registered no `bridgeShareTokenProvider`. When set,
-  /// the native editor invokes it at publish time for a prefilled share
-  /// carrying an image (community forbids member pictures); the closure runs
+  /// The native prefilled post for these fields, or `nil` when even the image-less payload is
+  /// refused.
+  ///
+  /// - `TooManyImagesError`: the Dart side refuses more than `maxImageCount` images before the
+  ///   bridge, so this only guards a native maximum that moved; the first `max` images are kept.
+  /// - `ValidationError`: the text or an image failed. The images that validate on their own are
+  ///   kept — matching Android, whose editor drops only the image it cannot use — and the payload
+  ///   is built again; when that fails too, the text was the problem and there is no prefill.
+  static func makePrefilledPost(
+    text: String?,
+    images: [Data],
+    topicId: String?,
+    cta: OctopusPrefilledPost.CTA?,
+    sign: (@Sendable (_ bridgeFingerprint: String) async throws -> String?)?
+  ) -> OctopusPrefilledPost? {
+    do {
+      return try OctopusPrefilledPost(text: text, images: images, topicId: topicId, cta: cta, sign: sign)
+    } catch let error as OctopusPrefilledPost.TooManyImagesError {
+      NSLog("[OctopusSdkFlutter] prefilled post: \(error.count) images, keeping the first \(error.max)")
+      return makePrefilledPost(
+        text: text, images: Array(images.prefix(error.max)), topicId: topicId, cta: cta, sign: sign)
+    } catch {
+      let usableImages = images.filter { (try? OctopusPrefilledPost(images: [$0])) != nil }
+      do {
+        let prefill = try OctopusPrefilledPost(
+          text: text, images: usableImages, topicId: topicId, cta: cta, sign: sign)
+        NSLog("[OctopusSdkFlutter] prefilled post: \(images.count - usableImages.count) image(s) rejected "
+              + "(\(error)) — opening the editor without them")
+        return prefill
+      } catch {
+        NSLog("[OctopusSdkFlutter] prefilled post rejected (\(error)) — opening an empty editor")
+        return nil
+      }
+    }
+  }
+
+  /// Builds the `sign:` closure of `OctopusPrefilledPost` (its
+  /// `bridgeShareTokenProvider`) wired to the Dart side, or `nil` when the host
+  /// registered no `bridgeShareTokenProvider`. When set, the native editor
+  /// invokes it at publish time when the post carries an image, whatever the
+  /// community setting (only the server knows it); the closure runs
   /// the same native→Dart bridge-token round-trip as
   /// `fetchOrCreateClientObjectRelatedPost`, keyed by the Dart-supplied
   /// requestId (mirrors Android's `bridgeShareTokenProviderFromIntent`).
   ///
-  /// **Shape adapter.** The Dart provider returns `String?` (`null` = declined
-  /// to sign), but iOS `sign` returns a non-optional `String` and throws — it
-  /// has no "proceed unsigned" channel. So when Dart replies `null` we throw
-  /// `BridgeShareSignError.notSigned`: the native SDK maps this to a server-
-  /// call error and keeps the editor open with an alert, rather than sending an
-  /// unsigned/empty token. A pictures-off community would reject the unsigned
-  /// image anyway, so the intended use case (host returns a real JWT) behaves
-  /// identically to Android; the only divergence is the failure origin
-  /// (client-side throw on iOS vs. server-side rejection on Android) when a
-  /// host sets the provider yet returns `null`.
+  /// When there is no token — the Dart provider replied `null` (it threw, too:
+  /// the Dart side replies `null` then) or the plugin is gone — the closure
+  /// returns `nil` rather than throwing, so the post is sent unsigned and the
+  /// server decides: a community that allows member pictures publishes it with
+  /// its images, one that forbids them refuses it and the editor shows an error.
+  /// That is what Android's `bridgeShareTokenProvider` does with a `null`. A
+  /// throw would stop the publication whatever the community setting.
   private static func buildBridgeShareSign(
     from args: [String: Any]?
-  ) -> (@Sendable (_ bridgeFingerprint: String) async throws -> String)? {
+  ) -> (@Sendable (_ bridgeFingerprint: String) async throws -> String?)? {
     guard let args,
           (args["hasBridgeShareTokenProvider"] as? Bool) == true,
           let requestId = args["bridgeTokenRequestId"] as? String
@@ -146,11 +174,8 @@ enum OctopusCreatePostPresenter {
     // continuations). The closure is assigned to a @Sendable type, so a weak
     // capture-list binding — immutable, captured by value — is the safe form.
     return { [weak plugin = OctopusSDKFlutterPlugin.shared] fingerprint in
-      guard let plugin else { throw BridgeShareSignError.notSigned }
-      guard let token = await plugin.requestBridgeToken(requestId: requestId, fingerprint: fingerprint) else {
-        throw BridgeShareSignError.notSigned
-      }
-      return token
+      guard let plugin else { return nil }
+      return await plugin.requestBridgeToken(requestId: requestId, fingerprint: fingerprint)
     }
   }
 
@@ -176,6 +201,8 @@ enum OctopusCreatePostPresenter {
     let f5 = (dict["fontSizeCaption1"] as? NSNumber)?.intValue
     let f6 = (dict["fontSizeCaption2"] as? NSNumber)?.intValue
     let navBarItem = (dict["fontSizeNavBarItem"] as? NSNumber)?.intValue
+    // `fontFamilyNavBarTitle` / `fontSizeNavBarTitle` are Android-only and not
+    // read here: iOS has no navigation-bar title font (see OctopusEmbeddedView).
 
     // A plain presence test over every slot — `background`, `link`,
     // `fontFamily`, `fontWeight` and `navBarItem` included, since a host that

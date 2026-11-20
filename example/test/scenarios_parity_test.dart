@@ -358,6 +358,7 @@ void main() {
       'notifications': ['notSeenNotifications', 'pushNotifications'],
       'themeLanguage': ['locale', 'theme'],
       'hostCallbacks': [
+        'hostLifecycles',
         'customEvents',
         'lifecycle',
         'events',

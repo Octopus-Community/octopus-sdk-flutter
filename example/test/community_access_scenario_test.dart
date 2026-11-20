@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 import 'package:octopus_sdk_flutter_example/app_state.dart';
 import 'package:octopus_sdk_flutter_example/scenarios/community_access_scenario.dart';
 
@@ -10,8 +11,23 @@ class _SeededAppState extends AppState {
   @override
   bool? get hasAccess => _access;
 
+  bool _hasReason = false;
+  CommunityAccessDeniedReason? _reason;
+
+  @override
+  bool get hasAccessDeniedReason => _hasReason;
+
+  @override
+  CommunityAccessDeniedReason? get accessDeniedReason => _reason;
+
   void emitAccess(bool value) {
     _access = value;
+    notifyListeners();
+  }
+
+  void emitReason(CommunityAccessDeniedReason? value) {
+    _hasReason = true;
+    _reason = value;
     notifyListeners();
   }
 }
@@ -47,13 +63,18 @@ void main() {
       );
     }
     expect(find.text('hasAccessToCommunity'), findsOneWidget);
-    expect(find.text('—'), findsOneWidget);
+    expect(find.text('communityAccessDeniedReason'), findsOneWidget);
+    expect(find.text('—'), findsNWidgets(2));
     app.emitAccess(false);
+    app.emitReason(CommunityAccessDeniedReason.accountBanned);
     await tester.pump();
     expect(find.text('false'), findsOneWidget);
+    expect(find.text('accountBanned'), findsOneWidget);
     app.emitAccess(true);
+    app.emitReason(null);
     await tester.pump();
     expect(find.text('true'), findsOneWidget);
+    expect(find.text('null'), findsOneWidget);
 
     const channel = MethodChannel('octopus_sdk_flutter');
     final calls = <MethodCall>[];

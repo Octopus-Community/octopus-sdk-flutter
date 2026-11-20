@@ -30,7 +30,7 @@ class OctopusCommunityData {
   final int? messageCount;
 
   /// The member's gamification standing, or `null` when the community has no
-  /// gamification configured.
+  /// gamification configured or the profile is admin-tagged.
   final OctopusGamification? gamification;
 
   const OctopusCommunityData({
@@ -80,13 +80,13 @@ class OctopusGamification {
   /// The member's level index, as configured for the community.
   final int level;
 
-  /// The member's raw points score.
+  /// The member's total gamification points.
   ///
-  /// **Always `null` through this API**, your own profile included: both native
-  /// SDKs resolve community data from a member's *public* profile, which never
-  /// carries the score (it is available to back-office consumers only). The
-  /// field exists for forward-compatibility, matching the native SDKs — do not
-  /// build a UI that depends on it. Use [level] to show a member's standing.
+  /// Available for the connected member and other members on Android and iOS
+  /// starting with native SDK 1.16.0. A total of zero is returned as `0`.
+  /// When the server omits the total, the score is `null`.
+  /// With gamification disabled or an admin-tagged profile,
+  /// [OctopusCommunityData.gamification] itself is `null`.
   final int? score;
 
   const OctopusGamification({required this.level, this.score});

@@ -3,7 +3,7 @@ description: "Demonstrates how to use the octopus_sdk_flutter plugin."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
-version: 1.13.1+1
+version: 1.15.0+1
 
 environment:
   sdk: ^3.8.1
@@ -18,7 +18,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  octopus_sdk_flutter: ^1.15.0
+  octopus_sdk_flutter: ^1.16.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -59,22 +59,6 @@ dependencies:
   # mailto: shortcut) go through `widgets/open_url.dart`, which falls back to the
   # clipboard when nothing on the device claims the URL.
   url_launcher: ^6.3.2
-  # PINNED, and not by preference — `url_launcher_android` 6.3.30 declares
-  # `androidx.core:core:1.17.0`, which refuses to build under an Android Gradle
-  # plugin older than 8.9.1. This sample pins AGP **8.7.3**
-  # (`android/settings.gradle.kts`), so letting the platform implementation float
-  # fails `flutter build apk` outright — not at runtime, at Gradle configuration:
-  #
-  #   Dependency 'androidx.core:core:1.17.0' requires Android Gradle plugin
-  #   8.9.1 or higher. This build currently uses Android Gradle plugin 8.7.3.
-  #
-  # 6.3.23 is the newest release still on `androidx.core:core:1.13.1`. Pinned
-  # here rather than bumping AGP because the AGP version is shared with the
-  # release pipeline and belongs to its own change, not to a sample-UI one.
-  #
-  # ⚠ Unpin — delete these two lines — as soon as AGP moves to >= 8.9.1. Leaving
-  # the pin behind would silently hold the sample on a stale url_launcher.
-  url_launcher_android: 6.3.23
 
 dev_dependencies:
   integration_test:

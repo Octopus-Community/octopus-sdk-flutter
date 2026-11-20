@@ -163,7 +163,10 @@ ThemeData buildAppTheme(Brightness brightness) {
       contentPadding: const EdgeInsets.all(SampleSpacing.space4),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(SampleRadius.md),
-        borderSide: BorderSide(color: scheme.outline),
+        borderSide: BorderSide(
+          color: scheme.outline,
+          width: sampleOutlineWidthFor(brightness),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(SampleRadius.md),

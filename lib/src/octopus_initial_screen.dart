@@ -90,21 +90,19 @@ sealed class OctopusInitialScreen {
   /// [OctopusProfileScreen] is the ergonomic wrapper over this case; prefer it
   /// unless you are already passing an `initialScreen`.
   ///
-  /// **This case has no counterpart in the native iOS `OctopusInitialScreen`
-  /// enum** — iOS ships a separate top-level `OctopusProfileScreen` view, so
-  /// the iOS bridge mounts that view instead of `OctopusHomeScreen` when it
-  /// decodes this case (Android pushes its `ProfileSummary` /
-  /// `CurrentUserProfileGraph` destination inside the same `NavHost` as the
-  /// other bridge-mode entry points). Two consequences on iOS: the main-feed
-  /// nav-bar title (`navBarTitle` / `titleCentered`) and the `notification`
-  /// deep link are not applicable to the mounted view, and
-  /// `bottomSafeAreaInset` is not forwarded — the native profile screen has no
-  /// such parameter.
+  /// Like every initial screen, the profile is replaced by the SDK's access
+  /// denied screen when the user cannot access the community.
   ///
-  /// **No by-Octopus-profile-id variant.** Android's native SDK also accepts a
-  /// raw Octopus profile id here, iOS's `OctopusProfileScreen` does not, so the
-  /// wrapper deliberately exposes only the client-user-id form that works on
-  /// both. Use [OctopusInitialScreen.activity] with
+  /// On iOS the bridge mounts `OctopusHomeScreen` on its native `.profile`
+  /// initial screen with the parameters the native profile entry point uses
+  /// (Android pushes its `ProfileSummary` / `CurrentUserProfileGraph`
+  /// destination inside the same `NavHost` as the other bridge-mode entry
+  /// points). Two consequences on iOS: the main-feed nav-bar title
+  /// (`navBarTitle` / `titleCentered`) and the `notification` deep link are
+  /// not applicable to it, and `bottomSafeAreaInset` is not forwarded.
+  ///
+  /// **No by-Octopus-profile-id variant.** The wrapper exposes only the
+  /// client-user-id form. Use [OctopusInitialScreen.activity] with
   /// [ActivityScreenInfo.profileId] when all you hold is an Octopus id.
   const factory OctopusInitialScreen.profile({String? clientUserId}) =
       OctopusInitialScreenProfile;
@@ -113,7 +111,7 @@ sealed class OctopusInitialScreen {
   /// host app.
   ///
   /// **Image-bytes asymmetry.** When used via this embedded entry point,
-  /// `OctopusPrefilledPost.image` bytes are **dropped** on both Android and
+  /// `OctopusPrefilledPost.images` bytes are **dropped** on both Android and
   /// iOS — the embedded route does not materialize image bytes through the
   /// PlatformView. Use [OctopusSDK.showOctopusCreatePostScreen] for the
   /// image-share flow. Text / topicId / CTA still pass through here.
@@ -244,8 +242,8 @@ class OctopusInitialScreenProfile extends OctopusInitialScreen {
   @override
   Map<String, dynamic> toMap() {
     final id = clientUserId;
-    // Absent `member` means "the connected user's own profile" — the same
-    // meaning iOS gives `OctopusProfileScreen(clientUserId: nil)`. A blank id
+    // Absent `member` means "the connected user's own profile" — the native
+    // iOS `ProfileScreenInfo.currentUser`. A blank id
     // is encoded as absent rather than sent as an id that could never resolve:
     // `memberIdToMap` returns null for it, so this branch also covers `''` and
     // `'   '`.

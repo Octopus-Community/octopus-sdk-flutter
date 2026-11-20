@@ -216,7 +216,14 @@ class EmbeddedContentBackTest {
             assertTrue(dispatcher.hasEnabledCallbacks())
         } finally {
             embedded.dispose()
-            controller.pause().stop().destroy()
+            // An assertion may fail while the activity is already paused/stopped.
+            if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                controller.pause()
+            }
+            if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                controller.stop()
+            }
+            controller.destroy()
         }
     }
 }

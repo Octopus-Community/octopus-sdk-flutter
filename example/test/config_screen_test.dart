@@ -293,6 +293,72 @@ void main() {
     },
   );
   testWidgets(
+    'a covered Config route stays in the stack after Start completes',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final app = _StartingApp();
+      addTearDown(app.dispose);
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        AppScope(
+          state: app,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            home: const Scaffold(body: Text('Host root')),
+          ),
+        ),
+      );
+      final configRoute = MaterialPageRoute<void>(
+        builder: (_) => const ConfigScreen(
+          anchor: ConfigSection.community,
+          initialConfig: DemoConfig(
+            apiKeySource: ApiKeySource.custom,
+            customApiKey: 'unit-test-placeholder',
+            userId: 'test-user',
+            theme: AppThemeChoice.system,
+            serverEnv: ServerEnv.demo,
+          ),
+        ),
+      );
+      unawaited(navigator.currentState!.push(configRoute));
+      await tester.pumpAndSettle();
+      final configState = tester.state(find.byType(ConfigScreen));
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pump();
+      expect(app.startCalls, 1);
+      expect(app.completion.isCompleted, isFalse);
+
+      final coveringRoute = MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('Covering route')),
+      );
+      unawaited(navigator.currentState!.push(coveringRoute));
+      // Settle the push before completing Start, while Config remains mounted.
+      await tester.pumpAndSettle();
+      expect(navigator.currentState!.canPop(), isTrue);
+      expect(configRoute.isCurrent, isFalse);
+      expect(configRoute.isActive, isTrue);
+      expect(configState.mounted, isTrue);
+      app.completion.complete();
+      await tester.pumpAndSettle();
+
+      expect(app.startCalls, 1);
+      expect(find.text('Covering route'), findsOneWidget);
+      expect(coveringRoute.isCurrent, isTrue);
+      expect(configRoute.isActive, isTrue);
+      expect(
+        tester.state(find.byType(ConfigScreen, skipOffstage: false)),
+        same(configState),
+      );
+      navigator.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(configRoute.isCurrent, isTrue);
+      expect(find.byType(ConfigScreen), findsOneWidget);
+      expect(navigator.currentState!.canPop(), isTrue);
+    },
+  );
+  testWidgets(
     'stopped Configuration uses Apply without an SSO restart notice',
     (tester) async {
       await tester.pumpWidget(const MaterialApp(home: ConfigScreen()));

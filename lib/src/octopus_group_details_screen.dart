@@ -15,6 +15,19 @@ import 'octopus_theme.dart';
 /// `OctopusGroupDetailsContent` composables and the iOS
 /// `OctopusInitialScreen.group(...)` enum case.
 ///
+/// On Android, a retained view stops handling system Back when hidden by an
+/// [IndexedStack] or [Visibility], when its [TickerMode] is disabled, or when
+/// its nearest Flutter route is no longer current. Its native navigation stack
+/// is retained. For nested Navigators, an overlay on an outer Navigator must
+/// also hide the embedded subtree with [Visibility] or disable its [TickerMode].
+/// A plain [Offstage] or a kept-alive off-screen [PageView] or [TabBarView] page
+/// is not detected automatically: set [isVisible] to `false` or disable the
+/// subtree's [TickerMode] while it is hidden.
+///
+/// Hiding the view caps its Android lifecycle at CREATED. Video playback pauses;
+/// returning resumes the same native screen and re-runs its ON_RESUME work,
+/// including counter refreshes and post view-count updates.
+///
 /// ## Back navigation
 ///
 /// Pass [onBack] (typically `() => Navigator.of(context).pop()`) to wire

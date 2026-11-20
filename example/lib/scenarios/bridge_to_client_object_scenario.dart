@@ -1,10 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:octopus_sdk_flutter/octopus_sdk_flutter.dart';
 
 import '../app_log.dart';
 import '../app_state.dart';
 import '../auth/bridge_token_signer.dart';
+import '../design.dart';
 import '../widgets/key_value_card.dart';
+import '../widgets/localized_label_editor.dart';
 import '../widgets/scenario_scaffold.dart';
 
 /// Bridge-post scenario — `fetchOrCreateClientObjectRelatedPost` + `setReaction`
@@ -22,13 +27,20 @@ import '../widgets/scenario_scaffold.dart';
 ///
 /// Both presets pass:
 ///
-///   * a `text` long enough to clear [OctopusPrefilledPost.textMinLength];
+///   * a `text` within [OctopusPrefilledPost.textMinLength] and
+///     [OctopusPrefilledPost.textMaxLength];
 ///   * a `catchPhrase` (bold sub-headline);
-///   * `viewObjectButtonText: 'View recipe'` (drives the navigate-to-client
-///     object callback when the user taps the button inside the SDK feed);
-///   * an [OctopusRemoteImageAttachment] pointing at a stable
-///     Octopus-CDN image — the native SDK downloads it server-side, so the
-///     host app never has to ship the bytes;
+///   * a `viewObjectButton` label, `View recipe` by default (drives the
+///     navigate-to-client object callback when the user taps the button inside
+///     the SDK feed). The form above the presets edits it, and its "Label per
+///     language" switch sends an [OctopusLocalizedText.perLanguage] label built
+///     from the language rows instead of the auto-translated one. A label is
+///     taken when the post is created only: use Preset 2 to see a new one;
+///   * two [ClientPost.medias] (a post carries up to 10): an
+///     [OctopusRemoteImageAttachment] pointing at a stable Octopus-CDN image —
+///     the native SDK downloads it server-side, so the host app never has to
+///     ship the bytes — then an [OctopusLocalImageAttachment] with the bundled
+///     logo's bytes;
 ///   * `groupId` resolved at run-time from [OctopusSDK.groups] by topic name
 ///     (e.g. `Gourmands`). Falls back to `null` when no group matches.
 ///   * a `tokenProvider` callback that signs the SDK-provided fingerprint as
@@ -83,8 +95,27 @@ class _BridgeToClientObjectScenarioState
     'https://media-content-demo.octocdn.net/misc/macarons.jpeg',
   );
 
+  /// Bundled asset sent as the second, local image of the bridge post.
+  static const String _localImageAsset = 'assets/logo.png';
+
+  static const String _defaultButtonLabel = 'View recipe';
+
+  final TextEditingController _buttonLabelCtrl = TextEditingController(
+    text: _defaultButtonLabel,
+  );
+  final LocalizedLabelController _buttonLabel = LocalizedLabelController(
+    initialRows: const [('en', _defaultButtonLabel), ('fr', 'Voir la recette')],
+  );
+
   OctopusPost? _latestPost;
   String? _latestObjectId;
+
+  @override
+  void dispose() {
+    _buttonLabelCtrl.dispose();
+    _buttonLabel.dispose();
+    super.dispose();
+  }
 
   void _updatePost(OctopusPost post, String objectId) {
     if (!mounted) return;
@@ -145,13 +176,27 @@ class _BridgeToClientObjectScenarioState
     final groupId = topicName == null
         ? null
         : _resolveGroupIdByTopicName(app.groups, topicName);
+    final Uint8List localImage;
+    try {
+      final data = await rootBundle.load(_localImageAsset);
+      localImage = data.buffer.asUint8List();
+    } catch (e) {
+      setResult('Failed to load $_localImageAsset: $e', isError: true);
+      return;
+    }
+    // Unchecked here: the native SDK validates a per-language label when the
+    // post is sent, and the call then throws the typed error caught below.
+    final buttonLabel = _buttonLabel.build(_buttonLabelCtrl.text);
     final clientPost = ClientPost(
       objectId: objectId,
       text: text,
       catchPhrase: catchPhrase,
-      viewObjectButtonText: 'View recipe',
+      viewObjectButton: buttonLabel,
       groupId: groupId,
-      attachment: OctopusRemoteImageAttachment(_bridgeImageUrl),
+      medias: [
+        OctopusRemoteImageAttachment(_bridgeImageUrl),
+        OctopusLocalImageAttachment(localImage),
+      ],
     );
     try {
       demoLog.apiCall('fetchOrCreateClientObjectRelatedPost', {
@@ -159,9 +204,11 @@ class _BridgeToClientObjectScenarioState
         'objectId': objectId,
         'textLength': text.length,
         'catchPhrase': catchPhrase,
-        'viewObjectButtonText': 'View recipe',
+        'viewObjectButton': LocalizedLabelController.describe(buttonLabel),
         'groupId': groupId,
-        'attachment': 'remoteImage($_bridgeImageUrl)',
+        'medias':
+            'remoteImage($_bridgeImageUrl), '
+            'localImage($_localImageAsset, ${localImage.length} bytes)',
         'topicName': topicName,
       });
       final result = await app.octopus.fetchOrCreateClientObjectRelatedPost(
@@ -187,6 +234,13 @@ class _BridgeToClientObjectScenarioState
         case OctopusConnectionFailure():
           setResult('$presetLabel failed: $result', isError: true);
       }
+    } on OctopusLocalizedTextValidationError catch (e) {
+      setResult(
+        '$presetLabel: the native SDK rejected the button label: '
+        '${e.kind.name}'
+        '${e.languageCode == null ? '' : ' (${e.languageCode})'}.',
+        isError: true,
+      );
     } catch (e) {
       setResult('$presetLabel threw: $e', isError: true);
     }
@@ -251,7 +305,8 @@ class _BridgeToClientObjectScenarioState
       description:
           'Link external objects (here two recipes — stable and random) to '
           'Octopus posts via fetchOrCreateClientObjectRelatedPost (with a '
-          'remote image, a catchPhrase, a "View recipe" button label, and a '
+          'remote image and a bundled local one, a catchPhrase, a "View '
+          'recipe" button label — auto-translated or per language — and a '
           'topic→groupId lookup against OctopusSDK.groups), then set / clear '
           'a reaction on the returned post id with setReaction. The SDK '
           'downloads the remote image natively — the host never ships bytes. '
@@ -262,6 +317,29 @@ class _BridgeToClientObjectScenarioState
           'objectId" below reflect the fire (app-scoped, persists across '
           'navigation).',
       resultTestId: 'bridge-result',
+      inputFields: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            identifier: 'bridge-button-label',
+            child: TextField(
+              controller: _buttonLabelCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Button label (auto-translated)',
+                helperText:
+                    'Taken when the post is created: Preset 1 reuses the '
+                    'stable post, Preset 2 creates a new one.',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          const SizedBox(height: SampleSpacing.space2),
+          LocalizedLabelEditor(
+            controller: _buttonLabel,
+            testIdPrefix: 'bridge-button-label',
+          ),
+        ],
+      ),
       liveState: KeyValueCard(
         title: 'Latest bridge post',
         rows: [

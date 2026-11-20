@@ -20,7 +20,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   /// the comment on `deinit` shows cannot race with it.
   private var bridgeTokenContinuations: [String: CheckedContinuation<String?, Never>] = [:]
   /// Parked client-user-token requests, keyed by the in-flight requestId.
-  /// `connectUserWithTokenProvider`'s closure registers a continuation here
+  /// `connectUser`'s closure registers a continuation here
   /// and awaits it; the Dart `provideClientUserToken` reply resumes it.
   /// Accessed on the main thread, plus the `deinit` drain (see there). The
   /// native SDK calls the closure initially (on connect) and again on every
@@ -307,51 +307,6 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       result(nil)
     case "connectUser":
       connectionGeneration += 1
-      guard let octopus else {
-        result(FlutterError(code: "NOT_INITIALIZED", message: "Call initialize() first", details: nil))
-        return
-      }
-      
-      guard let args = call.arguments as? [String: Any],
-            let userId = args["userId"] as? String,
-            let token = args["token"] as? String
-      else {
-        result(FlutterError(code: "INVALID_ARGS", message: "userId and token are required", details: nil))
-        return
-      }
-
-      let nickname = args["nickname"] as? String
-      let bio = args["bio"] as? String
-      let picture = args["picture"] as? String
-
-
-      // `await`ing selects the `async throws(OctopusConnectUserError)`
-      // overload. Its non-throwing twin has an identical parameter list and
-      // only debug-logs the refusal, so a plain call silently reports success
-      // while the user stays anonymous.
-      weak var weakSelf = self
-      let generation = connectionGeneration
-      Task {
-        let pictureData = await Self.resolveProfilePictureData(picture)
-        // A later connection or disconnect may finish while the picture downloads.
-        // Reject this stale request so it cannot restore or replace that session.
-        guard await MainActor.run(body: { weakSelf?.connectionGeneration }) == generation else {
-          result(["type": "failure", "kind": "statusError", "code": -1, "description": "connectUser superseded by a later connectUser or disconnectUser call before the profile picture finished downloading"])
-          return
-        }
-        let profile = ClientUser.Profile(nickname: nickname, bio: bio, picture: pictureData)
-        let clientUser = ClientUser(userId: userId, profile: profile)
-        do {
-          try await octopus.connectUser(clientUser) { @Sendable in
-            return token
-          }
-          result(["type": "success"])
-        } catch {
-          result(Self.connectUserWire(from: error))
-        }
-      }
-    case "connectUserWithTokenProvider":
-      connectionGeneration += 1
       // Persistent tokenProvider path — mirrors Android's
       // `OctopusSDK.connectUser(user, tokenProvider: suspend () -> String)`.
       // The native SDK calls the closure initially AND on every refresh
@@ -377,8 +332,8 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       // lifetime is the app's, so the weak ref is effectively non-nil here,
       // but we still null-check for hygiene.
       weak var weakSelf = self
-      // See the `connectUser` case: `await` picks the typed-throws overload,
-      // the non-throwing twin would swallow the refusal.
+      // `await` picks the typed-throws overload; the non-throwing twin
+      // would swallow the refusal.
       let generation = connectionGeneration
       Task {
         let pictureData = await Self.resolveProfilePictureData(picture)
@@ -615,6 +570,9 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       let clientPost: ClientPost
       do {
         clientPost = try Self.decodeClientPost(clientPostMap)
+      } catch let error as OctopusLocalizedText.ValidationError {
+        result(OctopusLocalizedTextWire.flutterError(error))
+        return
       } catch {
         result(FlutterError(code: "INVALID_ARGS", message: error.localizedDescription, details: nil))
         return
@@ -1650,6 +1608,7 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     OctopusSDKFlutterPlugin.shared?.octopus = octopus
     startObservingNotSeenNotificationsCount()
     startObservingHasAccessToCommunity()
+    startObservingCommunityAccessDeniedReason()
     startObservingProfile()
     startObservingGroups()
     startObservingConnectionState()
@@ -1743,6 +1702,38 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         self?.sendEvent("hasAccessToCommunityChanged", data: ["hasAccess": hasAccess])
       }
       .store(in: &cancellables)
+  }
+
+  /// Forwards the native `communityAccessDeniedReason` to Dart. The wire value
+  /// mirrors the native enum names of Android (`ACCOUNT_BANNED`, …), or is
+  /// absent (`nil`) when the access is granted or not known yet.
+  private func startObservingCommunityAccessDeniedReason() {
+    guard let octopus else { return }
+    octopus.$communityAccessDeniedReason
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] reason in
+        self?.sendEvent(
+          "communityAccessDeniedReasonChanged",
+          data: ["reason": OctopusSDKFlutterPlugin.communityAccessDeniedReasonWireValue(reason) as Any])
+      }
+      .store(in: &cancellables)
+  }
+
+  /// The wire value of a native access denied reason, `nil` for no reason.
+  /// A case a newer native SDK adds goes out as `UNKNOWN`, which is also what
+  /// the Dart side maps any value it does not know to.
+  static func communityAccessDeniedReasonWireValue(_ reason: OctopusCommunityAccessDeniedReason?) -> String? {
+    guard let reason else { return nil }
+    switch reason {
+    case .notInCohort: return "NOT_IN_COHORT"
+    case .communityTemporarilyDisabled: return "COMMUNITY_TEMPORARILY_DISABLED"
+    case .communityClosed: return "COMMUNITY_CLOSED"
+    case .memberExcluded: return "MEMBER_EXCLUDED"
+    case .accountBanned: return "ACCOUNT_BANNED"
+    case .accountDeleted: return "ACCOUNT_DELETED"
+    case .unknown: return "UNKNOWN"
+    @unknown default: return "UNKNOWN"
+    }
   }
 
   private func startObservingProfile() {
@@ -2049,6 +2040,13 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
   // MARK: - Bridge (client object related post)
 
   /// Decodes the wire `clientPost` map into a native `ClientPost`.
+  ///
+  /// The button label is the wire `viewObjectButton` (see `OctopusLocalizedTextWire.decode`), which
+  /// throws `OctopusLocalizedText.ValidationError` when the native SDK refuses it.
+  ///
+  /// The deprecated `attachment` becomes the only media when `medias` is empty. Both set is
+  /// refused, as the Android native constructor does (the Dart side refuses it first): the iOS
+  /// `ClientPost` has no constructor taking both.
   private static func decodeClientPost(_ map: [String: Any]) throws -> ClientPost {
     guard let objectId = map["objectId"] as? String else {
       throw NSError(domain: "octopus", code: -30,
@@ -2058,14 +2056,22 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       throw NSError(domain: "octopus", code: -31,
                     userInfo: [NSLocalizedDescriptionKey: "text is required"])
     }
-    let attachment = (map["attachment"] as? [String: Any]).flatMap { decodeAttachment($0) }
+    let attachmentMap = map["attachment"] as? [String: Any]
+    let mediaMaps = (map["medias"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+    if attachmentMap != nil && !mediaMaps.isEmpty {
+      throw NSError(domain: "octopus", code: -32,
+                    userInfo: [NSLocalizedDescriptionKey: "Set medias only: attachment is deprecated."])
+    }
+    let medias = mediaMaps.isEmpty
+      ? (attachmentMap.flatMap { decodeAttachment($0) }.map { [$0] } ?? [])
+      : mediaMaps.compactMap { decodeAttachment($0) }
     return ClientPost(
       clientObjectId: objectId,
       groupId: map["groupId"] as? String,
       text: text,
       catchPhrase: map["catchPhrase"] as? String,
-      attachment: attachment,
-      viewClientObjectButtonText: map["viewObjectButtonText"] as? String
+      medias: medias,
+      viewClientObjectButton: try OctopusLocalizedTextWire.decode(map["viewObjectButton"])
     )
   }
 
@@ -2249,8 +2255,15 @@ public class OctopusSDKFlutterPlugin: NSObject, FlutterPlugin, FlutterStreamHand
       return ["type": "settingsAccount"]
     case .reportExplanation:
       return ["type": "reportExplanation"]
+    case .communityAccessDenied:
+      return ["type": "communityAccessDenied"]
     case .deleteAccount:
       return ["type": "deleteAccount"]
+    // A screen a newer native SDK adds reaches Dart as `UnknownScreen` instead
+    // of failing the plugin build: the native `OctopusEvent.Screen` is open to
+    // new cases, and a case it gains is missing from the list above.
+    @unknown default:
+      return ["type": "unknown"]
     }
   }
 

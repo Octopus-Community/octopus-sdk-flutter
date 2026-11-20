@@ -1,3 +1,269 @@
+## 1.16.0
+
+### Breaking
+- `connectUser` now requires `tokenProvider`. Removed its deprecated static
+  `token` parameter and `connectUserWithTokenProvider`; use
+  `connectUser(userId: ..., tokenProvider: () => backend.mintOctopusJwt())`
+  for fresh JWTs on every token request. See the
+  [migration guide](MIGRATING.md#to-1160-from-115x).
+- Android host apps now need `compileSdk` 36 or later and Android Gradle
+  Plugin 8.9.1 or later: the native Android SDK 1.16 compiles against Android 16
+  (API 36). `minSdk` stays at 23. See the
+  [migration guide](MIGRATING.md#build-requirements--compilesdk-36).
+
+### Added
+- `OctopusGamification.score` now returns total points in community-data
+  lookups and observations for the connected member and other members on Android
+  and iOS (native SDK 1.16.0). A total of zero is returned as `0` and an
+  omitted total as `null`. Gamification itself is `null` for admin-tagged
+  profiles or when disabled.
+- `PostOptions.imageTapOpensPost` and `PostOptions.groupNameTapOpensGroup`
+  (both default `false`) in `debugOverrideContentOptions` on Android and iOS.
+  Image taps can open a post from a feed when its card opens the detail;
+  otherwise, and in post detail, images keep fullscreen. Group name taps can
+  open the group, using the native access-denied flow when needed. Production
+  reads these flags from the community configuration (native SDK 1.16).
+- `OctopusContentIcons.translation` overrides the icon beside the native
+  "See original" / "See translation" toggle on Android and iOS. Like sibling
+  icons, it is optional and keeps the native default when omitted.
+- Native 1.16 moves the "See original" / "See translation" toggle of
+  automatically translated posts, comments and replies above the content,
+  with a language icon in front of its label.
+- The native SDK interfaces are now available in Slovak.
+- Native 1.16 lets members pinch a post, comment or reply photo, or a playing
+  post video, to zoom it in place; releasing springs it back. A post with several photos shows a
+  "current / total" counter from two photos.
+- A post carries up to 10 photos. `OctopusPrefilledPost.images` prefills the
+  editor with several photos, in display order (`OctopusPrefilledPost.maxImageCount`
+  is 10, empty entries are dropped); more throw the new
+  `OctopusPrefilledPostTooManyImagesError`, an `ArgumentError` kept apart from
+  the sealed `OctopusPrefilledPostValidationError` so exhaustive switches over it
+  still compile. `ClientPost.medias` attaches several local or remote images to a
+  bridge post; `fetchOrCreateClientObjectRelatedPost` refuses more than 10 with a
+  `ClientPostOtherError`. The native fullscreen viewer swipes through a post's
+  photos.
+  See the [migration guide](MIGRATING.md#several-photos-per-post).
+- Android: `OctopusTheme.fontFamilyNavBarTitle` and `OctopusTheme.fontSizeNavBarTitle`
+  set the font and size of the top app bar title on every community screen, the
+  main feed included (native Android SDK 1.16). Each is applied on top of the
+  title's own style (17sp semibold by default), so setting one keeps the other
+  defaults, and takes precedence over `fontFamily` / `fontWeight` there.
+  Both have no effect on iOS, where the title follows the app's navigation bar
+  appearance. See the [theming guide](doc/theming.md#navigation-bar-title-android).
+- `OctopusSDK.communityAccessDeniedReason` tells why the user cannot access
+  the community, as a `CommunityAccessDeniedReason` (`notInCohort`,
+  `communityTemporarilyDisabled`, `communityClosed`, `memberExcluded`,
+  `accountBanned`, `accountDeleted`, `unknown`). It emits `null` when the
+  access is granted or not known yet, replays its last value to late
+  subscribers like `hasAccessToCommunity`, and maps a reason a newer native
+  SDK adds to `unknown`. With `accountDeleted`, your app can disconnect the
+  member on its side. `connectUser` keeps reporting a banned member with
+  `ClientUserBannedError`.
+- `CommunityAccessDeniedScreen`, a new `Screen` delivered by
+  `ScreenDisplayedEvent` when the access denied screen is displayed, on
+  Android and iOS. Add its arm to keep a switch over `Screen` exhaustive.
+- Button labels per language: `OctopusLocalizedText`, built with
+  `OctopusLocalizedText.autoTranslated(text)` or
+  `OctopusLocalizedText.perLanguage(texts, defaultLanguage: ...)` (BCP-47
+  language tags such as `'en'`, `'pt-BR'`, `'zh-Hant-TW'`), labels the button
+  of a bridge post (`ClientPost.viewObjectButton`) and the call-to-action of a
+  prefilled post (`OctopusPostCTA.localized(url:, localizedLabel:)`). A reader
+  whose language is listed sees that label as is; others see an automatic
+  translation of the default language's label. The tags are sent as given; the
+  native SDK validates the label when the post is sent or the editor opens, and
+  `fetchOrCreateClientObjectRelatedPost` / `showOctopusCreatePostScreen` then
+  throw an `OctopusLocalizedTextValidationError` (an `ArgumentError` carrying a
+  `kind` and an optional `languageCode`). A bridge post takes its labels
+  when it is created only. See the
+  [integration guide](doc/integration-guide.md#button-labels-per-language).
+- Android create-post screen opts in to native predictive back. For the home
+  screen and embedded view, see the
+  [host activity opt-in instructions](doc/integration-guide.md#predictive-back-android-14).
+
+### Changed
+- When community access is denied, pushed community screens are popped to
+  reveal the access denied screen, on Android and iOS (native SDK 1.16).
+- Native 1.16 stops every call to the Octopus servers while a community is
+  closed, until the date the server gives to check again: `hasAccessToCommunity`
+  is `false`, `notSeenNotificationsCount` is 0, `groups` is empty, community
+  data is `null` and no analytics event is recorded, custom events included.
+  `connectUser` keeps the user, who is connected once the community reopens.
+- Native 1.16 keeps the same session when the app returns from the background
+  within 10 seconds: no `SessionStoppedEvent` / `SessionStartedEvent` pair is
+  emitted for it. After a longer absence the sessions end at the time the app
+  went to the background.
+- iOS: `connectUser` now fails with `ClientUserCommunityAccessDeniedError` when
+  the community is closed to the user, instead of a status error or a guest
+  session, and reports a profile update that fails after the token exchange
+  instead of returning successfully (native iOS SDK 1.16).
+- Android: a member whose JWT has expired is logged out to a guest when the
+  server refuses a call, as on iOS: `connectionState` and `isUserConnected`
+  follow, and the login-required callback runs on the next member action. Call
+  `connectUser` again from there (native Android SDK 1.16).
+- Android: `fetchOrCreateClientObjectRelatedPost` fails with a `ClientPostError`
+  when a local image is empty or cannot be read, instead of creating the bridge
+  post without it (native Android SDK 1.16).
+- Android: `initialize()` with a different API key starts from fresh community
+  data, clearing the previous community's user, content and caches.
+- Native 1.16 uploads post photos, and the local images of a bridge post, over
+  HTTPS to Octopus's storage before publishing: if your app restricts or
+  proxies outbound traffic, allow it.
+- Native 1.16 can address members informally, language by language, when the
+  community sets it ("tu" rather than "vous"). On Android, a host that
+  overrides an SDK string addressing the member moves it to `<name>_formal` and
+  `<name>_informal`: the unsuffixed resource is no longer read.
+- Native 1.16 adds a close button to the nickname choice screen, reads "Accept"
+  on the consent sheet when the nickname choice follows it, and drops the tab
+  row from a member profile with a single tab.
+- Native 1.16 puts post reactions and comments in a compact, single-line
+  footer, with the most-used reactions on the right and no view count.
+- Post, comment and reply headers now use short, localized timestamps,
+  followed by a calendar date for older content; accessibility keeps relative
+  wording.
+- Android uploads local `ClientPost` images as supplied by the host, without
+  resizing or re-encoding them. Hosts now choose their dimensions, encoding
+  and upload byte size. See the
+  [migration guide](MIGRATING.md#local-bridge-image-upload-size).
+- A post text has no minimum length any more: one visible character is
+  enough, so a member can publish "Bravo !". `OctopusPrefilledPost.textMinLength`
+  is now `1` (was `10`) and the 5000-character maximum is unchanged;
+  `OctopusPrefilledPostTextTooShortError` is no longer thrown and is kept so
+  exhaustive switches keep compiling. A whitespace-only prefilled text opens
+  the editor, which keeps publishing disabled (native SDK 1.16).
+- iOS: when `CreatePostScreenInfo.bridgeShareTokenProvider` returns `null` (or
+  throws), the create-post editor now sends the post unsigned, as on Android,
+  instead of showing a signing error and keeping the post. The server decides:
+  a community that allows member pictures publishes it with its images, one
+  that forbids them refuses it and the editor shows an error. Native iOS SDK
+  1.16 lets its signer return no token.
+- Without a host primary color, the default primary color is a light gray
+  (`#EBEBEB`) in dark mode instead of pure white, on Android and iOS (native
+  SDK 1.16). On Android, a theme that leaves them unset also gets the iOS
+  defaults for the dark gray 800 (`#F4F4F4`), the disabled color (gray 200,
+  with gray 500 disabled text and icons) and the navigation bar title (17sp
+  semibold). Colors and fonts your `OctopusTheme` sets are unchanged.
+- Native 1.16 replaces the community with a dedicated screen when the user
+  cannot access it: an icon, a title for the reason, and the server's message.
+  A banned member reads which policy they broke and who to contact; a member
+  whose account was deleted can access the community again from the screen.
+- iOS: `OctopusProfileScreen` and `OctopusInitialScreen.profile` no longer use
+  the native `OctopusProfileScreen`, deprecated in native 1.16: they open the
+  native `OctopusHomeScreen` on its `.profile` initial screen, which, like every
+  initial screen, shows the access denied screen when the user cannot access
+  the community.
+- Android embedded views restart on their initial screen after unmounting or
+  Activity recreation; their navigation and ViewModel state are not restored.
+
+### Dependencies
+- Android Octopus SDK: 1.15.0 → 1.16.0, including the fixes of the 1.15.1 to
+  1.15.4 patches; iOS Octopus SDK: 1.15.0 → 1.16.0, including 1.15.1.
+
+### Fixed
+- State replay for `communityAccessDeniedReason` now reads the current value
+  when listening and clears the cache before `initialize()` and after a
+  successful `stop()`. `reset()` and `switchCommunity()` preserve the last
+  native value for late subscribers until the native side publishes an update.
+- Android: the main feed bar shows `navBarTitle` when the theme sets no custom
+  logo, as on iOS; a custom `logoBase64` still takes its place. It used to show
+  the default community title.
+- Android embedded views now release their navigation ViewModels and running
+  work when unmounted, including across repeated mounts in the same activity.
+- Android embedded view callbacks now reach only the view that emitted them,
+  preventing duplicate back, login and navigation actions when views coexist.
+  Native create-post editor callbacks retain their global routing.
+- Android: reopening the community after the host unmounted it no longer crashes
+  while loading comments or making network requests (native Koin scope fix in
+  Android SDK 1.15.2).
+- The "Illegal activities or products" report reason now reaches moderation
+  as its own reason instead of being filed as spam (Android SDK 1.15.1, iOS SDK
+  1.16).
+- Native 1.16 fixes: on Android, tapping a post's group name no longer opens
+  the author's profile (it opens the group when `groupNameTapOpensGroup` is on);
+  long threads open on their latest comments without loading the whole thread.
+- Android: `SessionStoppedEvent` is emitted when the community view is closed or
+  hidden, as on iOS, and calling `initialize()` again with the same API key and
+  configuration keeps the running session (Android SDK 1.15.3).
+- Android: leaving the community no longer crashes with "Can't get Koin scope …
+  is closed" when the host clears the community's ViewModel store while it is
+  still on screen (Android SDK 1.15.4).
+- An access taken away while the app runs (a ban, an exclusion) shows the
+  access denied screen as soon as the server refuses a call, instead of at the
+  next launch; `communityAccessDeniedReason` follows (native SDK 1.16).
+- iOS (native 1.15.1): in an app that opts out of the glass effect
+  (`UIDesignRequiresCompatibility`), the community screens draw the opaque bars
+  of earlier iOS versions instead of a mix of both designs; on a device with a
+  home button and no tab bar below the community, 16pt are added to the bottom
+  inset so the "Write a post" button no longer touches the edge; Report and
+  Block menu icons stay red under a host tint; typed text follows a dark-mode
+  switch at once.
+- Android `syncFollowGroups` logs the number of malformed actions, rejects batches
+  containing non-map entries and forwards nonempty batches with no valid actions
+  to the native SDK, matching iOS error handling.
+- Android `syncFollowGroups` called before `initialize()` now fails with
+  `not_connected`, like iOS.
+- Android prepares and deletes temporary profile pictures on an IO dispatcher.
+  A later session call rejects a connection superseded before it reaches the
+  native SDK.
+- iOS: a screen the native SDK adds after this release now reaches
+  `ScreenDisplayedEvent` as `UnknownScreen` instead of breaking the plugin build.
+
+### Deprecated
+- `OctopusPrefilledPost.image` (constructor parameter and getter), replaced by
+  `images`; the getter returns the first image. Passing both `image` and
+  `images` throws an `ArgumentError`.
+- `ClientPost.attachment` (constructor parameter and field), replaced by
+  `medias`. Setting both `attachment` and a non-empty `medias` makes
+  `fetchOrCreateClientObjectRelatedPost` fail with an `INVALID_ARGS`
+  `PlatformException`.
+- `OctopusPostIcons.emptyFeedInGroups`, `emptyFeedInCurrentUserProfile`,
+  `emptyFeedInOtherUserProfile`, `OctopusCommentIcons.emptyFeed` and
+  `OctopusProfileIcons.emptyNotifications`, including their constructor parameters.
+  Use `OctopusIcons.screenStates.emptyContent` or `emptyNotifications` instead.
+  The legacy fields and wire keys remain available for compatibility.
+- `ClientPost(viewObjectButtonText:)` and the `ClientPost.viewObjectButtonText`
+  getter: use `viewObjectButton`. The text keeps meaning an auto-translated
+  label, sent as `OctopusLocalizedText.autoTranslated`.
+- The unnamed `OctopusPostCTA(url:, label:)` constructor: use
+  `OctopusPostCTA.localized(url:, localizedLabel:)`. A `String` label keeps
+  meaning an auto-translated one. `OctopusPostCTA.label` stays, as the default
+  language's label.
+
+### Example App
+Changes to the example app only — no public SDK API change.
+
+- Community data examples display the score, with `null` when unavailable,
+  and explain its availability on Android and iOS.
+- The community access scenario shows `communityAccessDeniedReason` next to
+  `hasAccessToCommunity`, and the events scenario labels the access denied
+  screen.
+- Host lifecycle QA presets push/pop a host route with either the same
+  community PlatformView kept mounted while covered or a new PlatformView
+  recreated on return. Recreation waits until the push finishes to avoid
+  blanking the outgoing view. A return counter accompanies the manual
+  post/comment rendering check on Android and iOS.
+- Three Content Options presets mirror the native iOS sample: image taps open
+  the post, group name taps open the group, or both. Live override state shows
+  both flags; the default preset disables both and clear restores backend config.
+- Two unnumbered create-post presets, with 10 photos and with 11 photos
+  (refused), three prefilled photos in the initial-screen create-post preset, and a second local
+  image in the bridge-to-client-object scenario.
+- Android Gradle Plugin 8.9.1, as the native 1.16 SDKs require; `url_launcher`
+  is no longer held on an older Android implementation.
+- The prefilled-photo presets register a bridge-share signer only in builds that
+  carry the demo signing secret. In the distributed builds the signer could not
+  sign, and before native iOS SDK 1.16 that blocked the photos on iOS even in a
+  community that allows them.
+- Distributed demo builds now use expiring pre-signed SSO user tokens. Expired
+  tokens show a connection error and a diagnostic message; local development
+  signing remains available.
+- The bridge-to-client-object, create-post and initial-screen create-post
+  scenarios edit their button label, with a "Label per language" switch that
+  sends one label per language tag (default language `en`) instead of the
+  auto-translated one.
+- **Sample app: Community navigation is configured only in Host integration.**
+  The Community tab no longer reserves space for a second navigation picker,
+  and changing the saved mode keeps the Settings screen open.
+
 ## 1.15.0
 
 ### Added
